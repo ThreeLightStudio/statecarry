@@ -1,0 +1,26 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "globalEnv": [
+    "CI",
+    "LANG",
+    "LC_ALL",
+    "NODE_ENV",
+    "NODE_OPTIONS",
+    "STATECARRY_TURBO_RUNTIME",
+    "TZ"
+  ],
+  "noUpdateNotifier": true,
+  "remoteCache": { "enabled": false },
+  "tasks": {
+    "//#task:format:check": {},
+    "//#task:lint": {},
+    "//#task:typecheck": {},
+    "//#task:check:boundaries": {},
+    "//#task:test": {},
+    "//#task:build:artifacts": {
+      "dependsOn": ["//#task:typecheck"],
+      "env": ["VITE_*"],
+      "outputs": ["dist/**"]
+    }
+  }
+}

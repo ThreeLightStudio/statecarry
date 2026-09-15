@@ -3,6 +3,7 @@
   "embeddedLanguageFormatting": "off",
   "ignorePatterns": [
     ".cache/**",
+    ".turbo/**",
     ".statecarry/**",
     "coverage/**",
     "dist/**",

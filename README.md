@@ -84,12 +84,13 @@ Legacy context screens remain under **More context / connection settings**. Thei
 ## Development and release checks
 
 ```sh
-rtk pnpm check
-rtk pnpm test
-rtk pnpm build
+rtk pnpm verify
 ```
 
-See [development](docs/development.md) for the workspace layout, contribution guidance, diagnostics and local packaging.
+`verify` uses the repository's local Turborepo cache for deterministic checks and the production
+build. Use `rtk pnpm verify:fresh` when release evidence must execute those tasks instead of reading
+prior cache entries. See [development](docs/development.md) for focused tests, the workspace layout,
+cache boundaries, contribution guidance, diagnostics and local packaging.
 
 ## Known limitations
 
