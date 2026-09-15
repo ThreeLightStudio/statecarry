@@ -101,3 +101,6 @@ The primary v0 scope excludes automatic execution, full project management, new 
 ## License
 
 The source license has not been selected. Confirm the license and any required notices before public distribution or accepting contributions. Workspace packages remain `private: true` to prevent accidental npm publication; this setting does not select a source license.
+
+See [public source release preparation](docs/public-release.md) for the remaining decisions and
+[third-party attribution](docs/third-party.md) for the reviewed dependency notices and binary-release limits.

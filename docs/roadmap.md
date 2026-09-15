@@ -6,6 +6,8 @@ The product goal is to help someone return to interrupted work, recognize the cu
 
 ## Release sequence
 
+Stage 2C review is prepared locally: publication steps and third-party dependency findings are documented in [public release preparation](public-release.md) and [third-party attribution](third-party.md). Selecting and applying the source license, copyright attribution and repository owner/name still requires the owner's decision. No remote repository has been created or published in this preparation step.
+
 | Stage | Outcome                                           | Status / acceptance                                                                                                                                                                                                                                                                                                                            |
 | ----- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1     | Reproducible source tree and initial local commit | Complete at `7322042`. The reviewed source-only export passed installation, checks, 384 tests and build. This is historical evidence for that commit.                                                                                                                                                                                          |
