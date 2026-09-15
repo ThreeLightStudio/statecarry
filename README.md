@@ -100,7 +100,11 @@ The primary v0 scope excludes automatic execution, full project management, new 
 
 ## License
 
-The source license has not been selected. Confirm the license and any required notices before public distribution or accepting contributions. Workspace packages remain `private: true` to prevent accidental npm publication; this setting does not select a source license.
+StateCarry is licensed under the [MIT License](LICENSE).
 
-See [public source release preparation](docs/public-release.md) for the remaining decisions and
+Copyright (c) 2026 ThreeLight Studio.
+
+Third-party components retain their own licenses and attribution requirements. Workspace packages remain `private: true` to prevent accidental npm publication.
+
+See [public source release preparation](docs/public-release.md) for the confirmed settings and publication checks, and
 [third-party attribution](docs/third-party.md) for the reviewed dependency notices and binary-release limits.

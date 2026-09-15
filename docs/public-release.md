@@ -1,14 +1,22 @@
 # Public source release
 
-Stage 2C prepares the source license, third-party attribution and publication settings. Stage 3 publishes the reviewed source and verifies remote access. A local commit or successful build does not establish either an approved license or a completed public release.
+Stage 2C applies the approved source license and records third-party attribution and publication settings. Stage 3 publishes the reviewed source and verifies remote access. License application and local verification do not establish that the source has been pushed or remote CI has passed.
 
-## Owner decisions
+## Confirmed source settings
 
-Before publication, confirm the source license, the actual copyright holder's preferred attribution and the repository owner/name. The repository owner and the copyright holder are separate choices. Keep the existing Git author identity unless a change is explicitly requested; avoid rewriting completed history simply to adopt a source license.
+The owner selected these settings on 2026-09-15:
 
-After those decisions, add the unmodified chosen license text as root `LICENSE`, replacing only its designated fields. Set the corresponding SPDX identifier on the workspace manifests, retaining `private: true`. Update the README and development guide's pending-license language. Do not treat an ignored license proposal as an applied license.
+| Setting               | Value                                                                         |
+| --------------------- | ----------------------------------------------------------------------------- |
+| Source license        | [MIT](../LICENSE)                                                             |
+| Copyright attribution | `Copyright (c) 2026 ThreeLight Studio`                                        |
+| Repository            | [ThreeLightStudio/statecarry](https://github.com/ThreeLightStudio/statecarry) |
+| Local branch          | `main`                                                                        |
+| Git author            | Existing configured identity retained; no history rewrite                     |
 
-The [GitHub licensing guide](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository) explains the role and placement of a repository license. [MIT](https://choosealicense.com/licenses/mit/) is a permissive option; [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) also includes an express patent grant and additional notice provisions. Selecting either one requires the owner's decision. This document grants no rights on its own.
+The standard MIT text is applied as the root `LICENSE` with the approved copyright line. The root and five workspace manifests declare `license: "MIT"` and retain `private: true`. README and development guidance reference that applied license. The selected GitHub repository is connected as `origin`; source push and remote checks remain stage 3 work.
+
+The [GitHub licensing guide](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository) explains repository license placement, and [SPDX identifies this license as MIT](https://spdx.org/licenses/MIT.html). The root `LICENSE`, rather than this process document or an ignored proposal, supplies the license terms.
 
 ## Source and dependency notices
 
@@ -33,7 +41,7 @@ rtk git status --short
 
 ## Publication and post-publication checks
 
-Recheck the chosen remote immediately before creating or using it. A repository not resolving in a prior query does not reserve the name or prove creation permission. Do not replace an existing repository or publish unrelated branches/tags. Create a destination without generated starter files when preserving the reviewed local history.
+Recheck `origin` and the chosen repository immediately before publication. The owner has already created `ThreeLightStudio/statecarry`; do not create a second destination or replace remote history. Inspect any existing remote branches and publish only the reviewed local branch without unrelated branches/tags.
 
 Publish the reviewed branch in stage 3, then confirm the remote repository's visibility, default branch and commit. Check anonymous source access and a credential-free clone. Keep the repository URL and the exact reviewed/published commit in the private release record. Do not infer public accessibility from an authenticated request alone.
 

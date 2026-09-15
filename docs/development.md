@@ -59,7 +59,7 @@ For a reproducible issue, include the source commit, Node version, operating sys
 
 Do not attach actual conversations, account credentials, private data directories or entire diagnostic logs. Replace session IDs, paths and prose with synthetic examples that reproduce the problem. Keep personal observations and research outputs outside the source tree or in ignored `.cache/` storage.
 
-The source license is pending; contribution and redistribution terms must be confirmed before the public release. Current product work is tracked in [the roadmap](roadmap.md).
+StateCarry source uses the [MIT License](../LICENSE), with `Copyright (c) 2026 ThreeLight Studio`. The root and all five workspace packages declare `license: "MIT"` and retain `private: true`. Third-party components keep their upstream terms; see [third-party attribution](third-party.md) for the separate compiled-distribution review. Current product work is tracked in [the roadmap](roadmap.md).
 
 ## Tooling and desktop work
 

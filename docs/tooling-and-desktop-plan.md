@@ -85,6 +85,6 @@ Scope is macOS installation of the existing MVP. Automatic updates, additional o
 
 ## Handoff and completion records
 
-Next product/release work starts with **2C and the known workflow defects**, while keeping the initial commit and stage 1/2A preservation evidence intact. Stage 2B implementation is present locally; its cache behavior must remain backed by the recorded source-export validation rather than inferred from configuration alone. Electrobun feasibility can be a separate small read/prototype task; stage 7A remains the final delivery implementation.
+Next release work is **stage 3: publish the reviewed MIT-licensed source to the connected ThreeLightStudio/statecarry repository and verify public access and remote CI**. The approved copyright attribution is ThreeLight Studio. Preserve the initial commit and stage 1/2A/2B evidence; licensing and task-cache checks do not resolve the known workflow defects in stages 4–6. Electrobun feasibility can be a separate small read/prototype task; stage 7A remains the final delivery implementation with its own artifact and third-party notice checks.
 
 Report the commands actually run, source commit, observed failures, configured rules, task inputs/outputs, cold versus cached results and any deferred findings. These infrastructure checks cannot establish that the three known state defects or human work-resumption goals are solved. Keep those acceptance gates in [the roadmap](roadmap.md).
