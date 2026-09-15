@@ -94,7 +94,9 @@ cache boundaries, contribution guidance, diagnostics and local packaging.
 
 ## Known limitations
 
-Switching work while editing a goal can mix drafts. A goal change combined with failed project inspection can retain an older action, and limited inspection can block an action without a useful way past repeated rechecks. Candidate selection across detail views, disconnect/restore, URL synchronization and server reconnection need further integrated verification. See the [roadmap](docs/roadmap.md) for the remaining checks.
+Goal and correction drafts, candidate selections and save errors belong to their work while the Resume screen remains mounted. Switching A → B → A preserves those edits, and a late response for A does not replace B's input. These drafts are still in memory: preservation across detail-screen unmounts or browser restarts is not established. Disconnect/restore, URL synchronization, server reconnection and the resume narrative remain in the [roadmap](docs/roadmap.md).
+
+Changing the goal or record scope hides the previous candidate until the selected records are checked. A temporary read failure can retain a same-scope brief with accessible supporting evidence, but its action remains blocked. An unchanged bounded file sample is shown as a limitation without forcing another identical analysis; it is not proof that every project file was checked.
 
 The primary v0 scope excludes automatic execution, full project management, new provider integrations and environment restoration. Existing auxiliary context screens are retained. A public download and a completed real-work validation are separate release steps. Keep private `.cache/` observations out of shared source and builds.
 

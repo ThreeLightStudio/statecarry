@@ -15,6 +15,8 @@ export function buildContinuationPayload(
     !!work.stale ||
     !!work.updatesAvailable ||
     !!work.workspaceChanged ||
+    !!work.blockedActions?.length ||
+    (!!work.workspace && work.workspace.status !== 'checked') ||
     (!!work.state && !['ready'].includes(work.state));
   if (
     candidate.status !== 'active' ||

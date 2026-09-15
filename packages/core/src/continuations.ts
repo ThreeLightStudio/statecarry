@@ -167,6 +167,50 @@ export class Continuations {
     }
   }
 
+  private ensureTargetCurrent(
+    workId: string,
+    mode: ContinuationTarget['mode'],
+    threadId: string | null | undefined,
+    payload: ContinuationPayload,
+  ) {
+    if (
+      payload.evidence?.some((item) => {
+        const source = this.core.accessibleSource(workId, item.revisionId);
+        return !source || !source.text.includes(item.quote);
+      })
+    ) {
+      throw new DomainError(
+        'HANDOFF_EVIDENCE_INACCESSIBLE',
+        'Continuation evidence is outside the current work or no longer matches the record',
+      );
+    }
+    const link =
+      mode === 'existing-session'
+        ? this.core
+            .links(workId)
+            .find((item) => item.threadId === threadId && item.status === 'linked')
+        : undefined;
+    if (mode === 'existing-session' && !link)
+      throw new DomainError(
+        'HANDOFF_TARGET_UNLINKED',
+        'The selected conversation is no longer connected',
+      );
+    if (mode === 'new-session' && threadId != null)
+      throw new DomainError('VALIDATION', 'A new session cannot have an existing conversation ID');
+    if (
+      payload.previousThreadId &&
+      !this.core
+        .links(workId)
+        .some((item) => item.threadId === payload.previousThreadId && item.status === 'linked')
+    ) {
+      throw new DomainError(
+        'HANDOFF_TARGET_UNLINKED',
+        'The previous conversation is outside the connected work',
+      );
+    }
+    return link;
+  }
+
   prepare(workId: string, command: Command): Continuation {
     const input = continuationPrepareSchema.parse(command.payload);
     const bodyHash = this.core.ids.hash({
@@ -199,43 +243,7 @@ export class Continuations {
     // brief. Treat browser supplied quotes as untrusted: only records that
     // are still accessible in this work and whose text still contains the
     // exact quote can be sent to another session.
-    if (
-      input.payload.evidence?.some((item) => {
-        const source = this.core.accessibleSource(workId, item.revisionId);
-        return !source || !source.text.includes(item.quote);
-      })
-    ) {
-      throw new DomainError(
-        'HANDOFF_EVIDENCE_INACCESSIBLE',
-        'Continuation evidence is outside the current work or no longer matches the record',
-      );
-    }
-    const link =
-      input.targetMode === 'existing-session'
-        ? this.core
-            .links(workId)
-            .find((item) => item.threadId === input.threadId && item.status === 'linked')
-        : undefined;
-    if (input.targetMode === 'existing-session' && !link)
-      throw new DomainError(
-        'HANDOFF_TARGET_UNLINKED',
-        'The selected conversation is no longer connected',
-      );
-    if (input.targetMode === 'new-session' && input.threadId != null)
-      throw new DomainError('VALIDATION', 'A new session cannot have an existing conversation ID');
-    if (
-      input.payload.previousThreadId &&
-      !this.core
-        .links(workId)
-        .some(
-          (item) => item.threadId === input.payload.previousThreadId && item.status === 'linked',
-        )
-    ) {
-      throw new DomainError(
-        'HANDOFF_TARGET_UNLINKED',
-        'The previous conversation is outside the connected work',
-      );
-    }
+    const link = this.ensureTargetCurrent(workId, input.targetMode, input.threadId, input.payload);
     const payload = input.payload;
     const target: ContinuationTarget = {
       mode: input.targetMode,
@@ -331,6 +339,12 @@ export class Continuations {
     this.ensureResumeCurrent(work);
     this.ensureWorkspace(work);
     this.ensureCapability(continuation.target.mode);
+    this.ensureTargetCurrent(
+      workId,
+      continuation.target.mode,
+      continuation.target.threadId,
+      continuation.target.payload,
+    );
     if (!['prepared'].includes(continuation.state)) {
       if (continuation.state === 'result-unknown' || continuation.state === 'dispatching')
         throw new DomainError(

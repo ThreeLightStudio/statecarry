@@ -281,51 +281,129 @@ function continuationStatusLabel(continuation: Continuation): string {
   }
 }
 
+type ResumeError = { message: string; detail: string };
+type GoalDraft = { text: string; version: string };
+type ActionDraft = { action: string; done: string; version: string };
+type WorkEdits = {
+  selectedKey?: string;
+  goalDraft: GoalDraft | null;
+  actionDrafts: Map<string, ActionDraft>;
+  saving: boolean;
+  error: ResumeError | null;
+  correctionMessage: string;
+  copyMessage: string;
+  coordinationMessage: string;
+  coordinationBusy: boolean;
+};
+
+function emptyWorkEdits(): WorkEdits {
+  return {
+    goalDraft: null,
+    actionDrafts: new Map(),
+    saving: false,
+    error: null,
+    correctionMessage: '',
+    copyMessage: '',
+    coordinationMessage: '',
+    coordinationBusy: false,
+  };
+}
+
+function resumeError(value: unknown): ResumeError {
+  const raw = value instanceof Error ? value.message : String(value ?? '');
+  const message = friendlyError(value);
+  return { message, detail: raw && message !== raw ? raw : '' };
+}
+
 export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: string }) {
   const [works, setWorks] = useState<ResumeWork[]>([]),
     [loaded, setLoaded] = useState(false),
-    [error, setError] = useState(''),
-    [errorDetail, setErrorDetail] = useState('');
-  const reportError = (value: unknown) => {
-    const raw = value instanceof Error ? value.message : String(value ?? '');
-    setError(friendlyError(value));
-    setErrorDetail(raw && friendlyError(value) !== raw ? raw : '');
+    [listError, setListError] = useState<ResumeError | null>(null);
+  // Keep edits above the candidate card: switching work must not move or discard input.
+  const [workEdits, setWorkEdits] = useState(() => new Map<string, WorkEdits>());
+  const updateEdits = (id: string | undefined, update: (previous: WorkEdits) => WorkEdits) => {
+    if (!id) return;
+    setWorkEdits((previous) => {
+      const edits = previous.get(id) ?? emptyWorkEdits();
+      const next = update(edits);
+      return next === edits ? previous : new Map(previous).set(id, next);
+    });
   };
+  // A return page must not silently pick the first connected work. One work is
+  // safe to open directly; multiple works require an explicit choice.
+  const focusedWork =
+    works.find((w) => w.workId === workId) ??
+    (!workId && works.length === 1 ? works[0] : undefined);
+  const focusedId = focusedWork?.workId ?? workId;
+  const edits = (focusedId && workEdits.get(focusedId)) || emptyWorkEdits();
+  const { saving, correctionMessage, copyMessage, coordinationMessage, coordinationBusy } = edits;
+  const goalEditing = !!edits.goalDraft;
+  const goalText = edits.goalDraft?.text ?? '';
+  const visibleError = edits.error ?? listError;
+  const error = visibleError?.message ?? '';
+  const errorDetail = visibleError?.detail ?? '';
+  const reportError = (value: unknown, id = focusedId) => {
+    if (id) updateEdits(id, (previous) => ({ ...previous, error: resumeError(value) }));
+    else setListError(resumeError(value));
+  };
+  const setError = (message: string) => reportError(message);
   const clearError = () => {
-    setError('');
-    setErrorDetail('');
+    updateEdits(focusedId, (previous) => ({ ...previous, error: null }));
+    setListError(null);
   };
-  const [goalEditing, setGoalEditing] = useState(false),
-    [goalText, setGoalText] = useState('');
+  const setCopyMessage = (message: string) =>
+    updateEdits(focusedId, (previous) => ({ ...previous, copyMessage: message }));
+  const setCoordinationMessage = (message: string) =>
+    updateEdits(focusedId, (previous) => ({ ...previous, coordinationMessage: message }));
+  const setCoordinationBusy = (busy: boolean) =>
+    updateEdits(focusedId, (previous) => ({ ...previous, coordinationBusy: busy }));
   const refreshInFlight = useRef(new Set<string>());
-  const refreshStartedFrom = useRef(new Map<string, string | null>());
+  const saveInFlight = useRef(new Set<string>());
   const currentIdRef = useRef<string | null>(null);
-  const [selected, setSelected] = useState(''),
-    [editing, setEditing] = useState(false),
-    [action, setAction] = useState(''),
-    [done, setDone] = useState(''),
-    [saving, setSaving] = useState(false);
   const [continuation, setContinuation] = useState<Continuation | null>(null),
     [continuationBusy, setContinuationBusy] = useState(false);
-  const [copyMessage, setCopyMessage] = useState('');
-  const [correctionMessage, setCorrectionMessage] = useState('');
-  const [coordinationMessage, setCoordinationMessage] = useState(''),
-    [coordinationBusy, setCoordinationBusy] = useState(false);
+  const readSequence = useRef(0);
+  const appliedReads = useRef(new Map<string, number>());
+  const applyRows = (rows: ResumeWork[], sequence: number, ownerId?: string) => {
+    const incoming = new Map(rows.map((row) => [row.workId, row]));
+    const ids = ownerId
+      ? [ownerId]
+      : [...new Set([...appliedReads.current.keys(), ...incoming.keys()])];
+    const accepted = ids.filter((id) => sequence > (appliedReads.current.get(id) ?? 0));
+    for (const id of accepted) appliedReads.current.set(id, sequence);
+    setWorks((previous) => {
+      const next = new Map(previous.map((row) => [row.workId, row]));
+      for (const id of accepted) {
+        const row = incoming.get(id);
+        if (row) next.set(id, row);
+        else next.delete(id);
+      }
+      return [...next.values()];
+    });
+  };
+  // A mutation's follow-up read may finish on another work. Only update its owner,
+  // and never roll a row back over a newer read from the change stream.
+  const reloadWork = async (id: string) => {
+    const sequence = ++readSequence.current;
+    const rows = await gateway.list();
+    applyRows(rows, sequence, id);
+  };
   useEffect(() => {
     let alive = true,
       pending = false;
     const load = async () => {
       if (pending) return;
       pending = true;
+      const sequence = ++readSequence.current;
       try {
         const rows = await gateway.list();
         if (alive) {
-          setWorks(rows);
+          applyRows(rows, sequence);
           setLoaded(true);
-          clearError();
+          setListError(null);
         }
       } catch (e) {
-        if (alive) reportError(e);
+        if (alive) setListError(resumeError(e));
       } finally {
         pending = false;
       }
@@ -346,22 +424,15 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
   }, [gateway]);
   const retryList = async () => {
     clearError();
+    const sequence = ++readSequence.current;
     try {
-      setWorks(await gateway.list());
+      applyRows(await gateway.list(), sequence);
       setLoaded(true);
     } catch (e) {
       reportError(e);
     }
   };
-  // A return page must not silently pick the first connected work. One work is
-  // safe to open directly; multiple works require an explicit choice.
-  const focusedWork =
-    works.find((w) => w.workId === workId) ??
-    (!workId && works.length === 1 ? works[0] : undefined);
-  const selectedKey =
-    focusedWork && selected.startsWith(`${focusedWork.workId}:`)
-      ? selected.slice(focusedWork.workId.length + 1)
-      : undefined;
+  const selectedKey = edits.selectedKey;
   const focusedView = focusedWork ? presentResumeWork(focusedWork, selectedKey) : undefined;
   const candidates = focusedView
     ? focusedView.candidates.map((c) => ({
@@ -388,14 +459,18 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
   const focusedState: ResumeState = focusedWork
     ? stateFor(focusedWork, focusedView?.candidates.length ?? 0)
     : 'unavailable';
+  const actionDraft = current ? edits.actionDrafts.get(current.c.key) : undefined;
+  const editing = !!actionDraft;
+  const action = actionDraft?.action ?? '';
+  const done = actionDraft?.done ?? '';
   useEffect(() => {
-    if (!selected && current) setSelected(current.id);
-  }, [selected, current?.id]);
+    if (selectedKey === undefined && current)
+      updateEdits(current.w.workId, (previous) =>
+        previous.selectedKey === undefined ? { ...previous, selectedKey: current.c.key } : previous,
+      );
+  }, [selectedKey, current?.id]);
   useEffect(() => {
     currentIdRef.current = current?.id ?? null;
-    setEditing(false);
-    setAction('');
-    setDone('');
     setCopyMessage('');
     setCoordinationMessage('');
   }, [current?.id]);
@@ -438,67 +513,128 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
   const refresh = async (w: ResumeWork) => {
     if (refreshInFlight.current.has(w.workId)) return;
     refreshInFlight.current.add(w.workId);
-    refreshStartedFrom.current.set(w.workId, w.generatedAt);
+    updateEdits(w.workId, (previous) => ({ ...previous, error: null }));
+    // Set the optimistic flag before dispatch: a late acceptance must not replace
+    // a completed brief that arrived through the change stream in the meantime.
+    setWorks((rows) =>
+      rows.map((r) => (r.workId === w.workId ? { ...r, busy: true, error: null } : r)),
+    );
     try {
       await gateway.refresh(w.workId);
-      setWorks((rows) =>
-        rows.map((r) => (r.workId === w.workId ? { ...r, busy: true, error: null } : r)),
-      );
     } catch (e) {
-      reportError(e);
-      refreshStartedFrom.current.delete(w.workId);
+      reportError(e, w.workId);
+      setWorks((rows) =>
+        rows.map((r) =>
+          r.workId === w.workId && r.generatedAt === w.generatedAt ? { ...r, busy: false } : r,
+        ),
+      );
     } finally {
       refreshInFlight.current.delete(w.workId);
     }
   };
-  useEffect(() => {
-    if (!focusedWork || focusedWork.busy) return;
-    const previous = refreshStartedFrom.current.get(focusedWork.workId);
-    if (previous !== undefined && focusedWork.generatedAt !== previous) {
-      refreshStartedFrom.current.delete(focusedWork.workId);
-      setSelected('');
-    }
-  }, [focusedWork?.workId, focusedWork?.busy, focusedWork?.generatedAt]);
+  const editGoal = (w: ResumeWork, text: string) => {
+    updateEdits(w.workId, (previous) => ({
+      ...previous,
+      goalDraft: previous.goalDraft ?? { text, version: w.version },
+    }));
+  };
+  const setGoalText = (text: string) => {
+    updateEdits(focusedId, (previous) =>
+      previous.goalDraft ? { ...previous, goalDraft: { ...previous.goalDraft, text } } : previous,
+    );
+  };
+  const cancelGoal = () => updateEdits(focusedId, (previous) => ({ ...previous, goalDraft: null }));
+  const editAction = (w: ResumeWork, c: ResumeCandidate) => {
+    updateEdits(w.workId, (previous) =>
+      previous.actionDrafts.has(c.key)
+        ? previous
+        : {
+            ...previous,
+            actionDrafts: new Map(previous.actionDrafts).set(c.key, {
+              action: c.nextAction ?? '',
+              done: c.doneWhen ?? '',
+              version: w.version,
+            }),
+          },
+    );
+  };
+  const changeActionDraft = (patch: Partial<Pick<ActionDraft, 'action' | 'done'>>) => {
+    if (!current) return;
+    updateEdits(current.w.workId, (previous) => {
+      const draft = previous.actionDrafts.get(current.c.key);
+      return draft
+        ? {
+            ...previous,
+            actionDrafts: new Map(previous.actionDrafts).set(current.c.key, { ...draft, ...patch }),
+          }
+        : previous;
+    });
+  };
   const saveGoal = async () => {
-    if (!focusedWork) return;
-    setSaving(true);
+    const draft = edits.goalDraft;
+    if (!focusedWork || !draft?.text.trim() || saveInFlight.current.has(focusedWork.workId)) return;
+    const id = focusedWork.workId;
+    saveInFlight.current.add(id);
+    updateEdits(id, (previous) => ({ ...previous, saving: true, error: null }));
     try {
-      await gateway.setGoal(focusedWork.workId, goalText.trim(), focusedWork.version);
-      setWorks(await gateway.list());
-      setSelected('');
-      setGoalEditing(false);
+      await gateway.setGoal(id, draft.text.trim(), draft.version);
+      await reloadWork(id);
+      // A user may have returned and edited again while this save was pending.
+      updateEdits(id, (previous) =>
+        previous.goalDraft === draft ? { ...previous, goalDraft: null } : previous,
+      );
       await refresh(focusedWork);
     } catch (e) {
-      reportError(e);
+      reportError(e, id);
     } finally {
-      setSaving(false);
+      saveInFlight.current.delete(id);
+      updateEdits(id, (previous) => ({ ...previous, saving: false }));
     }
   };
   const correct = async (w: ResumeWork, c: ResumeCandidate, kind: ResumeCorrection['kind']) => {
-    setSaving(true);
-    setCorrectionMessage('');
+    const draft = edits.actionDrafts.get(c.key);
+    if (saveInFlight.current.has(w.workId)) return;
+    if (kind === 'wrong-action' && (!draft?.action.trim() || !draft.done.trim())) return;
+    saveInFlight.current.add(w.workId);
+    updateEdits(w.workId, (previous) => ({
+      ...previous,
+      saving: true,
+      error: null,
+      correctionMessage: '',
+    }));
     try {
       await gateway.correct(w.workId, {
         candidateKey: c.key,
-        version: w.version,
+        version: kind === 'wrong-action' ? draft!.version : w.version,
         kind,
-        ...(kind === 'wrong-action' ? { nextAction: action.trim(), doneWhen: done.trim() } : {}),
+        ...(kind === 'wrong-action'
+          ? { nextAction: draft!.action.trim(), doneWhen: draft!.done.trim() }
+          : {}),
       });
-      setWorks(await gateway.list());
-      setEditing(false);
-      if (kind === 'wrong-work') setSelected('');
-      setCorrectionMessage(
-        kind === 'restore'
-          ? 'The inferred candidate was restored.'
-          : 'Your correction was saved. The brief will use it on the next check.',
-      );
+      await reloadWork(w.workId);
+      updateEdits(w.workId, (previous) => {
+        const actionDrafts = new Map(previous.actionDrafts);
+        if (kind === 'wrong-action' && actionDrafts.get(c.key) === draft)
+          actionDrafts.delete(c.key);
+        return {
+          ...previous,
+          actionDrafts,
+          correctionMessage:
+            kind === 'restore'
+              ? 'The inferred candidate was restored.'
+              : 'Your correction was saved. The brief will use it on the next check.',
+        };
+      });
     } catch (e) {
-      reportError(e);
-      setCorrectionMessage(
-        'The correction could not be saved. Try again when the connection is available.',
-      );
+      reportError(e, w.workId);
+      updateEdits(w.workId, (previous) => ({
+        ...previous,
+        correctionMessage:
+          'The correction could not be saved. Try again when the connection is available.',
+      }));
     } finally {
-      setSaving(false);
+      saveInFlight.current.delete(w.workId);
+      updateEdits(w.workId, (previous) => ({ ...previous, saving: false }));
     }
   };
 
@@ -535,7 +671,7 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
     setCoordinationMessage('');
     try {
       await gateway.setCoordination(work.workId, threadId, work.version);
-      setWorks(await gateway.list());
+      await reloadWork(work.workId);
       setCoordinationMessage(
         threadId
           ? 'This conversation is now marked as the place to track overall progress.'
@@ -842,10 +978,7 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
               )}{' '}
               <button
                 type="button"
-                onClick={() => {
-                  setGoalText(focusedWork.goalText ?? '');
-                  setGoalEditing(true);
-                }}
+                onClick={() => editGoal(focusedWork, focusedWork.goalText ?? '')}
               >
                 {focusedWork.goalText ? 'Edit goal' : 'Set goal'}
               </button>
@@ -872,7 +1005,7 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
                     record access.
                   </p>
                   <button disabled={saving || !goalText.trim()}>Save goal</button>{' '}
-                  <button type="button" onClick={() => setGoalEditing(false)}>
+                  <button type="button" onClick={cancelGoal}>
                     Cancel
                   </button>
                 </form>
@@ -946,10 +1079,7 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
                 </small>
                 <button
                   type="button"
-                  onClick={() => {
-                    setGoalText(current.w.goalText ?? current.c.purpose);
-                    setGoalEditing(true);
-                  }}
+                  onClick={() => editGoal(current.w, current.w.goalText ?? current.c.purpose)}
                 >
                   {current.w.goalText ? 'Edit goal' : 'Confirm or edit goal'}
                 </button>
@@ -978,7 +1108,7 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
                     <button type="submit" disabled={saving || !goalText.trim()}>
                       Save goal
                     </button>{' '}
-                    <button type="button" onClick={() => setGoalEditing(false)}>
+                    <button type="button" onClick={cancelGoal}>
                       Cancel
                     </button>
                   </form>
@@ -1321,14 +1451,7 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
                   >
                     Wrong work
                   </button>
-                  <button
-                    disabled={saving}
-                    onClick={() => {
-                      setEditing(true);
-                      setAction(current.c.nextAction ?? '');
-                      setDone(current.c.doneWhen ?? '');
-                    }}
-                  >
+                  <button disabled={saving} onClick={() => editAction(current.w, current.c)}>
                     Right work, wrong next step
                   </button>
                   <button
@@ -1367,7 +1490,7 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
                         required
                         maxLength={1200}
                         value={action}
-                        onChange={(e) => setAction(e.target.value)}
+                        onChange={(e) => changeActionDraft({ action: e.target.value })}
                       />
                     </label>
                     <label>
@@ -1378,7 +1501,7 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
                         required
                         maxLength={1200}
                         value={done}
-                        onChange={(e) => setDone(e.target.value)}
+                        onChange={(e) => changeActionDraft({ done: e.target.value })}
                       />
                     </label>
                     <button disabled={saving || !action.trim() || !done.trim()}>
@@ -1401,8 +1524,11 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
                 <button
                   key={id}
                   onClick={() => {
-                    setCorrectionMessage('');
-                    setSelected(id);
+                    updateEdits(w.workId, (previous) => ({
+                      ...previous,
+                      correctionMessage: '',
+                      selectedKey: c.key,
+                    }));
                   }}
                   aria-pressed={current?.id === id}
                 >

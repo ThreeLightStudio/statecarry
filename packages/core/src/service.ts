@@ -271,6 +271,7 @@ export class StateCarry {
     if (link?.status === 'proposed' && link.evidence.includes(id)) return source;
     if (link?.status !== 'linked') return null;
     if (this.sources(workId).some((s) => s.key === source.key)) return source;
+    if (this.resumes.retainsEvidence(workId, source)) return source;
     const summary = work.latestSummaryId ? this.repo.get('summary', work.latestSummaryId) : null;
     // Missing collection is not permission withdrawal. Preserve a known historical
     // input only while the original access version still matches.

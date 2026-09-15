@@ -227,7 +227,7 @@ export function continuationPayload(
 function handoffLimitation(value: string): string {
   if (/workspace state could not be checked|git\s+-C|not a git repository/i.test(value))
     return 'The current project state could not be confirmed.';
-  if (/file observation was limited|read limit|source files/i.test(value))
+  if (/file observations? (?:was|were) limited|read limit|source files/i.test(value))
     return 'Only part of the project files could be checked.';
   if (/could not read|unavailable|partial|incomplete|coverage/i.test(value))
     return 'Some connected records or project files could not be fully checked.';
@@ -366,19 +366,23 @@ function targetFor(candidate: ResumeCandidate, work: ResumeWork): ResumeTargetVi
 function candidateView(candidate: ResumeCandidate, work: ResumeWork): ResumeCandidateViewModel {
   const metadata = candidate as ResumeCandidate & CandidateMetadata;
   const status = resumeWorkStatus(work);
+  const actionAvailable =
+    candidate.status === 'active' &&
+    !!candidate.nextAction &&
+    !!candidate.doneWhen &&
+    !!candidate.actionSource &&
+    status.canAct;
   return {
     ...candidate,
     purpose: candidate.goal,
-    statusLabel: resumeStatusLabel(candidate.status),
+    statusLabel:
+      candidate.status === 'active' && !actionAvailable
+        ? 'Review required before the next action'
+        : resumeStatusLabel(candidate.status),
     statusHeading: statusHeadings[candidate.status],
     // A candidate backed by an older snapshot remains readable, but cannot be
     // turned into a new action until the changed records have been checked.
-    actionAvailable:
-      candidate.status === 'active' &&
-      !!candidate.nextAction &&
-      !!candidate.doneWhen &&
-      !!candidate.actionSource &&
-      status.canAct,
+    actionAvailable,
     actionSourceLabel: resumeActionSourceLabel(candidate.actionSource),
     roleLabel: resumeRoleLabel(metadata.role),
     actorLabel: resumeActorLabel(metadata.actor),
@@ -390,7 +394,7 @@ function candidateView(candidate: ResumeCandidate, work: ResumeWork): ResumeCand
 const workStateLabels: Record<ResumeWorkState, string> = {
   ready: 'Ready to resume',
   checking: 'Checking connected records',
-  limited: 'Ready with limits',
+  limited: 'Review needed before continuing',
   empty: 'No resume work found',
   unavailable: 'Connected records unavailable',
   failed: 'Could not check connected records',
@@ -414,6 +418,7 @@ const workStateDescriptions: Record<ResumeWorkState, string> = {
 /** Return all current limitations without leaking them into the main goal copy. */
 function workLimitations(work: ResumeWork): string[] {
   const values = [
+    ...(work.limitations ?? []),
     ...(work.workspace?.limitations ?? []),
     ...(work.workspace && work.workspace.status !== 'checked'
       ? ['The current project state could not be confirmed.']
@@ -439,6 +444,16 @@ function workLimitations(work: ResumeWork): string[] {
  */
 export function resumeWorkStatus(work: ResumeWork): ResumeWorkStatus {
   const limitations = workLimitations(work);
+  // Limit descriptions are context, not an instruction to re-run analysis.
+  // Currentness flags and explicit producer blocks decide action availability.
+  const needsReview =
+    work.stale ||
+    work.updatesAvailable ||
+    !!work.workspaceChanged ||
+    !!work.error ||
+    (!!work.workspace && work.workspace.status !== 'checked') ||
+    (work.generatedAt === null && work.candidates.length > 0) ||
+    !!work.blockedActions?.length;
   let state: ResumeWorkState;
   // `state` is produced by Core and distinguishes a retained last brief
   // (`limited`) from a first-check failure (`failed`). Prefer it whenever it
@@ -448,12 +463,11 @@ export function resumeWorkStatus(work: ResumeWork): ResumeWorkStatus {
   else if (work.error) state = 'failed';
   else if (!work.generatedAt && !work.candidates.length) state = 'unavailable';
   else if (!work.candidates.length) state = 'empty';
-  else if (limitations.length) state = 'limited';
+  else if (needsReview) state = 'limited';
   else state = 'ready';
   if (state === 'ready' && !work.candidates.length) state = 'empty';
-  // A producer may omit the normalized state while still providing limits.
-  // Do not present a ready badge when those limits would block acting.
-  if (state === 'ready' && limitations.length) state = 'limited';
+  // A ready label must not override stale inputs or an actual action block.
+  if (state === 'ready' && needsReview) state = 'limited';
 
   const blockedActions = work.blockedActions?.length
     ? [...new Set(work.blockedActions)]

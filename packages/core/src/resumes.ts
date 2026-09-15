@@ -127,19 +127,12 @@ export class Resumes {
     }
     return result;
   }
-  private input(id: string, observedWorkspace = this.workspace(id)) {
+  private context(id: string) {
     const work = this.core.work(id),
       connection = this.core.connection(work.projectId);
     const links = this.core
       .links(id)
       .filter((l) => l.status === 'linked' && l.role !== 'controlled-verification');
-    const sources = links.flatMap((l) =>
-      selectedRecords(
-        connection,
-        l.threadId,
-        this.core.sources(id).filter((s) => s.threadId === l.threadId),
-      ),
-    );
     const scope = this.core.ids.hash([
       connection.cwd,
       connection.startTurnIds,
@@ -148,6 +141,40 @@ export class Resumes {
       links.map((l) => l.threadId).sort(),
       work.goal,
     ]);
+    return { work, connection, links, scope };
+  }
+  /** A temporary read failure does not revoke evidence already captured in
+   * this exact goal/range. Only cited immutable revisions may be retained. */
+  retainsEvidence(id: string, source: SourceRevision): boolean {
+    const { work, connection, scope } = this.context(id);
+    if (!work.resume || work.resume.scope !== scope) return false;
+    const checkpoint = this.core.repo
+      .list('checkpoint')
+      .find((item) => item.workId === id && item.threadId === source.threadId);
+    if (
+      !checkpoint ||
+      checkpoint.scopeVersion !== connection.revision ||
+      !['partial', 'failed', 'reading'].includes(checkpoint.status)
+    )
+      return false;
+    const parsed = resumeResultSchema.safeParse({ candidates: work.resume.candidates });
+    if (!parsed.success) return false;
+    return parsed.data.candidates.some((candidate) =>
+      [
+        ...candidate.evidence,
+        ...Object.values(candidate.progress ?? {}).flatMap((items) => items ?? []),
+        ...Object.values(candidate.completion ?? {}).flatMap((items) => items ?? []),
+      ].some((item) => item.revisionId === source.id && source.text.includes(item.quote)),
+    );
+  }
+  private input(id: string, observedWorkspace = this.workspace(id)) {
+    const { work, connection, links, scope } = this.context(id);
+    const sources = links.flatMap((link) => {
+      const records = this.core.sources(id).filter((source) => source.threadId === link.threadId);
+      // An empty/failed checkpoint grants no new records. Preserve its failure
+      // state in view() instead of throwing while trying to locate a boundary.
+      return records.length ? selectedRecords(connection, link.threadId, records) : [];
+    });
     const version = this.core.ids.hash([
       scope,
       work.goal,
@@ -348,9 +375,10 @@ export class Resumes {
     const storedResult = work.resume
       ? resumeResultSchema.safeParse({ candidates: work.resume.candidates })
       : null;
+    const scopeChanged = !!work.resume && work.resume.scope !== scope;
     const structurallyStale =
       !work.resume ||
-      work.resume.scope !== scope ||
+      scopeChanged ||
       unavailable ||
       partiallyUnavailable ||
       workspaceUnavailable ||
@@ -382,9 +410,8 @@ export class Resumes {
         .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))
         .at(-1) ?? null;
     const corrections = (work.resumeOverrides ?? []).filter((c) => c.scope === scope);
-    // Keep the last checked brief visible whenever the inputs cannot support a
-    // fresh judgment. A changed file or Git snapshot is itself useful context,
-    // but it must block acting until the records and project are rechecked.
+    // A failed check may retain a readable brief for this same goal and scope.
+    // It never overrides a changed goal, revoked evidence or invalid stored data.
     const preserveLastKnown =
       !!work.resume &&
       (workspaceUnavailable ||
@@ -392,7 +419,11 @@ export class Resumes {
         unavailable ||
         partiallyUnavailable ||
         !!this.errors.get(id));
-    const safe = (!stale && evidenceAccessible) || preserveLastKnown;
+    const safe =
+      storedResult?.success === true &&
+      !scopeChanged &&
+      evidenceAccessible &&
+      (!stale || preserveLastKnown);
     const candidates = safe
       ? work.resume!.candidates.map((original) => {
           const c = corrections.find((c) => c.candidateKey === original.key);
@@ -441,18 +472,19 @@ export class Resumes {
         })
       : [];
     const viewError = this.errors.get(id) ?? null;
+    const hasReadableBrief = candidates.length > 0;
     const state: ResumeWork['state'] = this.running.has(id)
       ? 'checking'
       : partiallyUnavailable
-        ? work.resume
+        ? hasReadableBrief
           ? 'limited'
           : 'unavailable'
         : viewError
-          ? work.resume
+          ? hasReadableBrief
             ? 'limited'
             : 'failed'
           : workspaceUnavailable || unavailable
-            ? work.resume
+            ? hasReadableBrief
               ? 'limited'
               : 'unavailable'
             : !work.resume
@@ -465,21 +497,33 @@ export class Resumes {
     const stateDetail =
       state === 'checking'
         ? 'Checking the connected records and project.'
-        : viewError
-          ? 'The latest connected records could not be checked. Your last confirmed brief is kept; try checking again or open the recorded conversation.'
-          : workspaceUnavailable
-            ? work.resume
-              ? 'The project could not be checked. The last saved brief is shown, but continuing is blocked until it can be checked.'
-              : 'The project could not be checked yet. Connect a readable project before continuing.'
-            : partiallyUnavailable
-              ? 'Some connected records are only partially available. The last saved brief is shown for review.'
-              : unavailable
-                ? 'Some connected records are unavailable. The last saved brief is shown for review.'
-                : state === 'empty'
-                  ? 'No return brief is available yet.'
-                  : state === 'limited'
-                    ? 'This brief needs to be checked again before continuing.'
-                    : 'This brief is ready to use.';
+        : scopeChanged
+          ? 'The goal or connected record scope changed. Check the selected records to prepare a brief for this goal; the previous action is no longer current.'
+          : work.resume && storedResult?.success !== true
+            ? 'The saved brief is incompatible. Check the selected records to prepare a current brief.'
+            : !evidenceAccessible
+              ? 'Some evidence in the saved brief is no longer accessible. Review the connected record scope before preparing a new brief.'
+              : viewError
+                ? hasReadableBrief
+                  ? 'The latest connected records could not be checked. Your last confirmed brief is kept; try checking again or open the recorded conversation.'
+                  : 'The latest connected records could not be checked. Review the connection and check again to prepare a current brief.'
+                : workspaceUnavailable
+                  ? hasReadableBrief
+                    ? 'The project could not be checked. The last saved brief is shown, but continuing is blocked until it can be checked.'
+                    : 'The project could not be checked yet. Connect a readable project before continuing.'
+                  : partiallyUnavailable
+                    ? hasReadableBrief
+                      ? 'Some connected records are only partially available. The last saved brief is shown for review.'
+                      : 'Some connected records are only partially available. Review the connection before preparing a brief.'
+                    : unavailable
+                      ? hasReadableBrief
+                        ? 'Some connected records are unavailable. The last saved brief is shown for review.'
+                        : 'Some connected records are unavailable. Review the connection before preparing a brief.'
+                      : state === 'empty'
+                        ? 'No return brief is available yet.'
+                        : state === 'limited'
+                          ? 'This brief needs to be checked again before continuing.'
+                          : 'This brief is ready to use.';
     const limitations = [
       ...new Set([...(workspace?.limitations ?? []), ...(viewError ? [viewError] : [])]),
     ];
@@ -811,10 +855,9 @@ export class Resumes {
     const correction = resumeCorrectionSchema.parse(raw),
       { work, version, scope } = this.input(id);
     const visible = this.view(id).candidates.some((c) => c.key === correction.candidateKey);
-    const dismissed =
-      correction.kind === 'restore' &&
-      work.resume?.candidates.some((c) => c.key === correction.candidateKey);
-    if (correction.version !== version || (!visible && !dismissed))
+    // Dismissed candidates remain in the Core view for Presentation to hide.
+    // Restoring must use that same validity gate, not arbitrary stored history.
+    if (correction.version !== version || !visible)
       throw new DomainError(
         'REVISION_CONFLICT',
         'The candidate changed. Refresh before correcting.',

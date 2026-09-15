@@ -6,7 +6,7 @@ The product goal is to help someone return to interrupted work, recognize the cu
 
 ## Release sequence
 
-Stage 3 first public source release is complete at `a8628ba`: MIT with `Copyright (c) 2026 ThreeLight Studio`, public `main` in `ThreeLightStudio/statecarry`, verified anonymous access and clone, and a successful remote Verify run with all six tasks executed and 384 tests passed. See [the publication record](public-release.md#first-publication-record). Work now moves to the state defects in stage 4; compiled-artifact notices, installation and real-user workflow acceptance remain separate delivery checks.
+Stage 3 first public source release is complete at `a8628ba`: MIT with `Copyright (c) 2026 ThreeLight Studio`, public `main` in `ThreeLightStudio/statecarry`, verified anonymous access and clone, and a successful remote Verify run with all six tasks executed and 384 tests passed. See [the publication record](public-release.md#first-publication-record). Stage 4 now implements work-owned drafts and current-candidate validity with synthetic regression coverage. The next product work is the narrative and navigation lifecycle in stage 5; installation and real-user workflow acceptance remain separate checks.
 
 | Stage | Outcome                                           | Status / acceptance                                                                                                                                                                                                                                                                                                                            |
 | ----- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -15,7 +15,7 @@ Stage 3 first public source release is complete at `a8628ba`: MIT with `Copyrigh
 | 2B    | Monorepo task execution                           | Complete locally: Turborepo `2.10.13` coordinates repository-wide cached checks and the combined `dist/` build over pnpm. Remote cache is disabled; runtime/tool fingerprints and relevant environment affect hashes; dev/fix/private runtime paths are not cached. Source-export packages remain unchanged.                                   |
 | 2C    | Public release choices                            | Applied locally: owner-approved MIT license and ThreeLight Studio copyright, consistent workspace declarations and documentation, selected origin connected. Existing Git attribution is retained; third-party terms remain separate.                                                                                                          |
 | 3     | First public source release                       | Complete: `a8628ba` published on public `main`; anonymous access, credential-free clone and remote commit identity verified. GitHub Verify run `34973482818` passed all six tasks and 384 tests without cache hits. Development-preview limitations remain.                                                                                    |
-| 4     | Work-specific state and action validity           | Pending: prevent cross-work draft saves, unrelated actions after goal/scope changes and indefinite rechecking caused by informational inspection limits.                                                                                                                                                                                       |
+| 4     | Work-specific state and action validity           | Implemented locally: work/candidate-owned drafts and late-response handling, scope and evidence validity before retaining a brief, informational limits separated from action blockers, and prepared handoff evidence rechecked before sending. Regression coverage uses controlled inputs; real-user acceptance remains stage 6.              |
 | 5     | Resume narrative and navigation lifecycle         | Pending: meaningful result/next-action copy, selection preservation, connection/URL consistency, same-connection restore and saved-result reload after server reconnection.                                                                                                                                                                    |
 | 6     | Real work resumption and a later return           | Pending: observe the correct conversation, first useful action and subsequent result without repeating completed work. Distinguish model output, reports and independent checks.                                                                                                                                                               |
 | 7A    | Installable macOS application                     | Planned: an Electrobun desktop host for the existing product. Implement after the core workflow is validated; check runtime, packaging and signing feasibility earlier.                                                                                                                                                                        |
@@ -25,17 +25,19 @@ Stages 2A and 2B are bounded development-foundation work during public preparati
 
 The earlier internal targets remain a product candidate on 2026-09-17 at 18:00 KST and submission preparation on 2026-09-18 at 12:00 KST. These are planning targets, not verified external deadlines or completed gates. An unfinished installer remains unfinished; do not report an existing source-run path as Electrobun installation success.
 
+## Stage 4 behavior and regression scope
+
+Goal drafts and save state belong to a work; correction drafts also belong to a candidate. Switching work within the mounted Resume surface preserves edits and the selected candidate. A save submits the version on which its draft was based, and a late response only closes the submitted draft if it has not been edited again. A removed candidate requires an explicit new selection.
+
+A previous brief is retained only when its saved schema, goal/scope and cited evidence remain valid. Same-scope partial/failed reads can retain an already-cited immutable record after checking the connection revision and exact quote. Goal/range changes, incompatible results and changed quotes cannot use this fallback. Original stored records are preserved. The evidence endpoint uses the same access decision as the brief.
+
+Unchanged bounded file-inspection notes remain visible and travel with the handoff; they do not by themselves disable a current action. Changed/unknown workspace state, incomplete records, new unreviewed records, failed checks and explicit producer blocks still require review. Candidate labels reflect the action policy. Preparing and sending a supported continuation both check the stored payload's current evidence and conversation links before dispatch.
+
+Regression tests cover goal/range changes combined with failures, lost and corrupted evidence, stale restore attempts, delayed analysis, repeated explicit refreshes with bounded inspection, work/candidate draft ownership and out-of-order UI responses. Continuation tests use a fake executor to prove that newly inaccessible prepared evidence is not sent. These are automated checks of the implemented boundaries, not observations of real Codex dispatch or human work resumption.
+
 ## Known gaps
 
-The following were identified during development and remain outside the source-cleanup task:
-
-- Switching work while editing a goal can mix draft state between works.
-- Changing a goal when project inspection fails can leave an older candidate associated with the new goal.
-- Limited project inspection can disable an otherwise current candidate's action and lead to repeated rechecks.
-- Candidate selection, disconnect/restore, URL synchronization and server reconnection need further integrated verification.
-- The resume body can repeat generic progress text without explaining the result that changed the next decision.
-
-Existing automated tests do not establish that these gaps are resolved. A first public source release should retain this development status.
+Draft and selection storage is still scoped to the mounted Resume screen. Detail navigation, browser restart, disconnect/restore, URL synchronization and server reconnection need stage 5 integration. The resume body can still repeat generic progress text without explaining the result that changed the next decision. The product remains a development preview until the remaining workflow and installation checks are demonstrated.
 
 ## Validation still needed
 
