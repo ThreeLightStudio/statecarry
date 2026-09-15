@@ -1,0 +1,26 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "embeddedLanguageFormatting": "off",
+  "ignorePatterns": [
+    ".cache/**",
+    ".statecarry/**",
+    "coverage/**",
+    "dist/**",
+    "node_modules/**",
+    "pnpm-lock.yaml",
+    "*.sqlite*",
+    "*.db",
+    "*.db-wal",
+    "*.db-shm",
+    "*.log",
+    ".env",
+    ".env.*"
+  ],
+  "objectWrap": "collapse",
+  "printWidth": 100,
+  "proseWrap": "preserve",
+  "semi": true,
+  "singleQuote": true,
+  "sortImports": false,
+  "sortPackageJson": false
+}

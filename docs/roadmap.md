@@ -1,17 +1,27 @@
 # Roadmap
 
-Status: development preview, 2026-09-15. Automated checks and source cleanup are separate from a completed product workflow.
+Status: development preview, 2026-09-15. Source cleanup and the initial local commit are complete. Automated checks and source cleanup are separate from a completed product workflow. Stage 2A tooling is being implemented and validated; Turborepo and Electrobun remain later work.
 
 The product goal is to help someone return to interrupted work, recognize the currently valid task, understand the necessary context and begin one useful action after the required confirmation.
 
 ## Release sequence
 
-1. Prepare a reproducible source tree and local initial commit. Preserve private material outside the public candidates, document the supported environment and verify installation, checks, tests and build from only those candidates.
-2. Confirm the source license, required notices, repository owner/name and public commit attribution. Publish the reviewed source, then verify anonymous access, cloning and remote commit identity.
-3. Fix work-specific state and action validity. A draft from one work must not be saved into another; a changed goal or evidence scope must not reuse an unrelated earlier action; informational inspection limits must not force repeated analysis without a way forward.
-4. Complete the resume narrative and navigation lifecycle. Preserve candidate selection across detail navigation, synchronize connection state and the URL, restore the same disconnected connection, and refresh saved results after server reconnection without automatically starting model analysis.
-5. Observe real work resumption and a later return. Confirm arrival at the intended conversation, execution of the first useful action and an updated result that does not suggest repeating completed work. Distinguish model output, user reports and independently checked outcomes.
-6. Prepare a local MVP build from the validated source commit. Review package contents and notices, verify installation and describe only the capabilities actually demonstrated.
+| Stage | Outcome | Status / acceptance |
+| --- | --- | --- |
+| 1 | Reproducible source tree and initial local commit | Complete at `7322042`. The reviewed source-only export passed installation, checks, 384 tests and build. This is historical evidence for that commit. |
+| 2A | Mechanical formatting and lint rules | In progress: Oxfmt `0.68.0` + Oxlint `1.83.0`, existing TypeScript and boundary checks, one `verify` entry point and macOS CI are configured. Acceptance still requires normalization, failure-injection checks and clean-checkout verification. |
+| 2B | Monorepo task execution | Planned: Turborepo on the existing pnpm workspace. Preserve source-export packages and verify task coverage, cache invalidation and build output ownership. |
+| 2C | Public release choices | Pending: license, required notices, repository owner/name and public commit attribution. Source installation was checked in stage 1; changes introduced in 2A/2B need their own evidence. |
+| 3 | First public source release | Pending: publish the reviewed commit, then verify anonymous access, cloning and remote commit identity. Label it a development preview with the known product gaps. |
+| 4 | Work-specific state and action validity | Pending: prevent cross-work draft saves, unrelated actions after goal/scope changes and indefinite rechecking caused by informational inspection limits. |
+| 5 | Resume narrative and navigation lifecycle | Pending: meaningful result/next-action copy, selection preservation, connection/URL consistency, same-connection restore and saved-result reload after server reconnection. |
+| 6 | Real work resumption and a later return | Pending: observe the correct conversation, first useful action and subsequent result without repeating completed work. Distinguish model output, reports and independent checks. |
+| 7A | Installable macOS application | Planned: an Electrobun desktop host for the existing product. Implement after the core workflow is validated; check runtime, packaging and signing feasibility earlier. |
+| 7B | MVP artifacts and submission | Pending: package the validated source commit, inspect contents/notices, verify the actual installation and submit only demonstrated capabilities. |
+
+Stages 2A and 2B are bounded development-foundation work during public preparation. They must not expand into a package rewrite or an unrelated lint-remediation campaign that indefinitely delays the first public source release. Electrobun implementation is not a prerequisite for that source release. See [the tooling and desktop plan](tooling-and-desktop-plan.md) for boundaries and acceptance checks.
+
+The earlier internal targets remain a product candidate on 2026-09-17 at 18:00 KST and submission preparation on 2026-09-18 at 12:00 KST. These are planning targets, not verified external deadlines or completed gates. An unfinished installer remains unfinished; do not report an existing source-run path as Electrobun installation success.
 
 ## Known gaps
 
@@ -31,4 +41,4 @@ Use multiple goals, including different goals in the same folder and work spanni
 
 Observe at least three complete real-work returns, including a subsequent return after the action's result arrives. A copied brief, accepted OS open request or synthetic-provider test alone is not a completed work return. A same-account clean directory check is also distinct from installation by another person or on another device.
 
-This scope does not add automatic action execution, message submission, environment restoration, a general project manager or a new model-provider system. Existing auxiliary context features remain available while the main resume flow is completed.
+This scope does not add automatic action execution, message submission, environment restoration, a general project manager or a new model-provider system. Electrobun adds application startup, shutdown and installation, not automatic execution of the proposed user task. Existing auxiliary context features remain available while the main resume flow is completed.

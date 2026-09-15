@@ -1,0 +1,32 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "off",
+    "suspicious": "off",
+    "pedantic": "off",
+    "perf": "off",
+    "style": "off",
+    "restriction": "off",
+    "nursery": "off"
+  },
+  "plugins": ["eslint", "typescript", "react"],
+  "rules": {
+    "no-debugger": "error",
+    "no-duplicate-case": "error",
+    "no-unreachable": "error",
+    "typescript/no-extra-non-null-assertion": "error",
+    "typescript/no-non-null-asserted-optional-chain": "error",
+    "react/jsx-key": "error",
+    "react/rules-of-hooks": "error"
+  },
+  "ignorePatterns": [
+    ".cache/**",
+    ".statecarry/**",
+    "coverage/**",
+    "dist/**",
+    "node_modules/**"
+  ],
+  "options": {
+    "reportUnusedDisableDirectives": "error"
+  }
+}

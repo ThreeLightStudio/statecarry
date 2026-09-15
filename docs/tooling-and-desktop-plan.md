@@ -1,0 +1,82 @@
+# Tooling and desktop delivery plan
+
+Updated 2026-09-15. Stage 2A implementation is in progress from starting source commit `7322042`; its cleanup and historical test results do not establish that the new tooling works. Keep the existing pnpm/React/Vite/Node/TypeScript project and its public-first release goal.
+
+## Current integration points
+
+The root `package.json` owns the development launcher, TypeScript/boundary checks, Vitest suite and bundled build. `apps/*` and `packages/*` already form a pnpm workspace. Internal packages export TypeScript source directly. They currently have no independent build scripts. `scripts/build.ts` removes the root `dist/` before building both the server and web assets.
+
+The local server uses `node:sqlite`, a writer lock, subprocess-based Codex access and a web asset path relative to `process.cwd()`. Runtime adapters invoke RTK, Codex and Git. Desktop delivery must account for these dependencies and paths; a native window alone is not an installed, usable product.
+
+## 2A — Formatting, linting and mechanical verification
+
+Stage 2A pins **Oxfmt 0.68.0** as the formatter and **Oxlint 1.83.0** as the JavaScript/TypeScript linter. Keep TypeScript checking and `scripts/check-boundaries.ts`. Oxfmt does not replace lint rules, and generic lint rules do not replace the project's architecture checks or behavioral tests. The official [Oxfmt guide](https://oxc.rs/docs/guide/usage/formatter.html) and [Oxlint guide](https://oxc.rs/docs/guide/usage/linter.html) describe their separate responsibilities.
+
+[Biome](https://biomejs.dev/) is an alternative integrated formatter/linter. Do not add it alongside Oxc for overlapping checks. Prefer the requested Oxc path unless a concrete unsupported rule, file format or compatibility problem is demonstrated in this repository. Oxfmt is still labeled beta on the Oxc overview at this review date, so pin the chosen version and validate representative TSX, TypeScript, CSS, Markdown and YAML before normalizing the repository. No formatter performance benchmark has been run here.
+
+Implemented command contract:
+
+| Command | Responsibility |
+| --- | --- |
+| `format` | Apply the checked-in formatting rules to public source/config/docs. |
+| `format:check` | Report formatting drift without writing. |
+| `lint` | Check the selected correctness, TypeScript and React rules without writing. |
+| `lint:fix` | Apply supported safe lint fixes; review the diff. |
+| `typecheck` | Run the existing TypeScript check. |
+| `check:boundaries` | Run the existing architectural dependency check. |
+| `verify` | One non-mutating entry point for format, lint, types, boundaries, tests and build. |
+
+Keep current commands compatible where practical. An aggregator must never invoke itself through Turbo. The existing `check` still needs to enforce its TypeScript and architecture responsibilities after scripts are rearranged.
+
+The initial rule set explicitly disables every category and enables only `no-debugger`, `no-duplicate-case`, `no-unreachable`, `typescript/no-extra-non-null-assertion`, `typescript/no-non-null-asserted-optional-chain`, `react/jsx-key` and `react/rules-of-hooks` as errors. These catch concrete control-flow, TypeScript assertion and React hook/key mistakes without opening a broad cleanup campaign. React `exhaustive-deps` remains outside the automatic rule set because dependency findings need behavioral review. Type-aware rules such as floating promises can be added later with the extra package described in the [type-aware linting guide](https://oxc.rs/docs/guide/usage/linter/type-aware.html).
+
+The first normalization remains a dedicated formatting-only change after tool configuration is reviewed. Import sorting and `package.json` sorting are explicitly disabled using the [Oxfmt configuration reference](https://oxc.rs/docs/guide/usage/formatter/config-file-reference.html), embedded-language formatting is disabled so fixture/model prompt contents are not rewritten as incidental cleanup, and object wrapping uses `collapse` because the default preserve heuristic produced a second-pass TSX change in the representative check. Private data, generated output, dependencies, tool caches and the pnpm lockfile are excluded. Preserve meaningful synthetic fixtures and the lockfile's package-manager ownership.
+
+CI is configured for the supported Apple Silicon macOS environment with `macos-15`, Node `24.14.1`, pnpm `10.33.2` and RTK `0.28.2`. It verifies the pinned RTK release digest, performs a frozen install and executes the same public `verify` command. Remote CI execution is outside this local implementation task; local configuration and clean-checkout validation remain required. Editor integration and optional local hooks are conveniences. Do not silence checks, remove fixtures or change rules just to get a passing result. Any necessary narrow exception must explain its reason.
+
+Acceptance: the chosen tool versions/configuration are pinned; formatting a second time produces no diff; a deliberate formatting violation and a representative lint violation fail the expected checks; an illegal layer import still fails the existing boundary check; `verify` passes from a clean source checkout. Keep formatting changes, rule-driven behavior fixes and task wiring reviewable as separate changes. The historical 384-test result remains a baseline, not proof of these new checks.
+
+## 2B — Turborepo over pnpm
+
+pnpm continues to own dependency resolution, workspace links and the single JavaScript lockfile. Turborepo owns task ordering and eligible local caches. The [task documentation](https://turborepo.dev/docs/crafting-your-repository/configuring-tasks) and [internal package documentation](https://turborepo.dev/docs/core-concepts/internal-packages) are references for implementation, not a reason to restructure the product.
+
+Keep the current source-export packages. Define package-owned tasks where they have independent scope. Preserve genuinely repository-wide checks, integration tests and the current combined build as explicit root tasks initially. Give their underlying scripts names that cannot recurse into the Turbo aggregator. Adding `turbo.json` without covering the real existing tasks is not completion.
+
+Do not add fake package build steps merely to copy a `^build` example. Dependency/source changes must invalidate the consumers that use them, including when a shared package has no build task. A first conservative root-task configuration may include all relevant source files and configuration; narrow it only after invalidation is demonstrated. Confirm command arguments, lockfile, relevant environment, runtime/OS assumptions and tool configuration are represented in the task inputs.
+
+Keep one owner for the current combined `dist/` build. Independent parallel tasks must not both delete or overwrite it. If later split, give server/web/desktop disjoint outputs and order any cleaning before output restoration. The generated build timestamp describes the cached artifact's creation, not a newly executed build; create release provenance from the actual reviewed source commit outside any misleading cached success report.
+
+Start with local caching and ignore `.turbo/`. Cache only checks and artifacts with understood inputs/outputs. Formatting writes, lint fixes, application processes, live collection, real model analysis, actual user acceptance, signing and publication must run without task-result caching. Long-running development tasks require a non-cached persistent configuration. No private database, personal observations or credentials may enter cached outputs. Remote caching is not needed for this milestone.
+
+Acceptance: the task graph covers the intended verification steps with no recursion or duplicate full-suite execution; a cold run passes; an unchanged eligible run can reuse cache; a shared package edit and a rule/config edit invalidate the right checks; a controlled failing input cannot reuse a passing result; removed generated outputs can be restored or rebuilt correctly. A clean checkout can still run the documented build. For release evidence, record which checks actually ran and force a fresh relevant verification where required.
+
+## Electrobun — early feasibility, final implementation
+
+Keep installer implementation after product workflow validation (stage 7A). During public/tooling preparation, perform a bounded feasibility check to choose a supported version, runtime and backend process approach and identify signing prerequisites. Do not defer discovery of an incompatible database/process API or missing signing prerequisites until the final release step. This feasibility check has not yet been executed.
+
+The current [Electrobun runtime guide](https://framework.blackboard.sh/electrobun/guides/native-main-process/) documents Cottontail as the default and Bun as an explicit option. The [project ownership guide](https://framework.blackboard.sh/electrobun/guides/project-ownership/) separates Hutch tasks/package-manager policy from application configuration. Pin the tested Electrobun/runtime versions and use the documented external pnpm path; avoid a second resolver/lockfile competing over existing workspace dependencies. Turbo may invoke the desktop package's build task; it should not duplicate Hutch's native packaging pipeline.
+
+The first implementation hypothesis is a small `apps/desktop` host reusing the existing React UI and local service. Prefer retaining the tested Node backend as an app-managed helper while evaluating direct execution under the selected desktop runtime. A bundled helper/runtime has size, lifecycle and licensing costs that must be measured. An external Node requirement must be disclosed if it is retained. Do not report either architecture as proven yet, and do not migrate all packages to Bun solely because of the framework's name. Current [Bun compatibility documentation](https://bun.sh/docs/runtime/nodejs-compat) lists `node:sqlite` support with qualifications; this does not prove the version bundled by Electrobun passes StateCarry's storage and lock tests.
+
+The feasibility check should show one native window with the existing UI, a working local service request, database persistence and clean termination, without private records or a real model call. Check RTK/Codex/Git resolution from a normal application launch and document the remaining account prerequisites. If the preferred approach fails, record the exact boundary and assess an app-managed Node helper before widening the rewrite. Package size or cross-platform compatibility must come from the selected build, not generic framework claims.
+
+Final installation acceptance:
+
+| Area | Required behavior |
+| --- | --- |
+| Installation and launch | On the supported Apple Silicon Mac, a downloaded application starts outside the source folder without the user starting a development server. State required Codex/account/executable prerequisites explicitly. |
+| Service ownership | App startup/shutdown owns the service it starts, detects port or writer conflicts and does not terminate an unrelated existing server. App reopen does not trigger duplicate analysis. |
+| Paths and persistence | Bundled asset paths do not depend on the launch working directory. Private data stays outside the app bundle; stored work/corrections survive restart and replacement. Review webview origin/storage changes before promising old browser drafts migrate. |
+| User workflow | Connection selection, evidence, editing, correction, handoff copy and actual Codex arrival work in the chosen webview. Preserve loopback/Origin restrictions rather than disabling them to make packaging work. |
+| Release artifact | Installer/app, runtime and any helper are packaged and validated with necessary licenses/notices and source-commit identity. Personal records and development paths are absent. |
+| Normal downloaded-app experience | Check signing/notarization and installation on an independent supported environment. A locally launched unsigned build is development evidence, not the complete public installation path. |
+
+The official [distribution guide](https://framework.blackboard.sh/electrobun/guides/bundling-and-distribution/) and [macOS signing guide](https://framework.blackboard.sh/electrobun/guides/code-signing/) describe release artifacts and Developer ID/notarization setup. Verify credentials availability without putting secret values in the repository or asking someone to paste them into a report. Signing availability is not assumed.
+
+Scope is macOS installation of the existing MVP. Automatic updates, additional operating systems, a new native UI, provider expansion and automated task execution are not required by this addition. Preserve the working source-run path. If installer acceptance is not achieved by the internal deadline, keep stage 7A pending and accurately state the delivered form; changing submission form requires checking the applicable external requirements, not silently redefining an installer as complete.
+
+## Handoff and completion records
+
+Next implementation work: **2A, then 2B**, with public license/repository decisions handled alongside them. Finish each bounded change and verify it before assigning the dependent stage. Keep the initial commit and stage 1 preservation evidence intact. Electrobun feasibility can be a separate small read/prototype task; stage 7A remains the final delivery implementation.
+
+Report the commands actually run, source commit, observed failures, configured rules, task inputs/outputs, cold versus cached results and any deferred findings. These infrastructure checks cannot establish that the three known state defects or human work-resumption goals are solved. Keep those acceptance gates in [the roadmap](roadmap.md).

@@ -20,10 +20,14 @@ UI code uses Presentation instead of importing Core or server adapters. Presenta
 
 ```sh
 rtk pnpm install --frozen-lockfile
-rtk pnpm check
-rtk pnpm test
-rtk pnpm build
+rtk pnpm verify
 ```
+
+`verify` checks formatting, lint rules, TypeScript, architecture boundaries and tests, then creates the ignored `dist/` build. It does not run formatter or lint fixes. Use `rtk pnpm format` to normalize public files and `rtk pnpm lint:fix` only for Oxlint's safe fixes; the CLI's suggestion and dangerous-fix modes are intentionally not part of the script contract.
+
+The pinned tooling baseline is Oxfmt `0.68.0` and Oxlint `1.83.0`. Oxfmt leaves import order and `package.json` key order unchanged, does not format embedded code blocks/strings, collapses object literals when they fit to avoid preserve-mode multi-pass drift, and ignores private data, generated output, caches, dependencies and `pnpm-lock.yaml`. Oxlint disables category-wide defaults and enables only `no-debugger`, `no-duplicate-case`, `no-unreachable`, `typescript/no-extra-non-null-assertion`, `typescript/no-non-null-asserted-optional-chain`, `react/jsx-key` and `react/rules-of-hooks`. React `exhaustive-deps` is deliberately deferred because its findings require behavioral review rather than blind automatic edits. Type-aware linting is also deferred and is not implied by this configuration.
+
+`rtk pnpm check` retains its previous contract by running both `typecheck` and `check:boundaries`. `rtk pnpm build` still type-checks when invoked by itself; `verify` calls the internal `build:artifacts` step after `check` so TypeScript is not run twice.
 
 The standard tests use fake providers and controlled temporary records. They do not require a Codex login, model calls or a personal database. Root test dependencies, including React and jsdom, are declared explicitly. Do not substitute dependencies from another development workspace.
 
@@ -50,3 +54,7 @@ For a reproducible issue, include the source commit, Node version, operating sys
 Do not attach actual conversations, account credentials, private data directories or entire diagnostic logs. Replace session IDs, paths and prose with synthetic examples that reproduce the problem. Keep personal observations and research outputs outside the source tree or in ignored `.cache/` storage.
 
 The source license is pending; contribution and redistribution terms must be confirmed before the public release. Current product work is tracked in [the roadmap](roadmap.md).
+
+## Tooling and desktop work
+
+Stage 2A installs Oxfmt/Oxlint and the shared verification contract described above. CI uses macOS 15 on Apple Silicon with Node `24.14.1`, pnpm `10.33.2` and RTK `0.28.2`, then performs a frozen install and runs the same `verify` command. Turborepo remains stage 2B. Electrobun installation is a later delivery milestone. See [the implementation and acceptance plan](tooling-and-desktop-plan.md).

@@ -1,0 +1,44 @@
+name: Verify
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24.14.1
+          package-manager-cache: false
+
+      - name: Install pinned pnpm
+        run: npm install --global pnpm@10.33.2
+
+      - name: Install pinned RTK
+        env:
+          RTK_SHA256: 5dede8ac36648960a3ad52611856b9047a7817b755750d2bdbda8d4e9931db4d
+          RTK_URL: https://github.com/rtk-ai/rtk/releases/download/v0.28.2/rtk-aarch64-apple-darwin.tar.gz
+        run: |
+          test "$(uname -m)" = "arm64"
+          curl -fsSLo "$RUNNER_TEMP/rtk.tar.gz" "$RTK_URL"
+          echo "$RTK_SHA256  $RUNNER_TEMP/rtk.tar.gz" | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/rtk-bin"
+          tar -xzf "$RUNNER_TEMP/rtk.tar.gz" -C "$RUNNER_TEMP/rtk-bin"
+          chmod +x "$RUNNER_TEMP/rtk-bin/rtk"
+          "$RUNNER_TEMP/rtk-bin/rtk" --version
+          echo "$RUNNER_TEMP/rtk-bin" >> "$GITHUB_PATH"
+
+      - name: Install dependencies
+        run: rtk pnpm install --frozen-lockfile
+
+      - name: Verify source
+        run: rtk pnpm verify
