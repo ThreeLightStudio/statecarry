@@ -8,4 +8,5 @@ export * from './explanations';
 export type { RecordRange } from '@statecarry/contracts';
 
 export * from './resume';
+export * from './resume-memory';
 export * from './labels';

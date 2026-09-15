@@ -170,6 +170,8 @@ export function createHttpServer(
         if (req.method === 'GET') {
           if (parts[0] === 'capabilities' && parts.length === 1)
             return json(res, 200, core.capabilities());
+          if (parts[0] === 'connections' && parts[1] === 'removed' && parts.length === 2)
+            return json(res, 200, core.listRemovedConnections());
           if (parts[0] === 'connections' && parts.length === 1)
             return json(res, 200, core.listConnections());
           if (parts[0] === 'turns' && parts.length === 2 && core.reader.listTurns)

@@ -64,7 +64,7 @@ export class ExplanationController {
     this.requestId = null;
     this.set(emptyExplanationView());
   }
-  sync(s: ReturnContextSnapshot, first: boolean) {
+  sync(s: ReturnContextSnapshot, _first: boolean) {
     const before = this.snapshot;
     if (
       before &&
@@ -100,16 +100,6 @@ export class ExplanationController {
           s.freshness.collection !== 'checked'),
       newAvailable: !!revision && !!latest?.revision && revision.id !== latest.revision.id,
     });
-    // Only the route-entry event prepares legacy summaries; SSE and polling never do.
-    if (
-      first &&
-      s.summary &&
-      s.summary.inputVersion === s.work.inputVersion &&
-      latest?.available &&
-      !latest.job &&
-      !latest.revision
-    )
-      void this.prepare();
   }
   private path() {
     return `/work-contexts/${encodeURIComponent(this.workId!)}/explanations`;

@@ -1,4 +1,4 @@
-import type { Gateway } from '@statecarry/presentation';
+import type { Gateway, RestorableConnection } from '@statecarry/presentation';
 import type {
   Observation,
   Command,
@@ -96,6 +96,9 @@ export class HttpGateway implements Gateway {
   }
   connections() {
     return this.request<Connection[]>('/connections');
+  }
+  removedConnections() {
+    return this.request<RestorableConnection[]>('/connections/removed');
   }
   snapshot(id: string) {
     return this.request<ReturnContextSnapshot>(`/work-contexts/${encodeURIComponent(id)}`);

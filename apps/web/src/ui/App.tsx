@@ -295,7 +295,7 @@ function Connect({
               threadIds.filter((id) => starts[id]?.trim()).map((id) => [id, starts[id].trim()]),
             ),
           });
-          if (id) location.hash = `#/work/${id}`;
+          if (id) location.hash = `#/resume/${id}`;
         }}
       >
         Connect selected records
@@ -489,6 +489,64 @@ function Scope({
     </details>
   );
 }
+function Connections({ state, onAction }: Pick<Props, 'state' | 'onAction'>) {
+  const removed = state.removedConnections ?? [];
+  return (
+    <section className="projects" aria-label="Connection management">
+      <p className="eyebrow">Connections</p>
+      <h1>Manage connected work</h1>
+      <p className="muted">
+        Disconnecting hides work from Resume without deleting its saved results or corrections.
+      </p>
+      <section className="card">
+        <h2>Connected work</h2>
+        {state.projects.length ? (
+          state.projects.map((project) => (
+            <article className="goal-choice" key={project.workId}>
+              <h3>
+                <a href={`#/resume/${encodeURIComponent(project.workId)}`}>{project.title}</a>
+              </h3>
+              <p className="small">{project.cwd}</p>
+            </article>
+          ))
+        ) : (
+          <p className="muted">No work is currently connected.</p>
+        )}
+      </section>
+      <section className="card" aria-label="Disconnected work">
+        <h2>Disconnected work</h2>
+        <p className="small muted">
+          Reconnecting restores the same StateCarry work. It does not create another connection or
+          start analysis.
+        </p>
+        {removed.length ? (
+          removed.map(({ connection, workRevision }) => (
+            <article className="goal-choice" key={connection.id}>
+              <h3>{connection.title || 'Connected work'}</h3>
+              <p className="small">{connection.cwd}</p>
+              <button
+                type="button"
+                disabled={state.busy}
+                onClick={() =>
+                  onAction({
+                    type: 'restoreConnection',
+                    connectionId: connection.id,
+                    workId: connection.workId,
+                    workRevision,
+                  })
+                }
+              >
+                Reconnect this work
+              </button>
+            </article>
+          ))
+        ) : (
+          <p className="muted">No disconnected work.</p>
+        )}
+      </section>
+    </section>
+  );
+}
 export function App({ state, onAction, onConnect, onDiscover, onListTurns }: Props) {
   const d = state.detail,
     focusEvidence = useRef<HTMLDetailsElement>(null),
@@ -552,6 +610,7 @@ export function App({ state, onAction, onConnect, onDiscover, onListTurns }: Pro
         activeWorkId={d?.workId}
         activeDetails={!!d}
         activeConnect={state.route.startsWith('#/connect')}
+        activeConnections={state.route.startsWith('#/connections')}
         works={state.projects.map((p) => ({ workId: p.workId, title: p.title, sessionCount: 1 }))}
       />
       <main id="main-content" tabIndex={-1}>
@@ -584,7 +643,9 @@ export function App({ state, onAction, onConnect, onDiscover, onListTurns }: Pro
             {state.message}
           </div>
         ) : null}
-        {state.route.startsWith('#/connect') ? (
+        {state.route.startsWith('#/connections') ? (
+          <Connections state={state} onAction={onAction} />
+        ) : state.route.startsWith('#/connect') ? (
           <Connect
             state={state}
             onConnect={onConnect}

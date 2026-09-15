@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import {
   continuationPayload,
   resumeHandoffText,
-  presentResumeProgress,
   presentResumeWork,
   resumeStateLabel,
   resumeWorkStatus,
@@ -11,9 +10,12 @@ import {
   type ResumeCandidate,
   type ResumeCorrection,
   type Continuation,
+  type ResumeMemory,
+  type SavedResumeEdits,
 } from '@statecarry/presentation';
 import './resume.css';
 import { AppSidebar } from './AppSidebar';
+import { ResumeBrief } from './ResumeBrief';
 
 function EvidenceList({
   workId,
@@ -67,16 +69,6 @@ function ProgressDetails({ workId, candidate }: { workId: string; candidate: Res
         recorded.
       </p>
     </details>
-  );
-}
-
-function ProgressSummary({ candidate }: { candidate: ResumeCandidate }) {
-  const summary = presentResumeProgress(candidate);
-  return (
-    <>
-      <p className="resume-progress-summary-copy">{summary.completed}</p>
-      <p className="resume-progress-summary-copy resume-progress-remaining">{summary.remaining}</p>
-    </>
   );
 }
 
@@ -253,10 +245,10 @@ function stateSituationFor(work: ResumeWork, state: ResumeState): string | null 
       ? friendlyError(work.error)
       : work.workspaceChanged
         ? 'The project changed since this brief. Check the current workspace before acting.'
-        : work.workspace?.status !== 'checked'
-          ? 'The project could not be fully checked. The last brief is preserved, but confirm the current folder before acting.'
-          : work.updatesAvailable
-            ? 'New records arrived after this brief. Recheck before you act.'
+        : work.updatesAvailable
+          ? 'New records arrived after this brief. Recheck before you act.'
+          : work.workspace && work.workspace.status !== 'checked'
+            ? 'The project could not be fully checked. The last brief is preserved, but confirm the current folder before acting.'
             : state === 'empty'
               ? 'No candidate is available yet. Recheck the connected records or review the connection scope.'
               : 'The latest records need a fresh check before acting.';
@@ -294,6 +286,8 @@ type WorkEdits = {
   copyMessage: string;
   coordinationMessage: string;
   coordinationBusy: boolean;
+  expanded: string[];
+  scroll: number;
 };
 
 function emptyWorkEdits(): WorkEdits {
@@ -306,6 +300,8 @@ function emptyWorkEdits(): WorkEdits {
     copyMessage: '',
     coordinationMessage: '',
     coordinationBusy: false,
+    expanded: [],
+    scroll: 0,
   };
 }
 
@@ -315,30 +311,149 @@ function resumeError(value: unknown): ResumeError {
   return { message, detail: raw && message !== raw ? raw : '' };
 }
 
-export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: string }) {
-  const [works, setWorks] = useState<ResumeWork[]>([]),
-    [loaded, setLoaded] = useState(false),
+export function Resume({
+  gateway,
+  workId,
+  memory,
+  viewCache,
+}: {
+  gateway: ResumeGateway;
+  workId?: string;
+  memory?: ResumeMemory;
+  /** Last displayed server rows for this tab only; never persisted as authority. */
+  viewCache?: { works: ResumeWork[] };
+}) {
+  const [works, setWorks] = useState<ResumeWork[]>(() => viewCache?.works ?? []),
+    [loaded, setLoaded] = useState(() => !!viewCache?.works.length),
     [listError, setListError] = useState<ResumeError | null>(null);
+  useEffect(() => {
+    if (viewCache) viewCache.works = works;
+  }, [viewCache, works]);
+  const [transport, setTransport] = useState<'connecting' | 'connected' | 'disconnected'>(
+    'connecting',
+  );
+  const [storageError, setStorageError] = useState(false);
+  const initialEdits = useRef(new Map<string, WorkEdits>());
+  const storageReadFailed = useRef(false);
+  const readEdits = (id: string) => {
+    if (!initialEdits.current.has(id)) {
+      let saved: SavedResumeEdits | null = null;
+      try {
+        saved = memory?.read(id) ?? null;
+      } catch {
+        storageReadFailed.current = true;
+      }
+      initialEdits.current.set(
+        id,
+        saved
+          ? { ...emptyWorkEdits(), ...saved, actionDrafts: new Map(saved.actionDrafts) }
+          : emptyWorkEdits(),
+      );
+    }
+    return initialEdits.current.get(id)!;
+  };
   // Keep edits above the candidate card: switching work must not move or discard input.
   const [workEdits, setWorkEdits] = useState(() => new Map<string, WorkEdits>());
   const updateEdits = (id: string | undefined, update: (previous: WorkEdits) => WorkEdits) => {
     if (!id) return;
     setWorkEdits((previous) => {
-      const edits = previous.get(id) ?? emptyWorkEdits();
+      const edits = previous.get(id) ?? readEdits(id);
       const next = update(edits);
       return next === edits ? previous : new Map(previous).set(id, next);
     });
   };
   // A return page must not silently pick the first connected work. One work is
   // safe to open directly; multiple works require an explicit choice.
-  const focusedWork =
+  const storedWork =
     works.find((w) => w.workId === workId) ??
     (!workId && works.length === 1 ? works[0] : undefined);
+  // Connection status never upgrades a saved brief's authority. Keep the text
+  // readable while a reconnect GET confirms current scope and action validity.
+  const focusedWork =
+    storedWork && (transport !== 'connected' || listError)
+      ? {
+          ...storedWork,
+          busy: false,
+          state: 'limited' as const,
+          blockedActions: ['Confirm the local connection and current records before continuing.'],
+          stateDetail:
+            'The saved brief is available for review. Its current state is not confirmed while the local server is disconnected or reconnecting.',
+        }
+      : storedWork;
   const focusedId = focusedWork?.workId ?? workId;
-  const edits = (focusedId && workEdits.get(focusedId)) || emptyWorkEdits();
+  const edits = focusedId ? (workEdits.get(focusedId) ?? readEdits(focusedId)) : emptyWorkEdits();
+  const editsRef = useRef(workEdits);
+  editsRef.current = workEdits;
+  const storedValues = useRef(new Map<string, string>());
+  const persist = (id: string, value: WorkEdits) => {
+    if (!memory) return;
+    const saved: SavedResumeEdits = {
+      selectedKey: value.selectedKey,
+      goalDraft: value.goalDraft,
+      actionDrafts: [...value.actionDrafts],
+      expanded: value.expanded,
+      scroll: value.scroll,
+    };
+    const serialized = JSON.stringify(saved);
+    if (storedValues.current.get(id) === serialized) return;
+    try {
+      memory.write(id, saved);
+      storedValues.current.set(id, serialized);
+    } catch {
+      setStorageError(true);
+    }
+  };
+  useEffect(() => {
+    if (storageReadFailed.current) setStorageError(true);
+    for (const [id, value] of workEdits) persist(id, value);
+  }, [workEdits, memory, focusedId]);
+  useEffect(() => {
+    if (!memory || !focusedId || !loaded) return;
+    const id = focusedId;
+    const saved = editsRef.current.get(id) ?? readEdits(id);
+    window.scrollTo(0, saved.scroll);
+    let scroll: number | undefined;
+    const record = () => {
+      scroll = window.scrollY;
+      updateEdits(id, (previous) =>
+        previous.scroll === scroll ? previous : { ...previous, scroll: scroll! },
+      );
+    };
+    const flush = () => {
+      if (scroll === undefined) return;
+      const value = editsRef.current.get(id) ?? readEdits(id);
+      const next = { ...value, scroll };
+      initialEdits.current.set(id, next);
+      persist(id, next);
+    };
+    window.addEventListener('scroll', record, { passive: true });
+    window.addEventListener('pagehide', flush);
+    return () => {
+      window.removeEventListener('scroll', record);
+      window.removeEventListener('pagehide', flush);
+      flush();
+    };
+  }, [memory, focusedId, loaded]);
   const { saving, correctionMessage, copyMessage, coordinationMessage, coordinationBusy } = edits;
   const goalEditing = !!edits.goalDraft;
   const goalText = edits.goalDraft?.text ?? '';
+  const panelProps = (key: string, forceOpen = false) => ({
+    open: forceOpen || edits.expanded.includes(key),
+    onToggle: (event: import('react').SyntheticEvent<HTMLDetailsElement>) => {
+      if (event.target !== event.currentTarget) return;
+      const open = event.currentTarget.open;
+      updateEdits(focusedId, (previous) =>
+        previous.expanded.includes(key) === open
+          ? previous
+          : {
+              ...previous,
+              expanded: open
+                ? [...previous.expanded, key]
+                : previous.expanded.filter((item) => item !== key),
+            },
+      );
+    },
+  });
   const visibleError = edits.error ?? listError;
   const error = visibleError?.message ?? '';
   const errorDetail = visibleError?.detail ?? '';
@@ -363,7 +478,10 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
   const [continuation, setContinuation] = useState<Continuation | null>(null),
     [continuationBusy, setContinuationBusy] = useState(false);
   const readSequence = useRef(0);
-  const appliedReads = useRef(new Map<string, number>());
+  // Seed restored IDs so the first authoritative full list can remove them.
+  const appliedReads = useRef(
+    new Map<string, number>((viewCache?.works ?? []).map((row) => [row.workId, 0])),
+  );
   const applyRows = (rows: ResumeWork[], sequence: number, ownerId?: string) => {
     const incoming = new Map(rows.map((row) => [row.workId, row]));
     const ids = ownerId
@@ -390,9 +508,15 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
   };
   useEffect(() => {
     let alive = true,
-      pending = false;
+      pending = false,
+      queued = false,
+      disconnected = false;
     const load = async () => {
-      if (pending) return;
+      if (!alive) return;
+      if (pending) {
+        queued = true;
+        return;
+      }
       pending = true;
       const sequence = ++readSequence.current;
       try {
@@ -401,22 +525,32 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
           applyRows(rows, sequence);
           setLoaded(true);
           setListError(null);
+          if (!queued && !disconnected) setTransport('connected');
         }
       } catch (e) {
-        if (alive) setListError(resumeError(e));
+        if (alive) {
+          setListError(resumeError(e));
+          setTransport('disconnected');
+        }
       } finally {
         pending = false;
+        if (alive && queued) {
+          queued = false;
+          void load();
+        }
       }
     };
     void load();
-    const subscribe = (
-      gateway as ResumeGateway & { subscribe?: (listener: () => void) => () => void }
-    ).subscribe;
-    const stop = subscribe
-      ? subscribe(() => {
-          void load();
-        })
-      : undefined;
+    const stop = gateway.subscribe?.(
+      () => {
+        void load();
+      },
+      (state) => {
+        if (!alive) return;
+        disconnected = state === 'disconnected';
+        setTransport(disconnected ? 'disconnected' : 'connecting');
+      },
+    );
     return () => {
       alive = false;
       stop?.();
@@ -428,6 +562,7 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
     try {
       applyRows(await gateway.list(), sequence);
       setLoaded(true);
+      setTransport('connected');
     } catch (e) {
       reportError(e);
     }
@@ -471,8 +606,12 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
   }, [selectedKey, current?.id]);
   useEffect(() => {
     currentIdRef.current = current?.id ?? null;
+    setContinuationBusy(false);
     setCopyMessage('');
     setCoordinationMessage('');
+    return () => {
+      currentIdRef.current = null;
+    };
   }, [current?.id]);
   // Keep the durable request visible after a refresh or candidate change so
   // a lost response can be checked without creating another request.
@@ -544,6 +683,49 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
     );
   };
   const cancelGoal = () => updateEdits(focusedId, (previous) => ({ ...previous, goalDraft: null }));
+  const reviewDraftVersion = (kind: 'goal' | 'action') => {
+    if (!focusedWork || transport !== 'connected') return;
+    updateEdits(focusedWork.workId, (previous) => {
+      if (kind === 'goal')
+        return previous.goalDraft
+          ? {
+              ...previous,
+              error: null,
+              goalDraft: { ...previous.goalDraft, version: focusedWork.version },
+            }
+          : previous;
+      const draft = current && previous.actionDrafts.get(current.c.key);
+      return draft && current
+        ? {
+            ...previous,
+            error: null,
+            actionDrafts: new Map(previous.actionDrafts).set(current.c.key, {
+              ...draft,
+              version: focusedWork.version,
+            }),
+          }
+        : previous;
+    });
+  };
+  const draftReview = (kind: 'goal' | 'action') => {
+    const draft = kind === 'goal' ? edits.goalDraft : actionDraft;
+    if (!draft || !focusedWork || draft.version === focusedWork.version) return null;
+    return (
+      <div className="resume-notice" role="status">
+        <p>
+          This draft was written against earlier records. Compare it with the current brief before
+          saving.
+        </p>
+        <button
+          type="button"
+          disabled={saving || transport !== 'connected'}
+          onClick={() => reviewDraftVersion(kind)}
+        >
+          Use current records for this edit
+        </button>
+      </div>
+    );
+  };
   const editAction = (w: ResumeWork, c: ResumeCandidate) => {
     updateEdits(w.workId, (previous) =>
       previous.actionDrafts.has(c.key)
@@ -700,14 +882,17 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
   };
   const checkContinuationStatus = async () => {
     if (!continuation || !current?.w.workId || !gateway.continuation) return;
+    const operationId = current.id;
     setContinuationBusy(true);
     clearError();
     try {
-      setContinuation(await gateway.continuation(current.w.workId, continuation.id));
+      const status = await readContinuationStatus(current.w.workId, continuation.id, operationId);
+      if (!status && currentIdRef.current === operationId)
+        reportError('The request status could not be read. No new request was sent.');
     } catch (e) {
-      reportError(e);
+      if (currentIdRef.current === operationId) reportError(e);
     } finally {
-      setContinuationBusy(false);
+      if (currentIdRef.current === operationId) setContinuationBusy(false);
     }
   };
   const startNewSession = async () => {
@@ -856,12 +1041,24 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
         </a>
         <header>
           <strong className="resume-page-title">Resume</strong>
-          <a href="#/connect">Connect records</a>
+          <span className="local-badge" role="status">
+            {transport === 'connected'
+              ? 'Connected locally'
+              : transport === 'disconnected'
+                ? 'Connection lost · saved brief kept'
+                : 'Checking local connection'}
+          </span>
         </header>
         <main id="resume-content" tabIndex={-1}>
           <p className="resume-intro">
             Pick up interrupted Codex work. Confirm the next step, then open it in Codex.
           </p>
+          {storageError && (
+            <p className="resume-notice" role="alert">
+              Browser storage is unavailable. Your input remains on this screen, but cannot be
+              restored after leaving. Saved server records are unchanged.
+            </p>
+          )}
           {error && (
             <section role="alert" className="resume-error">
               <p>{error}</p>
@@ -889,7 +1086,7 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
               {correctionMessage}
             </p>
           )}
-          {loaded && !works.length && (
+          {loaded && !works.length && !workId && (
             <section>
               <h1>Where did you leave off?</h1>
               <p>
@@ -956,8 +1153,8 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
                 <a className="resume-primary" href="#/resume">
                   Return to resume list
                 </a>
-                <a className="resume-secondary" href="#/connect">
-                  Reconnect records
+                <a className="resume-secondary" href="#/connections">
+                  Restore disconnected work
                 </a>
               </div>
             </section>
@@ -1000,6 +1197,7 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
                       onChange={(e) => setGoalText(e.target.value)}
                     />
                   </label>
+                  {draftReview('goal')}
                   <p>
                     This updates this work. It creates no new project or session and does not expand
                     record access.
@@ -1060,15 +1258,6 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
           )}
           {current && (
             <section className="resume-card" key={current.id}>
-              {current.w.updatesAvailable && (
-                <p className="resume-notice" role="status">
-                  New records arrived after this snapshot. Confirm the step is still relevant, or{' '}
-                  <button disabled={current.w.busy} onClick={() => void refresh(current.w)}>
-                    Recheck records
-                  </button>
-                  .
-                </p>
-              )}
               <p className="resume-label">Purpose</p>
               <h1>{current.w.goalText ?? current.c.purpose}</h1>
               <div className="resume-goal-tools">
@@ -1101,6 +1290,7 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
                         onChange={(e) => setGoalText(e.target.value)}
                       />
                     </label>
+                    {draftReview('goal')}
                     <p>
                       This updates this work. It creates no new project or session and does not
                       expand record access.
@@ -1125,35 +1315,7 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
                   Restore the suggested step
                 </button>
               )}
-              <p className="resume-hint">
-                Based on the last checked records. Recheck before acting if the project or
-                conversations changed.
-              </p>
-              <h2>Where you left off</h2>
-              <p>{current.c.currentState}</p>
-              <h2>Completed so far</h2>
-              <ProgressSummary candidate={current.c} />
-              <WorkspaceStatus work={current.w} />
-              <ProgressDetails workId={current.w.workId} candidate={current.c} />
-              {current.c.actionAvailable ? (
-                <>
-                  <h2>{current.c.statusHeading}</h2>
-                  <p className="resume-action">{current.c.nextAction}</p>
-                  <small>
-                    {current.w.correctedKeys.includes(current.c.key)
-                      ? 'Corrected by you'
-                      : current.c.actionSourceLabel}
-                  </small>
-                  <p className="resume-done-when">
-                    <strong>Complete when:</strong> {current.c.doneWhen}
-                  </p>
-                </>
-              ) : (
-                <>
-                  <h2>{current.c.statusHeading}</h2>
-                  <p>{current.c.reason}</p>
-                </>
-              )}
+              <ResumeBrief candidate={current.c} work={current.w} />
               {current.c.prerequisites.length > 0 && (
                 <div>
                   <h2>Before you start</h2>
@@ -1164,252 +1326,200 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
                   </ul>
                 </div>
               )}
-              <section className="resume-brief-summary" aria-labelledby="brief-summary-heading">
-                <h2 id="brief-summary-heading">Carry this brief forward</h2>
-                <dl>
-                  <div>
-                    <dt>Goal</dt>
-                    <dd>{current.w.goalText ?? current.c.goal}</dd>
-                  </div>
-                  <div>
-                    <dt>Current state</dt>
-                    <dd>{current.c.currentState}</dd>
-                  </div>
-                  <div>
-                    <dt>Next action</dt>
-                    <dd>
-                      {current.c.nextAction ??
-                        'Confirm the current state before choosing an action.'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Complete when</dt>
-                    <dd>
-                      {current.c.doneWhen ?? 'A completion condition has not been confirmed.'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Limits</dt>
-                    <dd>
-                      {current.c.prerequisites.length
-                        ? current.c.prerequisites.join(' ')
-                        : 'No additional limits were recorded.'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Supporting records</dt>
-                    <dd>
-                      {current.c.evidence.length} connected record
-                      {current.c.evidence.length === 1 ? '' : 's'} support this brief. Open the
-                      detailed reason below to read them.
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Previous conversation</dt>
-                    <dd>
-                      The connected Codex conversation is available above when navigation is
-                      supported; the conversation ID is in the manual details.
-                    </dd>
-                  </div>
-                </dl>
-              </section>
-              <p className="resume-location">
-                The exact folder and collection scope are available under Review connection.
-              </p>
+              {focusedState === 'ready' ? (
+                <FriendlyLimitations values={focusedView?.limitations ?? []} />
+              ) : null}
               <div className="resume-primary-actions">
                 <p className="resume-label">Where to continue</p>
                 {current.c.target.existing.available && current.c.target.existing.url ? (
                   <a className="resume-primary" href={current.c.target.existing.url}>
                     {current.c.actionAvailable ? 'Confirm & open in Codex' : 'Open in Codex'}
                   </a>
-                ) : (
-                  <p className="resume-hint">
-                    Opening this conversation is unavailable in the current Codex connection.{' '}
-                    {current.c.nextAction && current.c.doneWhen
-                      ? 'Use the handoff instructions below.'
-                      : 'Review the saved brief and previous conversation after checking the records again.'}
-                  </p>
-                )}
+                ) : null}
+                <button
+                  type="button"
+                  className={
+                    current.c.target.existing.available ? 'resume-secondary' : 'resume-primary'
+                  }
+                  onClick={() => void copyHandoff(current.c, current.w)}
+                >
+                  Copy handoff instructions
+                </button>
+                <button disabled={current.w.busy} onClick={() => void refresh(current.w)}>
+                  Recheck records
+                </button>
               </div>
-              <p className="resume-hint">{current.c.target.existing.detail}</p>
-              <p className="resume-session-note">
-                <strong>New session:</strong> {current.c.target.newSession.detail}
+              <p className="resume-hint">
+                {current.c.target.existing.available
+                  ? 'Opening the recorded conversation does not send or execute this action.'
+                  : 'Paste the instructions into your existing Codex conversation. The previous conversation ID is included.'}
               </p>
-              <p className="resume-session-note">
-                <strong>Overall progress:</strong> {current.c.target.coordination.detail}
-              </p>
-              {current.c.target.coordination.available && current.c.target.coordination.url ? (
-                <a className="resume-secondary" href={current.c.target.coordination.url}>
-                  {current.c.target.coordination.label}
-                </a>
+              {copyMessage ? (
+                <p role="status" aria-live="polite">
+                  {copyMessage}
+                </p>
               ) : null}
-              {current.w.coordinationChoices?.length && gateway.setCoordination ? (
-                <details className="resume-coordination">
-                  <summary>Choose the conversation that tracks overall progress</summary>
-                  <p className="small muted">
-                    StateCarry only assigns this role when the records support it or you choose it
-                    here.
+              <details className="resume-manual-handoff" {...panelProps('handoff')}>
+                <summary>Review handoff instructions</summary>
+                {!current.c.actionAvailable ? (
+                  <p className="small uncertainty">
+                    This is a review note. Confirm the current state before changing files.
                   </p>
-                  <label>
-                    Overall progress conversation
-                    <select
-                      name="coordination-thread"
-                      autoComplete="off"
-                      value={current.w.coordination?.threadId ?? ''}
-                      onChange={(e) => void chooseCoordination(current.w, e.target.value || null)}
-                      disabled={saving || coordinationBusy}
-                    >
-                      <option value="">No conversation selected</option>
-                      {current.w.coordinationChoices.map((choice) => (
-                        <option key={choice.threadId} value={choice.threadId}>
-                          {choice.title}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {coordinationBusy ? (
-                    <p role="status" className="small">
-                      Saving this choice…
+                ) : null}
+                <textarea
+                  readOnly
+                  aria-label="Handoff instructions"
+                  value={resumeHandoffText(current.c, current.w)}
+                  rows={9}
+                />
+                <p className="small">
+                  Previous conversation: <code>{current.c.threadId}</code>
+                </p>
+              </details>
+              <details {...panelProps('workspace')}>
+                <summary>Project checks and limits</summary>
+                <WorkspaceStatus work={current.w} />
+              </details>
+              <ProgressDetails workId={current.w.workId} candidate={current.c} />
+              <details {...panelProps('continuation', !!continuation)}>
+                <summary>Other ways to continue</summary>
+                <p className="resume-session-note">
+                  <strong>New session:</strong> {current.c.target.newSession.detail}
+                </p>
+                <p className="resume-session-note">
+                  <strong>Overall progress:</strong> {current.c.target.coordination.detail}
+                </p>
+                {current.c.target.coordination.available && current.c.target.coordination.url ? (
+                  <a className="resume-secondary" href={current.c.target.coordination.url}>
+                    {current.c.target.coordination.label}
+                  </a>
+                ) : null}
+                {current.w.coordinationChoices?.length && gateway.setCoordination ? (
+                  <details className="resume-coordination">
+                    <summary>Choose the conversation that tracks overall progress</summary>
+                    <p className="small muted">
+                      StateCarry only assigns this role when the records support it or you choose it
+                      here.
                     </p>
-                  ) : null}
-                  {coordinationMessage ? (
-                    <p role="status" className="resume-correction-status">
-                      {coordinationMessage}
-                    </p>
-                  ) : null}
-                </details>
-              ) : null}
-              {current.w.coordination?.evidence.length ? (
-                <details>
-                  <summary>Why this coordination conversation is suggested</summary>
-                  {current.w.coordination.evidence.map((e, i) => (
-                    <blockquote key={`${e.revisionId}:${i}`}>
-                      <p>{e.quote}</p>
-                      <a
-                        href={`/api/v1/work-contexts/${encodeURIComponent(current.w.workId)}/evidence/${encodeURIComponent(e.revisionId)}`}
-                        target="_blank"
-                        rel="noreferrer"
+                    <label>
+                      Overall progress conversation
+                      <select
+                        name="coordination-thread"
+                        autoComplete="off"
+                        value={current.w.coordination?.threadId ?? ''}
+                        onChange={(e) => void chooseCoordination(current.w, e.target.value || null)}
+                        disabled={saving || coordinationBusy}
                       >
-                        Read supporting record
-                      </a>
-                    </blockquote>
-                  ))}
-                </details>
-              ) : null}
-              {(continuation && typeof gateway.continuation === 'function') ||
-              (!current.w.updatesAvailable &&
-                current.c.target.newSession.available &&
-                current.c.actionAvailable &&
-                canPrepareContinuation) ? (
-                <div className="resume-session-actions">
-                  {current.c.actionAvailable &&
-                  current.c.target.newSession.available &&
-                  !current.w.updatesAvailable &&
-                  canPrepareContinuation ? (
-                    <button
-                      type="button"
-                      disabled={
-                        continuationBusy ||
-                        (!!continuation &&
-                          ['dispatching', 'sent', 'opening', 'opened', 'result-unknown'].includes(
-                            continuation.state,
-                          ))
-                      }
-                      onClick={() => void startNewSession()}
-                    >
-                      {continuation?.state === 'prepared'
-                        ? 'Send the prepared context'
-                        : continuation?.state === 'failed'
-                          ? 'Prepare a new request and try again'
-                          : 'Prepare and send to a new session'}
-                    </button>
-                  ) : null}
-                  {continuation && (
-                    <p role="status">
-                      {!current.c.actionAvailable || !current.c.target.newSession.available
-                        ? 'This saved request is retained, but the brief needs a fresh check before another action.'
-                        : continuationStatusLabel(continuation)}
-                    </p>
-                  )}
-                  {continuation &&
-                  ['result-unknown', 'dispatching', 'opening'].includes(continuation.state) &&
-                  typeof gateway.continuation === 'function' ? (
-                    <button
-                      type="button"
-                      disabled={continuationBusy}
-                      onClick={() => void checkContinuationStatus()}
-                    >
-                      Check request status
-                    </button>
-                  ) : null}
-                  {continuation &&
-                  ['sent', 'failed'].includes(continuation.state) &&
-                  !!continuation.threadId &&
-                  current.c.actionAvailable &&
-                  current.c.target.newSession.available &&
-                  canOpenContinuation ? (
-                    <button
-                      type="button"
-                      disabled={continuationBusy}
-                      onClick={() => void openNewSession()}
-                    >
-                      {continuation.state === 'failed'
-                        ? 'Try opening the new Codex session again'
-                        : 'Open the new Codex session'}
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
-              {automaticContinuationUnsupported && (
-                <section className="resume-manual-handoff" aria-labelledby="manual-handoff-heading">
-                  <h2 id="manual-handoff-heading">Continue manually</h2>
-                  <p>
-                    <strong>Automatic continuation is unavailable.</strong>{' '}
-                    {current.c.actionAvailable && current.c.nextAction && current.c.doneWhen
-                      ? 'Copy these instructions into the conversation you want to continue.'
-                      : 'Use this review note after checking the latest records; it does not approve a file change.'}
-                  </p>
-                  {!current.c.actionAvailable ? (
-                    <p className="small uncertainty">
-                      The brief still needs a fresh project or record check. Confirm the current
-                      state before changing files.
-                    </p>
-                  ) : null}
-                  <details className="resume-session-id">
-                    <summary>Use a conversation ID manually</summary>
-                    <p className="small">
-                      If the conversation link does not open, copy this ID into Codex:
-                    </p>
-                    <code>{current.c.threadId}</code>
+                        <option value="">No conversation selected</option>
+                        {current.w.coordinationChoices.map((choice) => (
+                          <option key={choice.threadId} value={choice.threadId}>
+                            {choice.title}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {coordinationBusy ? (
+                      <p role="status" className="small">
+                        Saving this choice…
+                      </p>
+                    ) : null}
+                    {coordinationMessage ? (
+                      <p role="status" className="resume-correction-status">
+                        {coordinationMessage}
+                      </p>
+                    ) : null}
                   </details>
-                  <textarea
-                    readOnly
-                    aria-label="Handoff instructions"
-                    value={resumeHandoffText(current.c, current.w)}
-                    rows={9}
-                  />
-                  <div className="resume-manual-actions">
-                    <button
-                      className="resume-primary"
-                      type="button"
-                      onClick={() => void copyHandoff(current.c, current.w)}
-                    >
-                      Copy handoff instructions
-                    </button>
-                    <span className="resume-hint">
-                      You can also use the previous conversation link above.
-                    </span>
+                ) : null}
+                {current.w.coordination?.evidence.length ? (
+                  <details>
+                    <summary>Why this coordination conversation is suggested</summary>
+                    {current.w.coordination.evidence.map((e, i) => (
+                      <blockquote key={`${e.revisionId}:${i}`}>
+                        <p>{e.quote}</p>
+                        <a
+                          href={`/api/v1/work-contexts/${encodeURIComponent(current.w.workId)}/evidence/${encodeURIComponent(e.revisionId)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Read supporting record
+                        </a>
+                      </blockquote>
+                    ))}
+                  </details>
+                ) : null}
+                {(continuation && typeof gateway.continuation === 'function') ||
+                (!current.w.updatesAvailable &&
+                  current.c.target.newSession.available &&
+                  current.c.actionAvailable &&
+                  canPrepareContinuation) ? (
+                  <div className="resume-session-actions">
+                    {current.c.actionAvailable &&
+                    current.c.target.newSession.available &&
+                    !current.w.updatesAvailable &&
+                    canPrepareContinuation ? (
+                      <button
+                        type="button"
+                        disabled={
+                          continuationBusy ||
+                          (!!continuation &&
+                            ['dispatching', 'sent', 'opening', 'opened', 'result-unknown'].includes(
+                              continuation.state,
+                            ))
+                        }
+                        onClick={() => void startNewSession()}
+                      >
+                        {continuation?.state === 'prepared'
+                          ? 'Send the prepared context'
+                          : continuation?.state === 'failed'
+                            ? 'Prepare a new request and try again'
+                            : 'Prepare and send to a new session'}
+                      </button>
+                    ) : null}
+                    {continuation && (
+                      <p role="status">
+                        {!current.c.actionAvailable || !current.c.target.newSession.available
+                          ? 'This saved request is retained, but the brief needs a fresh check before another action.'
+                          : continuationStatusLabel(continuation)}
+                      </p>
+                    )}
+                    {continuation &&
+                    ['result-unknown', 'dispatching', 'opening'].includes(continuation.state) &&
+                    typeof gateway.continuation === 'function' ? (
+                      <button
+                        type="button"
+                        disabled={continuationBusy}
+                        onClick={() => void checkContinuationStatus()}
+                      >
+                        Check request status
+                      </button>
+                    ) : null}
+                    {continuation &&
+                    ['sent', 'failed'].includes(continuation.state) &&
+                    !!continuation.threadId &&
+                    current.c.actionAvailable &&
+                    current.c.target.newSession.available &&
+                    canOpenContinuation ? (
+                      <button
+                        type="button"
+                        disabled={continuationBusy}
+                        onClick={() => void openNewSession()}
+                      >
+                        {continuation.state === 'failed'
+                          ? 'Try opening the new Codex session again'
+                          : 'Open the new Codex session'}
+                      </button>
+                    ) : null}
                   </div>
-                  {copyMessage && (
-                    <p role="status" aria-live="polite">
-                      {copyMessage}
-                    </p>
-                  )}
-                </section>
-              )}
-              <details>
+                ) : null}
+                {automaticContinuationUnsupported ? (
+                  <p className="small">
+                    Automatic continuation is unavailable. Use the recorded conversation or copy the
+                    handoff above.
+                  </p>
+                ) : null}
+              </details>
+              <details {...panelProps('evidence')}>
                 <summary>Why this recommendation</summary>
-                <p>{current.c.reason}</p>
                 <p>
                   Likely next step from connected records; it is not a statement of your current
                   priority.
@@ -1433,16 +1543,13 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
                   Analyzed{' '}
                   {current.w.generatedAt ? new Date(current.w.generatedAt).toLocaleString() : '—'}
                 </p>
-                <button disabled={current.w.busy} onClick={() => void refresh(current.w)}>
-                  Recheck records
-                </button>
                 <p>
                   If the app link does not open, use this session ID in Codex:{' '}
                   <code>{current.c.threadId}</code>
                 </p>
                 <a href={`#/details/${current.w.workId}`}>More context / connection settings</a>
               </details>
-              <details>
+              <details {...panelProps('correction', editing)}>
                 <summary>Not This</summary>
                 <div className="resume-buttons">
                   <button
@@ -1504,6 +1611,7 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
                         onChange={(e) => changeActionDraft({ done: e.target.value })}
                       />
                     </label>
+                    {draftReview('action')}
                     <button disabled={saving || !action.trim() || !done.trim()}>
                       Save correction
                     </button>
@@ -1514,7 +1622,10 @@ export function Resume({ gateway, workId }: { gateway: ResumeGateway; workId?: s
             </section>
           )}
           {(candidates.length > 1 || (!current && candidates.length > 0)) && (
-            <details className="resume-choices">
+            <details
+              className="resume-choices"
+              {...panelProps('choices', !!focusedView?.selectionNeedsReview)}
+            >
               <summary>
                 {current
                   ? `Resume something else · ${candidates.length} options`

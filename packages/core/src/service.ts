@@ -145,6 +145,12 @@ export class StateCarry {
   listConnections(): Connection[] {
     return this.repo.list('connection').filter((connection) => this.isConnectionActive(connection));
   }
+  listRemovedConnections(): { connection: Connection; workRevision: number }[] {
+    return this.repo
+      .list('connection')
+      .filter((connection) => !!connection.removedAt)
+      .map((connection) => ({ connection, workRevision: this.work(connection.workId).revision }));
+  }
   connection(connectionId: string, allowRemoved = false): Connection {
     const value = this.repo.get('connection', connectionId);
     if (!value || (!allowRemoved && value.removedAt))

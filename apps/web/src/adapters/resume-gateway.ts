@@ -1,13 +1,25 @@
 import type { ResumeGateway, ResumeWork, ResumeCorrection } from '@statecarry/presentation';
 import type { Command, Continuation, Receipt } from '@statecarry/contracts';
 export class HttpResumeGateway implements ResumeGateway {
-  subscribe(listener: () => void): () => void {
+  subscribe(
+    listener: () => void,
+    onConnection?: (state: 'connected' | 'disconnected') => void,
+  ): () => void {
     if (typeof EventSource === 'undefined') return () => {};
     const source = new EventSource('/api/v1/events');
     const onChange = () => listener();
+    const onConnected = () => {
+      onConnection?.('connected');
+      listener();
+    };
+    const onError = () => onConnection?.('disconnected');
     source.addEventListener('change', onChange);
+    source.addEventListener('connected', onConnected);
+    source.addEventListener('error', onError);
     return () => {
       source.removeEventListener('change', onChange);
+      source.removeEventListener('connected', onConnected);
+      source.removeEventListener('error', onError);
       source.close();
     };
   }

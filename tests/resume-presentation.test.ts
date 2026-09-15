@@ -125,6 +125,14 @@ describe('resume presentation status', () => {
     expect(resumeWorkStatus(work({ state: 'ready', candidates: [] })).state).toBe('empty');
   });
 
+  it('does not repeat a ready explanation after newer records require review', () => {
+    const result = resumeWorkStatus(
+      work({ state: 'ready', stateDetail: 'This brief is ready to use.', updatesAvailable: true }),
+    );
+    expect(result.canAct).toBe(false);
+    expect(result.description).not.toBe('This brief is ready to use.');
+  });
+
   it('keeps a retained brief in the limited state after a check error', () => {
     const view = presentResumeWork(
       work({
@@ -185,12 +193,12 @@ describe('manual continuation', () => {
 });
 
 describe('goal-oriented progress presentation', () => {
-  it('describes result progress without turning evidence citations into work counts', () => {
+  it('keeps the recorded current state and reason instead of replacing them with evidence counts', () => {
     const view = presentResumeWork(work()).selected!;
     const summary = presentResumeProgress(view);
-    expect(summary.completed).toContain('implementation');
+    expect(summary.completed).toBe(candidate.currentState);
     expect(summary.completed).not.toMatch(/\b\d+\b/);
-    expect(summary.remaining).toContain('independent check');
+    expect(summary.remaining).toBe(candidate.reason);
   });
 });
 

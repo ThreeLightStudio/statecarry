@@ -14,7 +14,10 @@ export type {
 } from '@statecarry/contracts';
 export interface ResumeGateway {
   /** Optional change stream. It updates a displayed brief but never starts analysis. */
-  subscribe?(listener: () => void): () => void;
+  subscribe?(
+    listener: () => void,
+    onConnection?: (state: 'connected' | 'disconnected') => void,
+  ): () => void;
   list(): Promise<ResumeWork[]>;
   setGoal(workId: string, text: string, version: string): Promise<void>;
   setCoordination?(workId: string, threadId: string | null, version: string): Promise<void>;
@@ -118,53 +121,120 @@ export type ResumeWorkViewModel = {
 export type ResumeViewModel = ResumeWorkViewModel;
 
 /**
- * Goal-oriented progress copy for the compact Resume card. Evidence counts
- * are deliberately not shown here: several citations can support one result,
- * so the person needs a statement about the result and the remaining check.
+ * Compact compatibility copy for callers that still render two progress
+ * paragraphs. The current-state summary is already the model-produced account
+ * of what changed, so keep that concrete content instead of replacing it with
+ * an evidence-count-derived generic sentence.
  */
 export type ResumeProgressViewModel = { completed: string; remaining: string };
 
+function distinctNarrativeText(value: string | null | undefined, previous: string): string | null {
+  const text = value?.trim();
+  return text && text !== previous.trim() ? text : null;
+}
+
 export function presentResumeProgress(candidate: ResumeCandidate): ResumeProgressViewModel {
+  const completed = candidate.currentState.trim() || candidate.goal.trim();
+  const reason = distinctNarrativeText(candidate.reason, completed);
+  const remaining =
+    reason ??
+    (candidate.status === 'active' && candidate.nextAction
+      ? candidate.nextAction
+      : candidate.status === 'waiting'
+        ? 'A required input is still missing before work can continue.'
+        : candidate.status === 'paused'
+          ? 'This work remains paused until you choose to resume it.'
+          : candidate.status === 'unclear'
+            ? 'The available records do not yet establish what should happen next.'
+            : 'No further action is recorded in this brief.');
+  return { completed, remaining };
+}
+
+export type ResumeNarrativeViewModel = {
+  purpose: string;
+  currentState: string;
+  evidenceNote: string | null;
+  transitionHeading: string | null;
+  transition: string | null;
+  nextAction: string | null;
+  doneWhen: string | null;
+};
+
+function narrativeEvidenceNote(candidate: ResumeCandidate): string | null {
   const progress = candidate.progress;
   const completion = candidate.completion;
-  const hasReported = !!(progress?.reported?.length || completion?.reported?.length);
-  const hasImplemented = !!progress?.implemented?.length;
-  const hasVerified = !!(progress?.verified?.length || completion?.verified?.length);
+  const reported = !!(progress?.reported?.length || completion?.reported?.length);
+  const implemented = !!progress?.implemented?.length;
+  const verified = !!(progress?.verified?.length || completion?.verified?.length);
+  const completionReported = !!completion?.reported?.length;
+  const completionVerified = !!completion?.verified?.length;
 
-  let completed: string;
-  if (candidate.status === 'done' && hasVerified) {
-    completed = 'The result is reported complete and an independent check is recorded.';
-  } else if (candidate.status === 'done') {
-    completed = 'The connected conversation reports that the result is complete.';
-  } else if (hasImplemented && hasVerified) {
-    completed = 'The implementation is recorded and part of it has an independent check.';
-  } else if (hasImplemented) {
-    completed = 'The implementation is recorded in project evidence.';
-  } else if (hasVerified) {
-    completed = 'An independent check is recorded for part of this result.';
-  } else if (hasReported) {
-    completed = 'The connected conversation reports progress toward this result.';
-  } else {
-    completed = 'No part of this result is independently confirmed yet.';
+  if (completionVerified) return 'A completion check is recorded for this result.';
+  if (completionReported)
+    return 'Completion is reported in the connected records; independent verification is not recorded.';
+  if (implemented && verified)
+    return 'Project evidence records implementation, and an independent check is also recorded.';
+  if (implemented)
+    return 'Project evidence records implementation; independent verification is not recorded yet.';
+  if (reported && verified)
+    return 'Connected records report progress, and an independent check is also recorded.';
+  if (reported)
+    return 'Connected records report progress; independent verification is not recorded yet.';
+  if (verified) return 'An independent check is recorded for part of this work.';
+  return null;
+}
+
+/**
+ * Present one compact return narrative from facts that are already in the
+ * Resume contract. It never turns stale/blocked action text into an executable
+ * next step and never copies raw evidence quotes into the default body.
+ */
+export function presentResumeNarrative(
+  candidate: ResumeCandidateViewModel,
+  work: ResumeWork,
+): ResumeNarrativeViewModel {
+  const purpose = (work.goalText ?? candidate.goal).trim();
+  const currentState = candidate.currentState.trim() || purpose;
+  const status = resumeWorkStatus(work);
+  const canShowAction =
+    candidate.status === 'active' &&
+    candidate.actionAvailable &&
+    status.canAct &&
+    !!candidate.nextAction &&
+    !!candidate.doneWhen;
+  const reason = distinctNarrativeText(candidate.reason, currentState);
+
+  if (canShowAction) {
+    return {
+      purpose,
+      currentState,
+      evidenceNote: narrativeEvidenceNote(candidate),
+      transitionHeading: reason ? 'Why this is next' : null,
+      transition: reason,
+      nextAction: candidate.nextAction,
+      doneWhen: candidate.doneWhen,
+    };
   }
 
-  let remaining: string;
-  if (candidate.status === 'active') {
-    remaining = hasVerified
-      ? 'The next action still needs to be completed and checked before this result is finished.'
-      : 'The recorded progress still needs an independent check before this result is finished.';
-  } else if (candidate.status === 'waiting') {
-    remaining = 'A required input is still missing before work can continue.';
-  } else if (candidate.status === 'paused') {
-    remaining = 'Choose resume when you are ready to continue this result.';
-  } else if (candidate.status === 'unclear') {
-    remaining = 'Decide what the available records mean before continuing.';
-  } else {
-    remaining = hasVerified
-      ? 'No further action is recorded in this brief.'
-      : 'Independent verification is still needed before treating this as finished.';
-  }
-  return { completed, remaining };
+  const blockedActive = candidate.status === 'active';
+  const transition = blockedActive
+    ? !status.canAct
+      ? distinctNarrativeText(status.description, currentState)
+      : reason
+    : reason;
+  return {
+    purpose,
+    currentState,
+    evidenceNote: narrativeEvidenceNote(candidate),
+    transitionHeading: transition
+      ? blockedActive
+        ? 'Before continuing'
+        : candidate.statusHeading
+      : null,
+    transition,
+    nextAction: null,
+    doneWhen: null,
+  };
 }
 
 export const resumeProgressSummary = presentResumeProgress;
@@ -476,11 +546,15 @@ export function resumeWorkStatus(work: ResumeWork): ResumeWorkStatus {
       : state === 'limited'
         ? ['start-session', 'send-continuation']
         : ['resume', 'start-session', 'send-continuation'];
+  const description =
+    work.state && state !== work.state
+      ? workStateDescriptions[state]
+      : work.stateDetail?.trim() || workStateDescriptions[state];
   return {
     state,
     label: workStateLabels[state],
-    description: work.stateDetail?.trim() || workStateDescriptions[state],
-    detail: work.stateDetail?.trim() || workStateDescriptions[state],
+    description,
+    detail: description,
     blockedActions,
     limitations,
     canAct: state === 'ready' && blockedActions.length === 0,

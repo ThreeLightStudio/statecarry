@@ -34,6 +34,7 @@ export interface Gateway {
   question?<T>(path: string, payload?: unknown): Promise<T>;
   projects(): Promise<ProjectListItem[]>;
   connections(): Promise<Connection[]>;
+  removedConnections?(): Promise<RestorableConnection[]>;
   snapshot(workId: string): Promise<ReturnContextSnapshot>;
   evidence(revisionId: string, workId?: string): Promise<SourceRevision>;
   discover(
@@ -53,6 +54,7 @@ export interface Gateway {
   ): () => void;
   observe?(event: Observation): Promise<void>;
 }
+export type RestorableConnection = { connection: Connection; workRevision: number };
 export type OpenRequest = {
   requestId: string;
   threadId: string;
@@ -110,6 +112,7 @@ export type UIAction =
   | { type: 'correction'; value: string; slot: ClaimSlot }
   | { type: 'saveCorrection'; undo?: boolean }
   | { type: 'removeConnection' }
+  | { type: 'restoreConnection'; connectionId: string; workId: string; workRevision: number }
   | { type: 'link'; id: string; status: 'linked' | 'deferred' | 'separate'; undo?: boolean }
   | { type: 'displayed'; summaryId: string }
   | { type: 'scroll'; value: number; workId?: string }
@@ -125,6 +128,7 @@ export type AppViewModel = {
   explanation?: ExplanationPanelView;
   route: string;
   projects: ProjectListItem[];
+  removedConnections?: RestorableConnection[];
   detail: ReturnContextViewModel | null;
   local: LocalWorkState;
   evidence: Record<string, EvidenceViewModel>;
@@ -185,6 +189,7 @@ export class Controller {
     transport: 'connecting',
     route: '#/projects',
     projects: [],
+    removedConnections: [],
     detail: null,
     local: emptyLocal(),
     evidence: {},
@@ -283,8 +288,11 @@ export class Controller {
     this.sequence++;
   }
   private async refreshProjects() {
-    const projects = this.readingProjects(await this.gateway.projects());
-    this.set({ projects });
+    const [projects, removedConnections] = await Promise.all([
+      this.gateway.projects(),
+      this.gateway.removedConnections?.() ?? Promise.resolve([]),
+    ]);
+    this.set({ projects: this.readingProjects(projects), removedConnections });
   }
   private readingProjects(projects: ProjectListItem[]) {
     return projects.map((p) => {
@@ -324,11 +332,14 @@ export class Controller {
     const route = this.value.route,
       workId = /^#\/(?:work|handoff)\/([^/]+)/.exec(route)?.[1],
       sequence = ++this.sequence;
-    let projects: ProjectListItem[], snapshot: ReturnContextSnapshot | null;
+    let projects: ProjectListItem[],
+      snapshot: ReturnContextSnapshot | null,
+      removedConnections: RestorableConnection[];
     try {
-      [projects, snapshot] = await Promise.all([
+      [projects, snapshot, removedConnections] = await Promise.all([
         this.gateway.projects(),
         workId ? this.gateway.snapshot(workId) : Promise.resolve(null),
+        this.gateway.removedConnections?.() ?? Promise.resolve([]),
       ]);
     } catch (error) {
       if (sequence !== this.sequence || route !== this.value.route) return;
@@ -461,6 +472,7 @@ export class Controller {
     }
     this.set({
       projects: this.readingProjects(projects),
+      removedConnections,
       detail: snapshot
         ? presentReturnContext(snapshot, { baselineSummaryId: this.baselineSummaryId })
         : null,
@@ -633,6 +645,24 @@ export class Controller {
   discover(cwd: string) {
     return this.gateway.discover(cwd);
   }
+  async listRemovedConnections(): Promise<RestorableConnection[]> {
+    return this.gateway.removedConnections?.() ?? [];
+  }
+  async restoreConnection(input: Omit<Extract<UIAction, { type: 'restoreConnection' }>, 'type'>) {
+    if (this.inFlight) return;
+    this.inFlight = true;
+    this.set({ busy: true, error: null });
+    try {
+      await this.send(`/connections/${input.connectionId}/restore`, {}, input.workRevision);
+      await this.navigate(`#/work/${input.workId}`);
+      return input.workId;
+    } catch (e) {
+      this.set({ error: errorText(e) });
+    } finally {
+      this.inFlight = false;
+      this.set({ busy: false });
+    }
+  }
   async action(action: UIAction) {
     if (action.type.startsWith('explanation')) {
       if (action.type === 'explanationQuestion') {
@@ -680,13 +710,17 @@ export class Controller {
       this.set({ busy: true, error: null });
       try {
         await this.send(`/connections/${current.connection.id}/remove`, {}, current.work.revision);
-        await this.navigate('#/projects');
+        await this.navigate('#/connections');
       } catch (e) {
         this.set({ error: errorText(e) });
       } finally {
         this.inFlight = false;
         this.set({ busy: false });
       }
+      return;
+    }
+    if (action.type === 'restoreConnection') {
+      await this.restoreConnection(action);
       return;
     }
     if (action.type === 'draft') {

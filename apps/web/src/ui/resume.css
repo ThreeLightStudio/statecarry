@@ -227,15 +227,6 @@
   display: block;
   margin-top: 6px;
 }
-.resume-progress-summary {
-  margin-top: 22px;
-  border-left: 4px solid #74a685;
-  padding: 2px 0 2px 15px;
-  background: #fbfdfb;
-}
-.resume-progress-summary h2 {
-  margin-top: 10px;
-}
 .resume-workspace {
   margin-top: 22px;
   border: 1px solid #cfe1d3;
@@ -655,45 +646,15 @@
 .connection-lifecycle p {
   max-width: 60rem;
 }
-.resume-brief-summary {
-  margin: 24px 0;
-  padding: 18px;
-  border: 1px solid var(--resume-border);
-  border-radius: 10px;
-  background: #f7faf6;
-}
-.resume-brief-summary h2 {
-  margin-top: 0;
-}
-.resume-brief-summary dl {
-  margin: 0;
-  display: grid;
-  gap: 10px;
-}
-.resume-brief-summary dl > div {
-  display: grid;
-  grid-template-columns: minmax(120px, 0.34fr) minmax(0, 1fr);
-  gap: 12px;
-  padding-top: 9px;
-  border-top: 1px solid #e3ebe2;
-}
-.resume-brief-summary dt {
-  color: #587064;
-  font-weight: 750;
-}
-.resume-brief-summary dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-}
 @media (max-width: 650px) {
   .resume-app-shell > .resume-shell {
     padding: 0 18px;
   }
 }
-@media (max-width: 520px) {
-  .resume-brief-summary dl > div {
-    grid-template-columns: 1fr;
-    gap: 2px;
-  }
+.resume-narrative > p {
+  max-width: 680px;
+  overflow-wrap: anywhere;
+}
+.resume-primary-actions .resume-secondary {
+  margin-top: 0;
 }

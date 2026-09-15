@@ -84,7 +84,11 @@ it('keeps the return brief single-purpose and avoids completion counts', async (
   const { host, root } = await renderResume(work);
   try {
     expect(host.querySelectorAll('.resume-goal-tools')).toHaveLength(1);
-    expect(host.textContent).toContain('Completed so far');
+    expect(host.textContent).toContain(work.candidates[0].currentState);
+    expect(host.querySelector('.resume-brief-summary')).toBeNull();
+    expect(host.querySelector('.resume-narrative')?.textContent).toContain(
+      work.candidates[0].reason,
+    );
     expect(host.textContent).not.toContain('What remains');
     expect(host.textContent).not.toMatch(/\b\d+ implementation update/);
     expect(host.textContent).toContain('Complete when: The check result is recorded');

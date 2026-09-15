@@ -13,11 +13,13 @@ export function AppSidebar({
   activeWorkId,
   activeDetails = false,
   activeConnect = false,
+  activeConnections = false,
 }: {
   works?: SidebarWork[];
   activeWorkId?: string;
   activeDetails?: boolean;
   activeConnect?: boolean;
+  activeConnections?: boolean;
 }) {
   return (
     <aside className="sidebar" aria-label="StateCarry navigation">
@@ -56,6 +58,9 @@ export function AppSidebar({
             Review details
           </a>
         ) : null}
+        <a className={`nav-link${activeConnections ? ' active' : ''}`} href="#/connections">
+          Connections
+        </a>
         <a className={`nav-link add-link${activeConnect ? ' active' : ''}`} href="#/connect">
           ＋ Connect records
         </a>

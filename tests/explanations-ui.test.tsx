@@ -14,7 +14,7 @@ const requireWeb = createRequire(resolve('apps/web/package.json'));
 const { createElement, act } = requireWeb('react') as typeof import('react');
 const { createRoot } = requireWeb('react-dom/client') as typeof import('react-dom/client');
 
-async function setup() {
+async function setup(prepareExplanation = true) {
   const t = await explanationHarness(),
     { h, id } = t,
     memory = new Map<string, LocalWorkState>(),
@@ -59,13 +59,23 @@ async function setup() {
     () => crypto.randomUUID(),
   );
   await c.start(`#/work/${id}`);
-  await t.settled();
-  await c.refresh();
+  if (prepareExplanation) {
+    await c.action({ type: 'explanationPrepare' });
+    await t.settled();
+    await c.refresh();
+  }
   return { ...t, c, gateway, requests, memory };
 }
-it('prepares on first opening only; preserves inputs, pinned reading and separate question targets', async () => {
-  const { h, id, c, counts, requests } = await setup();
+it('prepares only after explicit request; preserves inputs, pinned reading and separate question targets', async () => {
+  const { h, id, c, counts, requests, settled } = await setup(false);
   try {
+    await c.refresh();
+    await c.refresh();
+    expect(requests.filter((p) => p.endsWith('/prepare'))).toHaveLength(0);
+    expect(counts().generated).toBe(0);
+    await c.action({ type: 'explanationPrepare' });
+    await settled();
+    await c.refresh();
     const original = c.getSnapshot().explanation!.revision!;
     await c.action({ type: 'draft', value: '보존할 초안' });
     await c.action({ type: 'correction', slot: 'next', value: '보존할 수정' });
@@ -77,8 +87,6 @@ it('prepares on first opening only; preserves inputs, pinned reading and separat
     await c.action({ type: 'questionInput', value: '다른 질문' });
     await c.action({ type: 'explanationQuestion', nodeId: 'origin' });
     expect(c.getSnapshot().question?.input).toBe('처음 질문');
-    await c.refresh();
-    await c.refresh();
     expect(requests.filter((p) => p.endsWith('/prepare'))).toHaveLength(1);
     expect(counts().generated).toBe(1);
     h.records([
