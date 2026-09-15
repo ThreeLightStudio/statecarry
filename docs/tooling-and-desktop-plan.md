@@ -1,6 +1,6 @@
 # Tooling and desktop delivery plan
 
-Updated 2026-09-15. Stage 2A implementation is in progress from starting source commit `7322042`; its cleanup and historical test results do not establish that the new tooling works. Keep the existing pnpm/React/Vite/Node/TypeScript project and its public-first release goal.
+Updated 2026-09-15. Stage 2A is complete locally from starting source commit `7322042`. Its acceptance evidence comes from the new tooling checks described below rather than the starting commit's historical cleanup result. Keep the existing pnpm/React/Vite/Node/TypeScript project and its public-first release goal.
 
 ## Current integration points
 
@@ -35,6 +35,8 @@ The first normalization remains a dedicated formatting-only change after tool co
 CI is configured for the supported Apple Silicon macOS environment with `macos-15`, Node `24.14.1`, pnpm `10.33.2` and RTK `0.28.2`. It verifies the pinned RTK release digest, performs a frozen install and executes the same public `verify` command. Remote CI execution is outside this local implementation task; local configuration and clean-checkout validation remain required. Editor integration and optional local hooks are conveniences. Do not silence checks, remove fixtures or change rules just to get a passing result. Any necessary narrow exception must explain its reason.
 
 Acceptance: the chosen tool versions/configuration are pinned; formatting a second time produces no diff; a deliberate formatting violation and a representative lint violation fail the expected checks; an illegal layer import still fails the existing boundary check; `verify` passes from a clean source checkout. Keep formatting changes, rule-driven behavior fixes and task wiring reviewable as separate changes. The historical 384-test result remains a baseline, not proof of these new checks.
+
+Local acceptance on 2026-09-15 satisfied those gates. Representative TS, TSX, CSS, Markdown and YAML formatting stabilized after selecting `objectWrap: "collapse"`; a second repository format pass produced no tracked diff. Injected formatting drift, `no-debugger` and a forbidden UI-to-Core import each failed the intended check and were then removed. The selected lint rules required no source remediation. A source-only export completed `pnpm install --frozen-lockfile` and `verify`, including 384 tests and the bundled build. The CI workflow was linted locally, but no remote GitHub Actions run is claimed.
 
 ## 2B — Turborepo over pnpm
 
@@ -77,6 +79,6 @@ Scope is macOS installation of the existing MVP. Automatic updates, additional o
 
 ## Handoff and completion records
 
-Next implementation work: **2A, then 2B**, with public license/repository decisions handled alongside them. Finish each bounded change and verify it before assigning the dependent stage. Keep the initial commit and stage 1 preservation evidence intact. Electrobun feasibility can be a separate small read/prototype task; stage 7A remains the final delivery implementation.
+Next implementation work: **2B**, with public license/repository decisions handled alongside it. Keep the initial commit, stage 1 preservation evidence and stage 2A validation evidence intact. Electrobun feasibility can be a separate small read/prototype task; stage 7A remains the final delivery implementation.
 
 Report the commands actually run, source commit, observed failures, configured rules, task inputs/outputs, cold versus cached results and any deferred findings. These infrastructure checks cannot establish that the three known state defects or human work-resumption goals are solved. Keep those acceptance gates in [the roadmap](roadmap.md).
