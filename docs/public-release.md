@@ -14,9 +14,19 @@ The owner selected these settings on 2026-09-15:
 | Local branch          | `main`                                                                        |
 | Git author            | Existing configured identity retained; no history rewrite                     |
 
-The standard MIT text is applied as the root `LICENSE` with the approved copyright line. The root and five workspace manifests declare `license: "MIT"` and retain `private: true`. README and development guidance reference that applied license. The selected GitHub repository is connected as `origin`; source push and remote checks remain stage 3 work.
+The standard MIT text is applied as the root `LICENSE` with the approved copyright line. The root and five workspace manifests declare `license: "MIT"` and retain `private: true`. README and development guidance reference that applied license. The selected GitHub repository is connected as `origin`; the first publication and its remote checks are recorded below.
 
 The [GitHub licensing guide](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository) explains repository license placement, and [SPDX identifies this license as MIT](https://spdx.org/licenses/MIT.html). The root `LICENSE`, rather than this process document or an ignored proposal, supplies the license terms.
+
+## First publication record
+
+The first public source commit is [`a8628bac2821060200f59707167a58230a6139d0`](https://github.com/ThreeLightStudio/statecarry/commit/a8628bac2821060200f59707167a58230a6139d0), published to `main` on 2026-09-15. GitHub reports the repository as public, the default branch as `main`, and the source license as MIT.
+
+Anonymous HTTP requests returned 200 for the repository and the commit's LICENSE. A credential-free clone obtained the same commit and all 155 previously verified source files; the license matched the approved text. No dependency installation or user-workflow test was inferred from that clone.
+
+The commit's [Verify run 34973482818](https://github.com/ThreeLightStudio/statecarry/actions/runs/34973482818) completed successfully on GitHub's `macos-15-arm64` runner with Node `24.14.1`, pnpm `10.33.2` and RTK `0.28.2`. Frozen installation, all six verification tasks, 49 test files / 384 tests and the production build passed. All six tasks executed without cache hits; remote caching was disabled.
+
+This evidence belongs to that exact source commit. Later commits require their own checks; the source release does not establish an installable desktop application, human work-resumption success, completed binary notices or a contest submission.
 
 ## Source and dependency notices
 
