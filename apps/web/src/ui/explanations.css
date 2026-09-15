@@ -1,0 +1,26 @@
+.handoff-explanation { margin: 1.25rem 0; max-width: 960px; }
+.explanation-section { margin: 1.7rem 0; }
+.explanation-section h3 { font-size: 1.05rem; color: var(--muted, #58635d); }
+.explanation-sentence { margin: 1.25rem 0; overflow-wrap: anywhere; }
+.explanation-text { font-size: 1.05rem; line-height: 1.85; margin-bottom: .3rem; }
+.explanation-attribution { margin-top: .15rem; }
+.explanation-reason { border-left: 3px solid #ccd9ce; padding: .15rem 0 .15rem 1rem; margin: .8rem 0; }
+.explanation-reason > summary { color: #24533c; font-weight: 600; }
+.explanation-reason .explanation-text { font-size: 1rem; }
+.explanation-actions { display: flex; gap: .75rem; flex-wrap: wrap; align-items: flex-start; }
+.explanation-actions > .explanation-citations { min-width: 0; }
+.explanation-citations blockquote { white-space: pre-wrap; margin: .7rem 0; padding: .6rem .8rem; background: #f5f7f3; border-left: 2px solid #c5d3c7; }
+.explanation-raw { max-width: 100%; margin-top: .6rem; }
+.explanation-raw pre { max-height: 28rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.handoff-explanation button, .handoff-explanation summary { min-height: 44px; }
+.handoff-explanation summary { padding-top: .65rem; padding-bottom: .65rem; cursor: pointer; }
+.handoff-explanation :focus-visible { outline: 3px solid #447f5b; outline-offset: 3px; }
+.explanation-edits { padding: 1rem; background: #fff8e4; border-radius: .6rem; }
+.explanation-timing { margin-top: 1rem; }
+.sentence-detail { border-top: 0; padding-top: 0; margin-top: .35rem; }
+.sentence-detail > summary { color: #32634e; font-weight: 500; }
+.sentence-detail .explanation-actions { align-items: center; }
+.explanation-actions .text-button { white-space: normal; text-align: left; }
+.legacy-context { margin: 1rem 0; }
+.legacy-context > summary { cursor: pointer; padding: 1rem 0; font-weight: 600; }
+@media (max-width: 480px) { .handoff-explanation { padding: 1rem; } .explanation-reason { padding-left: .65rem; } .explanation-actions { display: block; } }

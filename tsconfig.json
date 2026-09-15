@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "target": "ES2023", "module": "ESNext", "moduleResolution": "Bundler", "strict": true,
+    "jsx": "react-jsx", "esModuleInterop": true, "skipLibCheck": true, "noEmit": true,
+    "lib": ["ES2023", "DOM", "DOM.Iterable"], "types": ["node"],
+    "paths": {
+      "@statecarry/contracts": ["./packages/contracts/src/index.ts"],
+      "@statecarry/core": ["./packages/core/src/index.ts"],
+      "@statecarry/presentation": ["./packages/presentation/src/index.ts"]
+    }
+  },
+  "include": ["packages", "apps", "scripts", "tests", "vitest.config.ts"]
+}

@@ -1,0 +1,9 @@
+.context-questions { border-top: 1px solid #ccc; margin-top: 1.5rem; padding-top: 1rem; overflow-wrap: anywhere; }
+.context-questions textarea { display: block; box-sizing: border-box; width: 100%; min-height: 6rem; margin: .5rem 0; resize: vertical; font: inherit; }
+.question-turn { border-bottom: 1px solid #ddd; padding: .75rem 0; }
+.question-anchor { font-weight: 600; }
+.question-raw { padding: .5rem; background: #f4f5f6; color: #222; }
+.question-raw pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 20rem; overflow: auto; }
+.question-citation { margin: .5rem 0; }
+.context-questions .button-row { flex-wrap: wrap; }
+@media (max-width: 520px) { .context-questions button { max-width: 100%; white-space: normal; } }

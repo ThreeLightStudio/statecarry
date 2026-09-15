@@ -1,0 +1,35 @@
+# Dependencies and generated output
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Private application data, local observations and cleanup reports
+.statecarry/
+.cache/
+*.sqlite*
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# Local configuration and credentials; examples must contain placeholders only
+.env
+.env.*
+!.env.example
+!.env.*.example
+.npmrc
+.netrc
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+
+# Editor backups and operating-system metadata
+*.bak
+*.orig
+*.rej
+.DS_Store
+._*
