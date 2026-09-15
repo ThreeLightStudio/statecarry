@@ -9,5 +9,7 @@ const relationLabels: Record<string, string> = {
 
 export function userRelationLabel(relation: string | null | undefined) {
   if (relation && Object.values(relationLabels).includes(relation)) return relation;
-  return relation ? relationLabels[relation] ?? 'Connected relationship' : 'Connected relationship';
+  return relation
+    ? (relationLabels[relation] ?? 'Connected relationship')
+    : 'Connected relationship';
 }

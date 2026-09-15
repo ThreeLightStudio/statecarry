@@ -19,14 +19,6 @@
     "react/jsx-key": "error",
     "react/rules-of-hooks": "error"
   },
-  "ignorePatterns": [
-    ".cache/**",
-    ".statecarry/**",
-    "coverage/**",
-    "dist/**",
-    "node_modules/**"
-  ],
-  "options": {
-    "reportUnusedDisableDirectives": "error"
-  }
+  "ignorePatterns": [".cache/**", ".statecarry/**", "coverage/**", "dist/**", "node_modules/**"],
+  "options": { "reportUnusedDisableDirectives": "error" }
 }

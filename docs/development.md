@@ -4,15 +4,15 @@ StateCarry is a pnpm workspace. Run commands from the repository root with the N
 
 ## Source layout
 
-| Path | Responsibility |
-| --- | --- |
-| `apps/server` | Local HTTP server, SQLite storage, Codex access and operating-system adapters |
-| `apps/web` | React interface, browser state and HTTP adapters |
-| `packages/contracts` | Shared schemas and data contracts |
-| `packages/core` | Work, evidence, analysis and continuation rules |
-| `packages/presentation` | View models and interaction controllers |
-| `tests` | Automated tests, synthetic records, temporary databases and fake providers |
-| `scripts` | Development, boundary checks, production build, connection verification and local packaging |
+| Path                    | Responsibility                                                                              |
+| ----------------------- | ------------------------------------------------------------------------------------------- |
+| `apps/server`           | Local HTTP server, SQLite storage, Codex access and operating-system adapters               |
+| `apps/web`              | React interface, browser state and HTTP adapters                                            |
+| `packages/contracts`    | Shared schemas and data contracts                                                           |
+| `packages/core`         | Work, evidence, analysis and continuation rules                                             |
+| `packages/presentation` | View models and interaction controllers                                                     |
+| `tests`                 | Automated tests, synthetic records, temporary databases and fake providers                  |
+| `scripts`               | Development, boundary checks, production build, connection verification and local packaging |
 
 UI code uses Presentation instead of importing Core or server adapters. Presentation and Core do not own browser or network access. `scripts/check-boundaries.ts` checks these boundaries; `vitest.config.ts` resolves the same workspace sources as TypeScript.
 

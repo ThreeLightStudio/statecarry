@@ -47,13 +47,13 @@ rtk proxy node dist/verify-connection.mjs --verify-navigation YOUR_THREAD_ID
 
 The helper opens that conversation and asks you to inspect its title and content before recording confirmation. An accepted OS request alone is not proof of arrival. Existing navigation evidence is preserved. This diagnostic is optional for source checks and is not run by the automated tests.
 
-| State | What you see |
-| --- | --- |
-| active | A first action, its source and its completion condition |
-| waiting | Dependency and condition for resuming |
-| paused | The deferral and relevant resumption condition |
-| unclear | What needs to be clarified; no invented next action |
-| done | Completion; no next action |
+| State   | What you see                                            |
+| ------- | ------------------------------------------------------- |
+| active  | A first action, its source and its completion condition |
+| waiting | Dependency and condition for resuming                   |
+| paused  | The deferral and relevant resumption condition          |
+| unclear | What needs to be clarified; no invented next action     |
+| done    | Completion; no next action                              |
 
 **Not This** lets you dismiss wrong work, supply a corrected next step and its Done When, mark done, or pause. Corrections persist across restarts and inform later analysis within the same record scope. Restore is available for mistakes. Other candidates are under **Resume something else**. Original records are never edited.
 

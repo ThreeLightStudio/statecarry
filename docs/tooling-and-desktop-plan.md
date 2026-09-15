@@ -16,15 +16,15 @@ Stage 2A pins **Oxfmt 0.68.0** as the formatter and **Oxlint 1.83.0** as the Jav
 
 Implemented command contract:
 
-| Command | Responsibility |
-| --- | --- |
-| `format` | Apply the checked-in formatting rules to public source/config/docs. |
-| `format:check` | Report formatting drift without writing. |
-| `lint` | Check the selected correctness, TypeScript and React rules without writing. |
-| `lint:fix` | Apply supported safe lint fixes; review the diff. |
-| `typecheck` | Run the existing TypeScript check. |
-| `check:boundaries` | Run the existing architectural dependency check. |
-| `verify` | One non-mutating entry point for format, lint, types, boundaries, tests and build. |
+| Command            | Responsibility                                                                     |
+| ------------------ | ---------------------------------------------------------------------------------- |
+| `format`           | Apply the checked-in formatting rules to public source/config/docs.                |
+| `format:check`     | Report formatting drift without writing.                                           |
+| `lint`             | Check the selected correctness, TypeScript and React rules without writing.        |
+| `lint:fix`         | Apply supported safe lint fixes; review the diff.                                  |
+| `typecheck`        | Run the existing TypeScript check.                                                 |
+| `check:boundaries` | Run the existing architectural dependency check.                                   |
+| `verify`           | One non-mutating entry point for format, lint, types, boundaries, tests and build. |
 
 Keep current commands compatible where practical. An aggregator must never invoke itself through Turbo. The existing `check` still needs to enforce its TypeScript and architecture responsibilities after scripts are rearranged.
 
@@ -62,14 +62,14 @@ The feasibility check should show one native window with the existing UI, a work
 
 Final installation acceptance:
 
-| Area | Required behavior |
-| --- | --- |
-| Installation and launch | On the supported Apple Silicon Mac, a downloaded application starts outside the source folder without the user starting a development server. State required Codex/account/executable prerequisites explicitly. |
-| Service ownership | App startup/shutdown owns the service it starts, detects port or writer conflicts and does not terminate an unrelated existing server. App reopen does not trigger duplicate analysis. |
-| Paths and persistence | Bundled asset paths do not depend on the launch working directory. Private data stays outside the app bundle; stored work/corrections survive restart and replacement. Review webview origin/storage changes before promising old browser drafts migrate. |
-| User workflow | Connection selection, evidence, editing, correction, handoff copy and actual Codex arrival work in the chosen webview. Preserve loopback/Origin restrictions rather than disabling them to make packaging work. |
-| Release artifact | Installer/app, runtime and any helper are packaged and validated with necessary licenses/notices and source-commit identity. Personal records and development paths are absent. |
-| Normal downloaded-app experience | Check signing/notarization and installation on an independent supported environment. A locally launched unsigned build is development evidence, not the complete public installation path. |
+| Area                             | Required behavior                                                                                                                                                                                                                                         |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Installation and launch          | On the supported Apple Silicon Mac, a downloaded application starts outside the source folder without the user starting a development server. State required Codex/account/executable prerequisites explicitly.                                           |
+| Service ownership                | App startup/shutdown owns the service it starts, detects port or writer conflicts and does not terminate an unrelated existing server. App reopen does not trigger duplicate analysis.                                                                    |
+| Paths and persistence            | Bundled asset paths do not depend on the launch working directory. Private data stays outside the app bundle; stored work/corrections survive restart and replacement. Review webview origin/storage changes before promising old browser drafts migrate. |
+| User workflow                    | Connection selection, evidence, editing, correction, handoff copy and actual Codex arrival work in the chosen webview. Preserve loopback/Origin restrictions rather than disabling them to make packaging work.                                           |
+| Release artifact                 | Installer/app, runtime and any helper are packaged and validated with necessary licenses/notices and source-commit identity. Personal records and development paths are absent.                                                                           |
+| Normal downloaded-app experience | Check signing/notarization and installation on an independent supported environment. A locally launched unsigned build is development evidence, not the complete public installation path.                                                                |
 
 The official [distribution guide](https://framework.blackboard.sh/electrobun/guides/bundling-and-distribution/) and [macOS signing guide](https://framework.blackboard.sh/electrobun/guides/code-signing/) describe release artifacts and Developer ID/notarization setup. Verify credentials availability without putting secret values in the repository or asking someone to paste them into a report. Signing availability is not assumed.
 

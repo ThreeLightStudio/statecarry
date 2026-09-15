@@ -36,7 +36,10 @@ describe('connection lifecycle', () => {
     const workId = h.connect();
     const connection = h.repo.list('connection')[0];
     let release: ((value: ReturnType<typeof read>) => void) | undefined;
-    h.reader.read = () => new Promise(resolve => { release = resolve; });
+    h.reader.read = () =>
+      new Promise((resolve) => {
+        release = resolve;
+      });
     const collecting = h.core.collect(workId);
     await Promise.resolve();
     h.core.removeConnection(connection.id, {

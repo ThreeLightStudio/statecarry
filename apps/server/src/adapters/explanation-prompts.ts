@@ -1,5 +1,13 @@
 import { z } from 'zod';
-import { DomainError, explanationCandidateSchema, explanationNodeSchema, explanationLinkSchema, type ExplanationContext, type ExplanationCandidate, type ExplanationAssessment } from '@statecarry/contracts';
+import {
+  DomainError,
+  explanationCandidateSchema,
+  explanationNodeSchema,
+  explanationLinkSchema,
+  type ExplanationContext,
+  type ExplanationCandidate,
+  type ExplanationAssessment,
+} from '@statecarry/contracts';
 import { prepareQuestionContext } from './question-prompts';
 import { redactAnalysisText } from './analysis-support';
 
@@ -20,32 +28,99 @@ Maximum 32 nodes and 8000 characters of combined displayed text (titles, questio
 Before writing, inventory materially distinct milestones explicitly reported across supplied excerpts, including intermediate prototypes and preservation/validation limitations. Represent each material milestone at its actual evidence level: an artifact list proves a documented artifact, a report proves reported implementation, a request proves requested work, and execution output proves only its shown result. Do not infer completed validation from a verification-document link.
 Separate necessary prerequisites from sufficient permission: "cannot certify before X" does not establish "X alone permits certification or use". State the recorded blocker directly and omit unrecorded permission, even in a condition field. A selected option is a user-decision; desired behavior requested from the product is a user-request. Classification follows the cited speech act, not merely the wording of the paraphrase.
 Unknowns describe bounded evidence gaps, not claims that analysis never happened or new work is required. Inspect node-level unknowns as well as top-level unknowns. If the issue is absence in a partial selection, say only that these excerpts do not establish it. Do not invent obligations in the impact field. These rules apply to generation, repair and the final whole-candidate check; an earlier supported verdict is never permanent approval.`;
-const content = explanationNodeSchema.omit({ id: true, evidence: true }).extend({ evidenceIds: z.array(z.string()).min(1).max(6) }).strict();
-const relation = explanationLinkSchema.omit({ id: true, parentId: true, childId: true, evidence: true }).extend({ evidenceIds: z.array(z.string()).min(1).max(6) }).strict();
+const content = explanationNodeSchema
+  .omit({ id: true, evidence: true })
+  .extend({ evidenceIds: z.array(z.string()).min(1).max(6) })
+  .strict();
+const relation = explanationLinkSchema
+  .omit({ id: true, parentId: true, childId: true, evidence: true })
+  .extend({ evidenceIds: z.array(z.string()).min(1).max(6) })
+  .strict();
 const levelTwo = relation.extend({ node: content }).strict();
-const levelOne = relation.extend({ node: content.extend({ reasons: z.array(levelTwo).max(6) }).strict() }).strict();
+const levelOne = relation
+  .extend({ node: content.extend({ reasons: z.array(levelTwo).max(6) }).strict() })
+  .strict();
 const bodyNode = content.extend({ reasons: z.array(levelOne).max(6) }).strict();
-export const referencedExplanationSchema = z.object({ sections: z.array(z.object({ title: z.string().min(1).max(100), body: z.array(bodyNode).min(1).max(32) }).strict()).min(1).max(8), unknowns: explanationCandidateSchema.shape.unknowns }).strict();
+export const referencedExplanationSchema = z
+  .object({
+    sections: z
+      .array(
+        z
+          .object({ title: z.string().min(1).max(100), body: z.array(bodyNode).min(1).max(32) })
+          .strict(),
+      )
+      .min(1)
+      .max(8),
+    unknowns: explanationCandidateSchema.shape.unknowns,
+  })
+  .strict();
 
 // Constrain generation to real IDs and matching provenance; semantic checking remains independent.
-export function explanationGenerationSchema(excerpts: { actor: string; fragments: { evidenceId: string | null }[] }[], selectionComplete = true, allowBodyState = true) {
+export function explanationGenerationSchema(
+  excerpts: { actor: string; fragments: { evidenceId: string | null }[] }[],
+  selectionComplete = true,
+  allowBodyState = true,
+) {
   const unknown = explanationCandidateSchema.shape.unknowns.element;
-  const boundedUnknown = selectionComplete ? unknown : unknown.extend({ cause: z.enum(['not-selected', 'not-collected', 'ambiguous', 'conflicting']) }).strict();
+  const boundedUnknown = selectionComplete
+    ? unknown
+    : unknown
+        .extend({ cause: z.enum(['not-selected', 'not-collected', 'ambiguous', 'conflicting']) })
+        .strict();
   const unknowns = z.array(boundedUnknown).max(5);
-  const ids = (actor?: string) => excerpts.filter(e => !actor || e.actor === actor).flatMap(e => e.fragments.flatMap(f => f.evidenceId ? [f.evidenceId] : []));
+  const ids = (actor?: string) =>
+    excerpts
+      .filter((e) => !actor || e.actor === actor)
+      .flatMap((e) => e.fragments.flatMap((f) => (f.evidenceId ? [f.evidenceId] : [])));
   const all = ids();
-  if (!all.length) throw new DomainError('SOURCE_UNAVAILABLE', 'No sources can be cited for this explanation.');
-  const refs = (values: string[]) => z.array(z.enum(values as [string, ...string[]])).min(1).max(6);
+  if (!all.length)
+    throw new DomainError('SOURCE_UNAVAILABLE', 'No sources can be cited for this explanation.');
+  const refs = (values: string[]) =>
+    z
+      .array(z.enum(values as [string, ...string[]]))
+      .min(1)
+      .max(6);
   const edge = relation.extend({ evidenceIds: refs(all) });
   const node = (reasons?: z.ZodType, root = false) => {
-    const variants = ([['user-report', 'user'], ['user-request', 'user'], ['user-decision', 'user'], ['agent-report', 'agent'], ['agent-proposal', 'agent'], ['tool-result', 'tool'], ['file-observation', 'tool'], ['agent-interpretation', undefined]] as const).flatMap<z.ZodType>(([nature, actor]) => {
+    const variants = (
+      [
+        ['user-report', 'user'],
+        ['user-request', 'user'],
+        ['user-decision', 'user'],
+        ['agent-report', 'agent'],
+        ['agent-proposal', 'agent'],
+        ['tool-result', 'tool'],
+        ['file-observation', 'tool'],
+        ['agent-interpretation', undefined],
+      ] as const
+    ).flatMap<z.ZodType>(([nature, actor]) => {
       const available = ids(actor);
       if (!available.length) return [];
-      const attributed = content.extend({ unknowns, nature: z.literal(nature), kind: z.literal(nature === 'agent-interpretation' ? 'interpretation' : 'record'), evidenceIds: refs(available) });
-      if (root) return [
-        attributed.extend({ role: z.enum(allowBodyState ? ['choice', 'state', 'action', 'followup'] : ['choice', 'action', 'followup']), reasons: reasons! }).strict(),
-        attributed.extend({ role: z.enum(['background', 'goal', 'progress', 'premise']), reasons: z.array(edge).max(0) }).strict(),
-      ];
+      const attributed = content.extend({
+        unknowns,
+        nature: z.literal(nature),
+        kind: z.literal(nature === 'agent-interpretation' ? 'interpretation' : 'record'),
+        evidenceIds: refs(available),
+      });
+      if (root)
+        return [
+          attributed
+            .extend({
+              role: z.enum(
+                allowBodyState
+                  ? ['choice', 'state', 'action', 'followup']
+                  : ['choice', 'action', 'followup'],
+              ),
+              reasons: reasons!,
+            })
+            .strict(),
+          attributed
+            .extend({
+              role: z.enum(['background', 'goal', 'progress', 'premise']),
+              reasons: z.array(edge).max(0),
+            })
+            .strict(),
+        ];
       return [attributed.extend({ ...(reasons ? { reasons } : {}) }).strict()];
     });
     if (variants.length === 1) return variants[0];
@@ -53,11 +128,39 @@ export function explanationGenerationSchema(excerpts: { actor: string; fragments
   };
   const leaf = node();
   const reason = edge.extend({ node: node(z.array(edge.extend({ node: leaf })).max(6)) });
-  return z.object({ sections: z.array(z.object({ title: z.string().min(1).max(100), body: z.array(node(z.array(reason).max(6), true)).min(1).max(32) }).strict()).min(1).max(8), unknowns: z.array(boundedUnknown).max(8) }).strict();
+  return z
+    .object({
+      sections: z
+        .array(
+          z
+            .object({
+              title: z.string().min(1).max(100),
+              body: z
+                .array(node(z.array(reason).max(6), true))
+                .min(1)
+                .max(32),
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(8),
+      unknowns: z.array(boundedUnknown).max(8),
+    })
+    .strict();
 }
 export function prepareExplanationContext(context: ExplanationContext) {
-  const safe = prepareQuestionContext({ anchor: '', question: '', history: [], excerpts: context.excerpts, limitations: context.input.limitations });
-  return { ...context, guide: JSON.parse(redactAnalysisText(JSON.stringify(context.guide))), excerpts: safe.excerpts };
+  const safe = prepareQuestionContext({
+    anchor: '',
+    question: '',
+    history: [],
+    excerpts: context.excerpts,
+    limitations: context.input.limitations,
+  });
+  return {
+    ...context,
+    guide: JSON.parse(redactAnalysisText(JSON.stringify(context.guide))),
+    excerpts: safe.excerpts,
+  };
 }
 export function explanationEvidenceCatalog(context: ExplanationContext) {
   const prepared = prepareExplanationContext(context);
@@ -68,82 +171,213 @@ export function explanationEvidenceCatalog(context: ExplanationContext) {
     for (let start = 0; start < text.length;) {
       let end = Math.min(start + 360, text.length);
       if (end < text.length && /[\uD800-\uDBFF]/.test(text[end - 1])) end--;
-      const quote = text.slice(start, end), id = `e${index}-${start}`, valid = quote.trim().length > 0 && quote === context.excerpts[index].text.slice(start, end);
+      const quote = text.slice(start, end),
+        id = `e${index}-${start}`,
+        valid = quote.trim().length > 0 && quote === context.excerpts[index].text.slice(start, end);
       if (valid) references.set(id, { revisionId: e.revisionId, start: e.start + start, quote });
-      fragments.push({ evidenceId: valid ? id : null, actor: e.actor, text: quote }); start = end;
+      fragments.push({ evidenceId: valid ? id : null, actor: e.actor, text: quote });
+      start = end;
     }
     return { ...meta, fragments, directUserEvidence: e.actor === 'user' };
   });
-  const resolveEvidence = (ids: string[]) => ids.map(id => { const ref = references.get(id); if (!ref) throw new DomainError('SUMMARY_UNAVAILABLE', 'The explanation used a citation ID outside the input.'); return ref; });
-  return { input: { ...prepared, excerpts }, resolveEvidence, generationSchema: (allowBodyState = true) => explanationGenerationSchema(excerpts, context.input.selectionComplete, allowBodyState), decode(raw: unknown) {
-    const value = referencedExplanationSchema.safeParse(raw);
-    if (!value.success) throw new DomainError('SUMMARY_UNAVAILABLE', 'The explanation model output has an invalid format.');
-    const refs = (ids: string[]) => ids.map(id => { const ref = references.get(id); if (!ref) throw new DomainError('SUMMARY_UNAVAILABLE', 'The explanation used a citation ID outside the input.'); return ref; });
-    const nodes: import('@statecarry/contracts').ExplanationCandidate['nodes'] = [];
-    const links: import('@statecarry/contracts').ExplanationCandidate['links'] = [];
-    type TreeNode = z.infer<typeof content> & { reasons?: { question: string; kind: 'record' | 'interpretation'; uncertainty: string; evidenceIds: string[]; node: TreeNode }[] };
-    const visit = (node: TreeNode, id: string) => {
-      const { reasons, evidenceIds, ...rest } = node;
-      nodes.push({ ...rest, id, evidence: refs(evidenceIds) });
-      for (const [i, reason] of (reasons ?? []).entries()) {
-        const childId = `${id}-r${i + 1}`;
-        links.push({ id: `link-${childId}`, parentId: id, childId, question: reason.question, kind: reason.kind, uncertainty: reason.uncertainty, evidence: refs(reason.evidenceIds) });
-        visit(reason.node, childId);
-      }
-    };
-    const sections = value.data.sections.map((section, i) => {
-      const id = `section-${i + 1}`, bodyIds = section.body.map((node, j) => { const nodeId = `${id}-node-${j + 1}`; visit(node, nodeId); return nodeId; });
-      return { id, title: section.title, bodyIds };
+  const resolveEvidence = (ids: string[]) =>
+    ids.map((id) => {
+      const ref = references.get(id);
+      if (!ref)
+        throw new DomainError(
+          'SUMMARY_UNAVAILABLE',
+          'The explanation used a citation ID outside the input.',
+        );
+      return ref;
     });
-    return { sections, nodes, links, unknowns: value.data.unknowns };
-  } };
+  return {
+    input: { ...prepared, excerpts },
+    resolveEvidence,
+    generationSchema: (allowBodyState = true) =>
+      explanationGenerationSchema(excerpts, context.input.selectionComplete, allowBodyState),
+    decode(raw: unknown) {
+      const value = referencedExplanationSchema.safeParse(raw);
+      if (!value.success)
+        throw new DomainError(
+          'SUMMARY_UNAVAILABLE',
+          'The explanation model output has an invalid format.',
+        );
+      const refs = (ids: string[]) =>
+        ids.map((id) => {
+          const ref = references.get(id);
+          if (!ref)
+            throw new DomainError(
+              'SUMMARY_UNAVAILABLE',
+              'The explanation used a citation ID outside the input.',
+            );
+          return ref;
+        });
+      const nodes: import('@statecarry/contracts').ExplanationCandidate['nodes'] = [];
+      const links: import('@statecarry/contracts').ExplanationCandidate['links'] = [];
+      type TreeNode = z.infer<typeof content> & {
+        reasons?: {
+          question: string;
+          kind: 'record' | 'interpretation';
+          uncertainty: string;
+          evidenceIds: string[];
+          node: TreeNode;
+        }[];
+      };
+      const visit = (node: TreeNode, id: string) => {
+        const { reasons, evidenceIds, ...rest } = node;
+        nodes.push({ ...rest, id, evidence: refs(evidenceIds) });
+        for (const [i, reason] of (reasons ?? []).entries()) {
+          const childId = `${id}-r${i + 1}`;
+          links.push({
+            id: `link-${childId}`,
+            parentId: id,
+            childId,
+            question: reason.question,
+            kind: reason.kind,
+            uncertainty: reason.uncertainty,
+            evidence: refs(reason.evidenceIds),
+          });
+          visit(reason.node, childId);
+        }
+      };
+      const sections = value.data.sections.map((section, i) => {
+        const id = `section-${i + 1}`,
+          bodyIds = section.body.map((node, j) => {
+            const nodeId = `${id}-node-${j + 1}`;
+            visit(node, nodeId);
+            return nodeId;
+          });
+        return { id, title: section.title, bodyIds };
+      });
+      return { sections, nodes, links, unknowns: value.data.unknowns };
+    },
+  };
 }
 
 // Semantic repair keeps supported history immutable. When the overall narrative is
 // incomplete, its integrated judgment may need recomposition and is checked again.
 // Full core structural/provenance and independent meaning checks still run afterward.
-export function explanationRepairCatalog(context: ExplanationContext, candidate: ExplanationCandidate, assessment: ExplanationAssessment) {
+export function explanationRepairCatalog(
+  context: ExplanationContext,
+  candidate: ExplanationCandidate,
+  assessment: ExplanationAssessment,
+) {
   const catalog = explanationEvidenceCatalog(context);
-  const evidenceIds = catalog.input.excerpts.flatMap(e => e.fragments.flatMap(f => f.evidenceId ? [f.evidenceId] : []));
-  const scopedEvidence = z.array(z.enum(evidenceIds as [string, ...string[]])).min(1).max(6);
+  const evidenceIds = catalog.input.excerpts.flatMap((e) =>
+    e.fragments.flatMap((f) => (f.evidenceId ? [f.evidenceId] : [])),
+  );
+  const scopedEvidence = z
+    .array(z.enum(evidenceIds as [string, ...string[]]))
+    .min(1)
+    .max(6);
   const replacementContent = content.extend({ evidenceIds: scopedEvidence }).strict();
   const replacementRelation = relation.extend({ evidenceIds: scopedEvidence }).strict();
-  const roots = new Set(candidate.sections.flatMap(s => s.bodyIds));
-  const currentIds = context.input.goal ? candidate.nodes.filter(n => roots.has(n.id) && n.role === 'state').map(n => n.id) : [];
-  const nodeIds = [...new Set([...assessment.nodes.filter(n => n.verdict !== 'supported').map(n => n.id), ...(!assessment.narrativeComplete ? currentIds : [])])];
-  const linkIds = assessment.links.filter(n => n.verdict !== 'supported').map(n => n.id);
+  const roots = new Set(candidate.sections.flatMap((s) => s.bodyIds));
+  const currentIds = context.input.goal
+    ? candidate.nodes.filter((n) => roots.has(n.id) && n.role === 'state').map((n) => n.id)
+    : [];
+  const nodeIds = [
+    ...new Set([
+      ...assessment.nodes.filter((n) => n.verdict !== 'supported').map((n) => n.id),
+      ...(!assessment.narrativeComplete ? currentIds : []),
+    ]),
+  ];
+  const linkIds = assessment.links.filter((n) => n.verdict !== 'supported').map((n) => n.id);
   const unknownRepairSchema = z.object({
     unknowns: explanationCandidateSchema.shape.unknowns,
-    nodeUnknowns: z.object(Object.fromEntries(candidate.nodes.filter(n => !nodeIds.includes(n.id)).map(n => [n.id, explanationNodeSchema.shape.unknowns]))).strict(),
+    nodeUnknowns: z
+      .object(
+        Object.fromEntries(
+          candidate.nodes
+            .filter((n) => !nodeIds.includes(n.id))
+            .map((n) => [n.id, explanationNodeSchema.shape.unknowns]),
+        ),
+      )
+      .strict(),
   });
-  const schema = z.object({
-    nodes: z.object(Object.fromEntries(nodeIds.map(id => [id, context.input.goal && roots.has(id) ? replacementContent.extend({ role: currentIds.includes(id) ? z.literal('state') : content.shape.role.exclude(['state']) }).strict() : replacementContent]))).strict(),
-    links: z.object(Object.fromEntries(linkIds.map(id => [id, replacementRelation]))).strict(),
-    ...(!assessment.unknownsSafe ? unknownRepairSchema.shape : {}),
-    additions: z.array(z.object({ beforeSectionId: z.enum([...candidate.sections.map(s => s.id), ...(context.input.goal ? [] : ['end'])] as unknown as [string, ...string[]]), section: catalog.generationSchema(!context.input.goal).shape.sections.element }).strict()).max(Math.max(0, 8 - candidate.sections.length)),
-  }).strict();
-  return { input: { ...catalog.input, candidate, assessment }, schema, decode(raw: unknown): ExplanationCandidate {
-    const patch = schema.parse(raw);
-    const gaps = assessment.unknownsSafe ? null : unknownRepairSchema.parse(raw);
-    const nodes = candidate.nodes.map(node => {
-      const replacement = patch.nodes[node.id];
-      if (!replacement) return gaps ? { ...node, unknowns: gaps.nodeUnknowns[node.id] } : node;
-      const { evidenceIds, ...rest } = replacement;
-      return { ...rest, id: node.id, evidence: catalog.resolveEvidence(evidenceIds) };
-    });
-    const links = candidate.links.map(link => {
-      const replacement = patch.links[link.id];
-      if (!replacement) return link;
-      const { evidenceIds, ...rest } = replacement;
-      return { ...link, ...rest, evidence: catalog.resolveEvidence(evidenceIds) };
-    });
-    const unknowns = gaps ? gaps.unknowns : candidate.unknowns;
-    if (!patch.additions.length) return { ...candidate, nodes, links, unknowns };
-    const added = catalog.decode({ sections: patch.additions.map(a => a.section), unknowns: [] });
-    const id = (value: string) => `repair-${value}`;
-    const extra = added.sections.map(s => ({ ...s, id: id(s.id), bodyIds: s.bodyIds.map(id) }));
-    const sections = candidate.sections.flatMap(s => [...extra.filter((_, i) => patch.additions[i].beforeSectionId === s.id), s]);
-    sections.push(...extra.filter((_, i) => patch.additions[i].beforeSectionId === 'end'));
-    return { ...candidate, unknowns, sections, nodes: [...nodes, ...added.nodes.map(n => ({ ...n, id: id(n.id) }))], links: [...links, ...added.links.map(l => ({ ...l, id: id(l.id), parentId: id(l.parentId), childId: id(l.childId) }))] };
-  } };
+  const schema = z
+    .object({
+      nodes: z
+        .object(
+          Object.fromEntries(
+            nodeIds.map((id) => [
+              id,
+              context.input.goal && roots.has(id)
+                ? replacementContent
+                    .extend({
+                      role: currentIds.includes(id)
+                        ? z.literal('state')
+                        : content.shape.role.exclude(['state']),
+                    })
+                    .strict()
+                : replacementContent,
+            ]),
+          ),
+        )
+        .strict(),
+      links: z.object(Object.fromEntries(linkIds.map((id) => [id, replacementRelation]))).strict(),
+      ...(!assessment.unknownsSafe ? unknownRepairSchema.shape : {}),
+      additions: z
+        .array(
+          z
+            .object({
+              beforeSectionId: z.enum([
+                ...candidate.sections.map((s) => s.id),
+                ...(context.input.goal ? [] : ['end']),
+              ] as unknown as [string, ...string[]]),
+              section: catalog.generationSchema(!context.input.goal).shape.sections.element,
+            })
+            .strict(),
+        )
+        .max(Math.max(0, 8 - candidate.sections.length)),
+    })
+    .strict();
+  return {
+    input: { ...catalog.input, candidate, assessment },
+    schema,
+    decode(raw: unknown): ExplanationCandidate {
+      const patch = schema.parse(raw);
+      const gaps = assessment.unknownsSafe ? null : unknownRepairSchema.parse(raw);
+      const nodes = candidate.nodes.map((node) => {
+        const replacement = patch.nodes[node.id];
+        if (!replacement) return gaps ? { ...node, unknowns: gaps.nodeUnknowns[node.id] } : node;
+        const { evidenceIds, ...rest } = replacement;
+        return { ...rest, id: node.id, evidence: catalog.resolveEvidence(evidenceIds) };
+      });
+      const links = candidate.links.map((link) => {
+        const replacement = patch.links[link.id];
+        if (!replacement) return link;
+        const { evidenceIds, ...rest } = replacement;
+        return { ...link, ...rest, evidence: catalog.resolveEvidence(evidenceIds) };
+      });
+      const unknowns = gaps ? gaps.unknowns : candidate.unknowns;
+      if (!patch.additions.length) return { ...candidate, nodes, links, unknowns };
+      const added = catalog.decode({
+        sections: patch.additions.map((a) => a.section),
+        unknowns: [],
+      });
+      const id = (value: string) => `repair-${value}`;
+      const extra = added.sections.map((s) => ({ ...s, id: id(s.id), bodyIds: s.bodyIds.map(id) }));
+      const sections = candidate.sections.flatMap((s) => [
+        ...extra.filter((_, i) => patch.additions[i].beforeSectionId === s.id),
+        s,
+      ]);
+      sections.push(...extra.filter((_, i) => patch.additions[i].beforeSectionId === 'end'));
+      return {
+        ...candidate,
+        unknowns,
+        sections,
+        nodes: [...nodes, ...added.nodes.map((n) => ({ ...n, id: id(n.id) }))],
+        links: [
+          ...links,
+          ...added.links.map((l) => ({
+            ...l,
+            id: id(l.id),
+            parentId: id(l.parentId),
+            childId: id(l.childId),
+          })),
+        ],
+      };
+    },
+  };
 }

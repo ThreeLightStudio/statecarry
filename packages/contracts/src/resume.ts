@@ -9,49 +9,79 @@ const evidence = z.object({ revisionId: z.string().min(1), quote: text }).strict
  * are optional so stored resume briefs written before progress attribution was
  * added remain valid and continue to render.
  */
-export const resumeProgressSchema = z.object({
-  reported: z.array(evidence).max(6).optional(),
-  implemented: z.array(evidence).max(6).optional(),
-  verified: z.array(evidence).max(6).optional(),
-}).strict();
+export const resumeProgressSchema = z
+  .object({
+    reported: z.array(evidence).max(6).optional(),
+    implemented: z.array(evidence).max(6).optional(),
+    verified: z.array(evidence).max(6).optional(),
+  })
+  .strict();
 export type ResumeProgress = z.infer<typeof resumeProgressSchema>;
 
 /** Completion is kept separate from general progress: a completion report is
  * not an independent verification of the reported result. */
-export const resumeCompletionSchema = z.object({
-  reported: z.array(evidence).max(6).optional(),
-  verified: z.array(evidence).max(6).optional(),
-}).strict();
+export const resumeCompletionSchema = z
+  .object({
+    reported: z.array(evidence).max(6).optional(),
+    verified: z.array(evidence).max(6).optional(),
+  })
+  .strict();
 export type ResumeCompletion = z.infer<typeof resumeCompletionSchema>;
 
-export const resumeCoordinationSchema = z.object({
-  state: z.enum(['recommended', 'unconfirmed', 'none']),
-  threadId: z.string().min(1).nullable(),
-  title: z.string().min(1).nullable(),
-  detail: z.string().min(1).max(600),
-  evidence: z.array(evidence).max(6),
-}).strict();
+export const resumeCoordinationSchema = z
+  .object({
+    state: z.enum(['recommended', 'unconfirmed', 'none']),
+    threadId: z.string().min(1).nullable(),
+    title: z.string().min(1).nullable(),
+    detail: z.string().min(1).max(600),
+    evidence: z.array(evidence).max(6),
+  })
+  .strict();
 export type ResumeCoordination = z.infer<typeof resumeCoordinationSchema>;
 
-export const resumeCandidateSchema = z.object({
-  key: z.string().min(1).max(160), goal: z.string().min(1).max(120),
-  currentState: z.string().min(1).max(240).regex(/[.!?]$/, 'Use complete sentences, not a clipped fragment'),
-  status: z.enum(['active', 'waiting', 'paused', 'unclear', 'done']),
-  reason: z.string().min(1).max(200), nextAction: z.string().min(1).max(240).nullable(), actionSource: z.enum(['recorded', 'suggested']).nullable(),
-  doneWhen: z.string().min(1).max(200).nullable(), threadId: z.string().min(1), prerequisites: z.array(text).max(5),
-  evidence: z.array(z.object({ revisionId: z.string(), quote: text }).strict()).min(1).max(6),
-  progress: resumeProgressSchema.optional(),
-  completion: resumeCompletionSchema.optional(),
-}).strict();
+export const resumeCandidateSchema = z
+  .object({
+    key: z.string().min(1).max(160),
+    goal: z.string().min(1).max(120),
+    currentState: z
+      .string()
+      .min(1)
+      .max(240)
+      .regex(/[.!?]$/, 'Use complete sentences, not a clipped fragment'),
+    status: z.enum(['active', 'waiting', 'paused', 'unclear', 'done']),
+    reason: z.string().min(1).max(200),
+    nextAction: z.string().min(1).max(240).nullable(),
+    actionSource: z.enum(['recorded', 'suggested']).nullable(),
+    doneWhen: z.string().min(1).max(200).nullable(),
+    threadId: z.string().min(1),
+    prerequisites: z.array(text).max(5),
+    evidence: z
+      .array(z.object({ revisionId: z.string(), quote: text }).strict())
+      .min(1)
+      .max(6),
+    progress: resumeProgressSchema.optional(),
+    completion: resumeCompletionSchema.optional(),
+  })
+  .strict();
 // A completed check may legitimately find no safe resume candidate. Keep the
 // empty result distinct from a failed read so the UI can explain what to do.
-export const resumeResultSchema = z.object({ candidates: z.array(resumeCandidateSchema).max(5) }).strict();
+export const resumeResultSchema = z
+  .object({ candidates: z.array(resumeCandidateSchema).max(5) })
+  .strict();
 export type ResumeCandidate = z.infer<typeof resumeCandidateSchema>;
-export const resumeCorrectionSchema = z.object({
-  candidateKey: z.string().min(1), version: z.string(),
-  kind: z.enum(['wrong-work', 'wrong-action', 'done', 'paused', 'restore']),
-  nextAction: text.optional(), doneWhen: text.optional(),
-}).strict().refine(v => v.kind !== 'wrong-action' || Boolean(v.nextAction && v.doneWhen), 'Provide both the next action and its completion condition');
+export const resumeCorrectionSchema = z
+  .object({
+    candidateKey: z.string().min(1),
+    version: z.string(),
+    kind: z.enum(['wrong-work', 'wrong-action', 'done', 'paused', 'restore']),
+    nextAction: text.optional(),
+    doneWhen: text.optional(),
+  })
+  .strict()
+  .refine(
+    (v) => v.kind !== 'wrong-action' || Boolean(v.nextAction && v.doneWhen),
+    'Provide both the next action and its completion condition',
+  );
 export type ResumeCorrection = z.infer<typeof resumeCorrectionSchema>;
 export type ResumeStored = {
   scope: string;

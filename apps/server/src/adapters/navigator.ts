@@ -11,18 +11,29 @@ export class CodexNavigator implements Navigator {
   }
   async open(threadId: string) {
     safeId(threadId);
-    if (this.capability().precision === 'unsupported') throw new Error('Independent navigation is not verified');
+    if (this.capability().precision === 'unsupported')
+      throw new Error('Independent navigation is not verified');
     await dispatchCodex(threadId);
   }
 }
 export function dispatchCodex(threadId: string): Promise<void> {
   safeId(threadId);
   return new Promise((resolve, reject) => {
-    const child = spawn('rtk', ['proxy', 'open', `codex://threads/${encodeURIComponent(threadId)}`], { stdio: 'ignore' });
+    const child = spawn(
+      'rtk',
+      ['proxy', 'open', `codex://threads/${encodeURIComponent(threadId)}`],
+      { stdio: 'ignore' },
+    );
     child.on('error', reject);
     child.on('exit', (code, signal) => {
       if (code === 0) resolve();
-      else if (code === null || signal) reject(new DomainError('RESULT_UNKNOWN', `OS Run completion unknown (${signal ?? 'no exit code'}); It will not retry automatically.`));
+      else if (code === null || signal)
+        reject(
+          new DomainError(
+            'RESULT_UNKNOWN',
+            `OS Run completion unknown (${signal ?? 'no exit code'}); It will not retry automatically.`,
+          ),
+        );
       else reject(new Error(`OS dispatch failed (${code})`));
     });
   });

@@ -1,4 +1,11 @@
-import { DomainError, QuestionCandidateError, questionAnswerSchema, questionAssessmentSchema, type QuestionAnswer, type QuestionContext } from '@statecarry/contracts';
+import {
+  DomainError,
+  QuestionCandidateError,
+  questionAnswerSchema,
+  questionAssessmentSchema,
+  type QuestionAnswer,
+  type QuestionContext,
+} from '@statecarry/contracts';
 import { z } from 'zod';
 import { redactAnalysisText } from './analysis-support';
 
@@ -9,28 +16,58 @@ Separate record items, interpretations and unknowns. Every item must cite exact 
 export function prepareQuestionContext(context: QuestionContext): QuestionContext {
   // Preserve offsets by replacing secret spans with equal-length spaces.
   const redactOffsets = (text: string) => {
-    const markers = /\b(?:sk-[A-Za-z0-9_-]{16,}|Bearer\s+[A-Za-z0-9._~-]{16,})|"(?:access_token|refresh_token|id_token|api_key|password)"\s*:\s*"[^"]*"/gi;
-    return text.replace(markers, match => ' '.repeat(match.length));
+    const markers =
+      /\b(?:sk-[A-Za-z0-9_-]{16,}|Bearer\s+[A-Za-z0-9._~-]{16,})|"(?:access_token|refresh_token|id_token|api_key|password)"\s*:\s*"[^"]*"/gi;
+    return text.replace(markers, (match) => ' '.repeat(match.length));
   };
-  return { ...context, anchor: redactAnalysisText(context.anchor), question: redactAnalysisText(context.question), history: JSON.parse(redactAnalysisText(JSON.stringify(context.history))), excerpts: context.excerpts.map(e => ({ ...e, text: redactOffsets(e.text) })) };
+  return {
+    ...context,
+    anchor: redactAnalysisText(context.anchor),
+    question: redactAnalysisText(context.question),
+    history: JSON.parse(redactAnalysisText(JSON.stringify(context.history))),
+    excerpts: context.excerpts.map((e) => ({ ...e, text: redactOffsets(e.text) })),
+  };
 }
 
-export const referencedQuestionSchema = questionAnswerSchema.extend({ items: z.array(questionAnswerSchema.shape.items.element.omit({ evidence: true }).extend({ evidenceIds: z.array(z.string()).min(1).max(6) }).strict()).max(8) }).strict();
+export const referencedQuestionSchema = questionAnswerSchema
+  .extend({
+    items: z
+      .array(
+        questionAnswerSchema.shape.items.element
+          .omit({ evidence: true })
+          .extend({ evidenceIds: z.array(z.string()).min(1).max(6) })
+          .strict(),
+      )
+      .max(8),
+  })
+  .strict();
 
 // Require every verdict in transport; core still checks coverage and semantic support.
 export function questionCheckCatalog(answer: QuestionAnswer) {
   const check = questionAssessmentSchema.shape.checks.element.omit({ itemId: true });
-  const schema = z.object({
-    checks: z.object(Object.fromEntries(answer.items.map(item => [item.id, check]))).strict(),
-    unknownsSafe: z.boolean(),
-    addressesQuestion: z.boolean(),
-    coversAvailableContext: z.boolean(),
-  }).strict();
-  return { schema, decode(raw: unknown) {
-    const value = schema.parse(raw);
-    if (!value.addressesQuestion || !value.coversAvailableContext) throw new DomainError('SUMMARY_UNAVAILABLE', 'The answer does not adequately address the selected question and available context.');
-    return { checks: answer.items.map(item => ({ itemId: item.id, ...value.checks[item.id] })), unknownsSafe: value.unknownsSafe };
-  } };
+  const schema = z
+    .object({
+      checks: z.object(Object.fromEntries(answer.items.map((item) => [item.id, check]))).strict(),
+      unknownsSafe: z.boolean(),
+      addressesQuestion: z.boolean(),
+      coversAvailableContext: z.boolean(),
+    })
+    .strict();
+  return {
+    schema,
+    decode(raw: unknown) {
+      const value = schema.parse(raw);
+      if (!value.addressesQuestion || !value.coversAvailableContext)
+        throw new DomainError(
+          'SUMMARY_UNAVAILABLE',
+          'The answer does not adequately address the selected question and available context.',
+        );
+      return {
+        checks: answer.items.map((item) => ({ itemId: item.id, ...value.checks[item.id] })),
+        unknownsSafe: value.unknownsSafe,
+      };
+    },
+  };
 }
 
 export const QUESTION_ATTRIBUTION_INSTRUCTIONS = `For BOTH user-request and user-decision, EVERY citation must have actor=user and directly support that request or decision. A user question or quoted instruction is not automatically a decision. Split mixed-speaker claims into separate items: original user request, agent restatement/report, agent proposal, user confirmation, and later scoped goal changes. If only an agent restatement survives, say "AI  records report this" as an agent-report and leave direct user confirmation unknown. For background questions explain the transition FROM what TO what, the originating request and completion goal when supported. Do not turn an agent report into independent completion evidence. Never fix a false claim by merely changing its nature or labeling it uncertain.`;
@@ -38,25 +75,53 @@ export function questionEvidenceCatalog(context: QuestionContext) {
   const prepared = prepareQuestionContext(context);
   const refs = new Map<string, { revisionId: string; start: number; quote: string }>();
   const excerpts = prepared.excerpts.map((e, index) => {
-    const { text, ...metadata } = e, fragments = [];
+    const { text, ...metadata } = e,
+      fragments = [];
     for (let start = 0; start < text.length;) {
       let end = Math.min(start + 360, text.length);
       if (end < text.length && /[\uD800-\uDBFF]/.test(text[end - 1])) end--;
-      const quote = text.slice(start, end), evidenceId = `e${index}-${start}`;
+      const quote = text.slice(start, end),
+        evidenceId = `e${index}-${start}`;
       const valid = quote === context.excerpts[index].text.slice(start, end);
       if (valid) refs.set(evidenceId, { revisionId: e.revisionId, start: e.start + start, quote });
-      fragments.push({ evidenceId: valid ? evidenceId : null, text: quote }); start = end;
+      fragments.push({ evidenceId: valid ? evidenceId : null, text: quote });
+      start = end;
     }
     return { ...metadata, fragments };
   });
-  return { input: { ...prepared, excerpts }, decode(value: unknown) {
-    const parsed = referencedQuestionSchema.safeParse(value);
-    if (!parsed.success) throw new QuestionCandidateError('The answer failed format validation.', { stage: 'candidate', violation: 'structure', itemId: null, repairs: 0 }, value);
-    const result = parsed.data;
-    return { ...result, items: result.items.map(({ evidenceIds, ...item }) => ({ ...item, evidence: evidenceIds.map(id => {
-      const ref = refs.get(id);
-      if (!ref) throw new QuestionCandidateError('The answer contains an unsupported citation ID.', { stage: 'candidate', violation: 'citation', itemId: item.id, nature: item.nature, repairs: 0 }, value);
-      return ref;
-    }) })) };
-  } };
+  return {
+    input: { ...prepared, excerpts },
+    decode(value: unknown) {
+      const parsed = referencedQuestionSchema.safeParse(value);
+      if (!parsed.success)
+        throw new QuestionCandidateError(
+          'The answer failed format validation.',
+          { stage: 'candidate', violation: 'structure', itemId: null, repairs: 0 },
+          value,
+        );
+      const result = parsed.data;
+      return {
+        ...result,
+        items: result.items.map(({ evidenceIds, ...item }) => ({
+          ...item,
+          evidence: evidenceIds.map((id) => {
+            const ref = refs.get(id);
+            if (!ref)
+              throw new QuestionCandidateError(
+                'The answer contains an unsupported citation ID.',
+                {
+                  stage: 'candidate',
+                  violation: 'citation',
+                  itemId: item.id,
+                  nature: item.nature,
+                  repairs: 0,
+                },
+                value,
+              );
+            return ref;
+          }),
+        })),
+      };
+    },
+  };
 }

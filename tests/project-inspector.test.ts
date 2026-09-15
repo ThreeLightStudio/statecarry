@@ -9,15 +9,26 @@ describe('related project inspection', () => {
     const root = mkdtempSync(join(tmpdir(), 'statecarry-inspector-'));
     try {
       mkdirSync(join(root, 'src'), { recursive: true });
-      for (let i = 0; i < 130; i++) writeFileSync(join(root, 'src', `file-${String(i).padStart(3, '0')}.ts`), `export const file${i} = ${i};\n`);
+      for (let i = 0; i < 130; i++)
+        writeFileSync(
+          join(root, 'src', `file-${String(i).padStart(3, '0')}.ts`),
+          `export const file${i} = ${i};\n`,
+        );
       const target = `${'// context\n'.repeat(180)}\nexport function importantFunction() { return 'related'; }\n`;
       writeFileSync(join(root, 'src', 'target.ts'), target);
 
-      const snapshot = new GitProjectInspector().inspect(root, { paths: ['src/target.ts'], symbols: ['importantFunction'], terms: [] });
-      const file = snapshot.files?.find(item => item.path === 'src/target.ts');
+      const snapshot = new GitProjectInspector().inspect(root, {
+        paths: ['src/target.ts'],
+        symbols: ['importantFunction'],
+        terms: [],
+      });
+      const file = snapshot.files?.find((item) => item.path === 'src/target.ts');
       expect(file).toMatchObject({ selection: 'related', status: 'checked' });
       expect(file?.preview).toContain('importantFunction');
-      expect(snapshot.inspection).toMatchObject({ strategy: 'related', relatedPaths: ['src/target.ts'] });
+      expect(snapshot.inspection).toMatchObject({
+        strategy: 'related',
+        relatedPaths: ['src/target.ts'],
+      });
       expect(snapshot.inspection?.omittedCount).toBeGreaterThan(0);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -29,7 +40,11 @@ describe('related project inspection', () => {
     try {
       mkdirSync(join(root, 'src'), { recursive: true });
       writeFileSync(join(root, 'src', 'main.ts'), 'export const main = true;\n');
-      for (let i = 0; i < 130; i++) writeFileSync(join(root, 'src', `sample-${String(i).padStart(3, '0')}.ts`), `export const sample${i} = ${i};\n`);
+      for (let i = 0; i < 130; i++)
+        writeFileSync(
+          join(root, 'src', `sample-${String(i).padStart(3, '0')}.ts`),
+          `export const sample${i} = ${i};\n`,
+        );
       writeFileSync(join(root, 'src', 'zzz.ts'), 'export const zzz = true;\n');
       const inspector = new GitProjectInspector();
       const first = inspector.inspect(root, { paths: ['src/main.ts'], symbols: [], terms: [] });

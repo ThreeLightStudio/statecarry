@@ -42,8 +42,12 @@ describe('resume re-entry refresh behavior', () => {
     let calls = 0;
     let entered!: () => void;
     let release!: () => void;
-    const started = new Promise<void>(resolve => { entered = resolve; });
-    const gate = new Promise<void>(resolve => { release = resolve; });
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     h.summary.generateResume = async () => {
       calls += 1;
       entered();
