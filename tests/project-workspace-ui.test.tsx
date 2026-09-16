@@ -26,6 +26,30 @@ import type { Connection, ProjectDeletionPreview } from '@statecarry/contracts';
 beforeEach(installBrowser);
 afterEach(() => vi.unstubAllGlobals());
 
+it('shows the StateCarry brand mark and beta preview popover before the workspace breadcrumb', async () => {
+  const h = projectUiFixture();
+  window.history.replaceState(null, '', '#/home');
+  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  try {
+    const brand = mounted.host.querySelector<HTMLAnchorElement>('a.pw-brand[href="#/home"]');
+    expect(brand).toBeTruthy();
+    expect(brand?.querySelector('.pw-brand-mark')).toBeTruthy();
+    expect(brand?.querySelector('.pw-brand-name')?.textContent).toBe('StateCarry');
+    expect(brand?.querySelector('.pw-beta-badge')).toBeNull();
+    const breadcrumb = mounted.host.querySelector<HTMLElement>('.pw-breadcrumb');
+    expect(breadcrumb?.querySelector('.pw-beta-badge')?.textContent).toBe('Beta');
+    expect(breadcrumb?.children[0]?.classList.contains('pw-beta-wrap')).toBe(true);
+    expect(breadcrumb?.children[1]?.textContent?.trim()).toBe('Workspace');
+    const beta = breadcrumb?.querySelector<HTMLElement>('.pw-beta-wrap');
+    const popover = beta?.querySelector<HTMLElement>('.pw-beta-popover');
+    expect(beta?.getAttribute('aria-describedby')).toBe('beta-preview-detail');
+    expect(popover?.getAttribute('role')).toBe('tooltip');
+    expect(popover?.textContent).toContain('StateCarry is still being stabilized');
+  } finally {
+    await mounted.unmount();
+  }
+});
+
 it('compares all registered work with explicit focus, searchable projects and exact task navigation', async () => {
   const alpha = projectEntry('alpha');
   const beta = projectEntry('beta');

@@ -47,12 +47,104 @@
 }
 
 .pw-brand {
-  @apply flex items-center gap-2.5 text-[19px] no-underline tracking-[-0.035em];
+  @apply flex items-center gap-2.5 rounded-md text-[19px] no-underline tracking-[-0.035em];
   font-weight: 650;
 }
 
 .pw-brand-mark {
-  @apply grid size-8 place-items-center rounded-[10px] bg-primary text-primary-foreground;
+  @apply relative block size-10 shrink-0 overflow-hidden rounded-[12px];
+  background: linear-gradient(145deg, #111a35, #070a14 70%);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.08),
+    0 2px 8px rgb(15 23 42 / 0.12);
+}
+
+.pw-brand-flow {
+  @apply absolute block;
+  background: linear-gradient(90deg, #b55cff 0%, #2f8cff 55%, #3ee0f2 100%);
+}
+
+.pw-brand-flow--lead {
+  top: 18px;
+  left: 5px;
+  width: 9px;
+  height: 3px;
+  border-radius: 999px;
+}
+
+.pw-brand-flow--ring {
+  top: 13px;
+  left: 15px;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+}
+
+.pw-brand-flow--ring::after {
+  position: absolute;
+  inset: 4px;
+  border-radius: 999px;
+  background: #0b1020;
+  content: '';
+}
+
+.pw-brand-flow--dot {
+  top: 17px;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+}
+
+.pw-brand-flow--dot-1 {
+  left: 29px;
+}
+
+.pw-brand-flow--dot-2 {
+  left: 34px;
+}
+
+.pw-brand-flow--dot-3 {
+  left: 38px;
+  width: 3px;
+}
+
+.pw-brand-name {
+  @apply whitespace-nowrap;
+}
+
+.pw-beta-badge {
+  @apply inline-flex shrink-0 items-center rounded-full border border-border bg-card px-2 py-1 text-[9px] leading-none tracking-[0.08em] text-muted-foreground uppercase;
+  font-weight: 700;
+}
+
+.pw-beta-wrap {
+  @apply relative inline-flex shrink-0 outline-none;
+}
+
+.pw-beta-wrap:focus-visible .pw-beta-badge {
+  @apply outline-2 outline-offset-2 outline-ring;
+}
+
+.pw-beta-popover {
+  @apply pointer-events-none absolute top-[calc(100%+8px)] left-0 z-40 grid w-64 gap-1 rounded-md border border-border bg-popover px-3.5 py-3 text-xs leading-[1.45] text-popover-foreground opacity-0 shadow-md;
+  visibility: hidden;
+  transform: translateY(-2px);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease,
+    visibility 120ms ease;
+}
+
+.pw-beta-popover strong {
+  @apply text-sm;
+}
+
+.pw-beta-wrap:hover .pw-beta-popover,
+.pw-beta-wrap:focus-visible .pw-beta-popover,
+.pw-beta-wrap:focus-within .pw-beta-popover {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .pw-nav,
@@ -491,6 +583,10 @@
 
   .pw-rail-foot p {
     @apply hidden;
+  }
+
+  .pw-beta-banner {
+    @apply mt-0;
   }
 
   .pw-main {

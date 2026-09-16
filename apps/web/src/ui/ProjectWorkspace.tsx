@@ -179,11 +179,20 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
         Skip to current work
       </a>
       <aside className="pw-rail" aria-label="Workspace navigation">
-        <RouteLink href="#/home" onNavigate={onNavigate} className="pw-brand">
+        <RouteLink
+          href="#/home"
+          onNavigate={onNavigate}
+          className="pw-brand"
+          current={route.page === 'home' ? 'page' : undefined}
+        >
           <span className="pw-brand-mark" aria-hidden="true">
-            ↗
+            <span className="pw-brand-flow pw-brand-flow--lead" />
+            <span className="pw-brand-flow pw-brand-flow--ring" />
+            <span className="pw-brand-flow pw-brand-flow--dot pw-brand-flow--dot-1" />
+            <span className="pw-brand-flow pw-brand-flow--dot pw-brand-flow--dot-2" />
+            <span className="pw-brand-flow pw-brand-flow--dot pw-brand-flow--dot-3" />
           </span>
-          StateCarry
+          <span className="pw-brand-name">StateCarry</span>
         </RouteLink>
         <nav className="pw-nav" aria-label="Main">
           <RouteLink
@@ -233,6 +242,15 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
       <main ref={mainRef} className="pw-main" id="workspace-main" tabIndex={-1}>
         <div className="pw-topbar">
           <nav className="pw-breadcrumb" aria-label="Breadcrumb">
+            <span className="pw-beta-wrap" tabIndex={0} aria-describedby="beta-preview-detail">
+              <span className="pw-beta-badge">Beta</span>
+              <span className="pw-beta-popover" id="beta-preview-detail" role="tooltip">
+                <strong>Beta preview</strong>
+                <span>
+                  StateCarry is still being stabilized. Features and saved state may change.
+                </span>
+              </span>
+            </span>
             <RouteLink href="#/home" onNavigate={onNavigate}>
               Workspace
             </RouteLink>
