@@ -8,7 +8,7 @@ import type {
   ResumeGateway,
   ResumeMemory,
 } from '@statecarry/presentation';
-import type { Receipt } from '@statecarry/contracts';
+import type { Capabilities, Receipt } from '@statecarry/contracts';
 import { Root } from '../apps/web/src/Root';
 import { LocalResumeMemory } from '../apps/web/src/adapters/resume-memory';
 import { source } from './helpers';
@@ -90,7 +90,31 @@ export function testReceipt(id: string, revision = 8): Receipt {
 
 export function projectUiFixture(entries = [projectEntry()]) {
   const rows: ProjectWorkspace = { projects: entries };
+  const capabilities: Capabilities = {
+    apiVersion: 1,
+    source: 'codex-local',
+    summary: {
+      state: 'ready',
+      detail: 'Codex summary generation is available.',
+      model: 'synthetic-model',
+    },
+    navigation: {
+      precision: 'thread',
+      verifiedAt: now,
+      detail: 'Synthetic navigation is available.',
+      state: 'verified-route',
+    },
+    session: {
+      create: 'supported',
+      send: 'supported',
+      detail: 'Synthetic session actions are available.',
+      verifiedAt: now,
+    },
+    collectionIntervalMs: 15000,
+    discoveryIntervalMs: 60000,
+  };
   const projectGateway: ProjectGateway = {
+    capabilities: vi.fn(async () => capabilities),
     list: vi.fn(async () => structuredClone(rows)),
     create: vi.fn(async () => testReceipt('new-project')),
     settings: vi.fn(async (id) => testReceipt(id)),
@@ -135,6 +159,10 @@ export function projectUiFixture(entries = [projectEntry()]) {
   const resumeGateway: ResumeGateway = {
     list: vi.fn(async () => []),
     refresh: vi.fn(async () => {}),
+    localize: vi.fn(async (id, outputLanguage) => {
+      const entry = rows.projects.find((item) => item.workId === id);
+      if (entry?.resume) entry.resume.outputLanguage = outputLanguage;
+    }),
     setGoal: vi.fn(async () => {}),
     correct: vi.fn(async () => {}),
     subscribe: () => () => {},

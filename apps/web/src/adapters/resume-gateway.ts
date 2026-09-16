@@ -4,7 +4,7 @@ import type {
   ResumeCorrection,
   ResumeChangeNotice,
 } from '@statecarry/presentation';
-import type { Command, Continuation, Receipt } from '@statecarry/contracts';
+import type { Command, Continuation, OutputLanguage, Receipt } from '@statecarry/contracts';
 import { ProjectRequestError } from './project-gateway';
 export class HttpResumeGateway implements ResumeGateway {
   subscribe(
@@ -75,8 +75,13 @@ export class HttpResumeGateway implements ResumeGateway {
   async setGoal(id: string, text: string, version: string) {
     await this.request(`/${encodeURIComponent(id)}/goal`, { text, version });
   }
-  async refresh(id: string) {
-    await this.request(`/${encodeURIComponent(id)}/refresh`, {});
+  async refresh(id: string, outputLanguage?: OutputLanguage) {
+    await this.request(`/${encodeURIComponent(id)}/refresh`, {
+      ...(outputLanguage ? { outputLanguage } : {}),
+    });
+  }
+  async localize(id: string, outputLanguage: OutputLanguage) {
+    await this.request(`/${encodeURIComponent(id)}/localize`, { outputLanguage });
   }
   async correct(id: string, input: ResumeCorrection) {
     await this.request(`/${encodeURIComponent(id)}/correct`, input);

@@ -11,6 +11,7 @@
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "types": ["node"],
     "paths": {
+      "@/*": ["./apps/web/src/*"],
       "@statecarry/contracts": ["./packages/contracts/src/index.ts"],
       "@statecarry/core": ["./packages/core/src/index.ts"],
       "@statecarry/presentation": ["./packages/presentation/src/index.ts"]

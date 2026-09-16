@@ -230,6 +230,36 @@ describe('project-oriented presentation and return memory', () => {
     ]);
     expect(JSON.stringify(view)).not.toContain(RAW);
   });
+  it('uses the saved response language for deterministic project-state fallback text', () => {
+    const rows = workspace();
+    const resume = rows.projects[0].resume!;
+    resume.outputLanguage = 'ko';
+    resume.candidates = [];
+    resume.workspace = {
+      cwd: '/project/a',
+      branch: 'main',
+      commit: '1234567890abcdef',
+      dirty: true,
+      status: 'checked',
+      checkedAt: '2026-09-16T00:00:00Z',
+      limitations: [],
+      recentCommits: [
+        {
+          hash: 'abcdef1234567890',
+          subject: 'Keep code identifiers unchanged',
+          committedAt: '2026-09-16T00:00:00Z',
+          changedPaths: ['src/index.ts'],
+        },
+      ],
+      files: [{ path: 'src/index.ts', hash: 'one', preview: 'export const value = 1;' }],
+    };
+    const view = presentProjects(rows).find((entry) => entry.id === 'a')!;
+    expect(view.outputLanguage).toBe('ko');
+    expect(view.projectState.currentState).toContain('저장된 Overview');
+    expect(view.projectState.recentWork).toContain('최신 커밋: Keep code identifiers unchanged');
+    expect(view.projectState.openOrUncertain).toContain('첫 Overview');
+    expect(view.projectState.next).toContain('업데이트된 Overview');
+  });
   it('uses the corrected next action without treating older completion evidence as acceptance', () => {
     const rows = workspace();
     const work = rows.projects[0].resume!;

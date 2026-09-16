@@ -7,6 +7,8 @@ import {
   commandSchema,
   DomainError,
   observationSchema,
+  resumeLocalizeSchema,
+  resumeRefreshSchema,
   type Observation,
 } from '@statecarry/contracts';
 import type { StateCarry } from '@statecarry/core';
@@ -144,8 +146,15 @@ export function createHttpServer(
             const input = await body(req);
             if (parts[2] === 'refresh') {
               core.work(parts[1]);
-              void core.resumes.refresh(parts[1]);
+              const refresh = resumeRefreshSchema.parse(input);
+              void core.resumes.refresh(parts[1], refresh.outputLanguage);
               return json(res, 202, { accepted: true });
+            }
+            if (parts[2] === 'localize') {
+              core.work(parts[1]);
+              const localize = resumeLocalizeSchema.parse(input);
+              await core.resumes.localize(parts[1], localize.outputLanguage);
+              return json(res, 200, { localized: true, outputLanguage: localize.outputLanguage });
             }
             if (parts[2] === 'goal') return json(res, 200, core.resumes.setGoal(parts[1], input));
             if (parts[2] === 'correct')

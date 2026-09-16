@@ -8,6 +8,7 @@ import type {
   Connection,
   SourceRevision,
   Receipt,
+  Capabilities,
 } from '@statecarry/contracts';
 import { presentResumeWork, resumeWorkStatus } from './resume';
 
@@ -22,6 +23,7 @@ export type {
 export type { RecordRange } from '@statecarry/contracts';
 
 export interface ProjectGateway {
+  capabilities?(): Promise<Capabilities>;
   list(): Promise<ProjectWorkspace>;
   create(input: ProjectCreateInput): Promise<Receipt>;
   settings(id: string, revision: number, input: ProjectProfile): Promise<Receipt>;
@@ -43,7 +45,7 @@ export interface ProjectGateway {
 }
 
 export type ProjectRoute = {
-  page: 'home' | 'project' | 'new' | 'settings' | 'original';
+  page: 'home' | 'project' | 'new' | 'global-settings' | 'settings' | 'original';
   workId?: string;
   candidateKey?: string;
   sourceId?: string;
@@ -56,6 +58,7 @@ export function parseProjectRoute(hash: string): ProjectRoute {
     const [path, search = ''] = hash.replace(/^#/, '').split('?');
     const parts = path.split('/').filter(Boolean).map(decodeURIComponent);
     if (parts[0] === 'new' || parts[0] === 'connect') return { page: 'new' };
+    if (parts[0] === 'settings' && parts.length === 1) return { page: 'global-settings' };
     if (['project', 'resume', 'work', 'details'].includes(parts[0]) && parts[1]) {
       return {
         page:
@@ -77,6 +80,7 @@ export function parseProjectRoute(hash: string): ProjectRoute {
 export function projectRouteHref(route: ProjectRoute): string {
   if (route.page === 'home') return '#/home';
   if (route.page === 'new') return '#/new';
+  if (route.page === 'global-settings') return '#/settings';
   const base = `#/project/${encodeURIComponent(route.workId ?? '')}`;
   const suffix =
     route.page === 'settings'
@@ -129,6 +133,7 @@ export type ProjectView = {
   canRefresh: boolean;
   updating?: boolean;
   generatedAt: string | null;
+  outputLanguage: 'en' | 'ko';
   sourceCount: number;
   sourceSummary: ProjectSourceSummary[];
   projectState: { currentState: string; recentWork: string; openOrUncertain: string; next: string };
@@ -322,41 +327,73 @@ export function presentProject(entry: ProjectWorkspaceEntry, online = true): Pro
       !reference.revisionId.startsWith('workspace-git:'),
   );
   const recentCommit = workspace?.recentCommits?.[0];
+  const outputLanguage = work?.outputLanguage ?? 'en';
+  const korean = outputLanguage === 'ko';
   const projectState = {
     currentState: work?.busy
-      ? 'StateCarry is checking the project now.'
+      ? korean
+        ? 'StateCarry가 현재 프로젝트를 확인하고 있습니다.'
+        : 'StateCarry is checking the project now.'
       : (firstCandidate?.currentState ??
         (work?.generatedAt
-          ? 'The saved overview has no current task to continue.'
-          : 'No project overview has been prepared yet.')),
+          ? korean
+            ? '저장된 Overview에는 현재 이어서 진행할 작업이 없습니다.'
+            : 'The saved overview has no current task to continue.'
+          : korean
+            ? '아직 프로젝트 Overview가 준비되지 않았습니다.'
+            : 'No project overview has been prepared yet.')),
     recentWork:
       workspace?.status === 'checked'
         ? recentCommit
-          ? `Latest commit: ${recentCommit.subject || recentCommit.hash.slice(0, 10)}${workspace.dirty === true ? ' · local working-tree changes are also present.' : '.'}`
+          ? korean
+            ? `최신 커밋: ${recentCommit.subject || recentCommit.hash.slice(0, 10)}${workspace.dirty === true ? ' · 로컬 작업 트리 변경도 있습니다.' : '.'}`
+            : `Latest commit: ${recentCommit.subject || recentCommit.hash.slice(0, 10)}${workspace.dirty === true ? ' · local working-tree changes are also present.' : '.'}`
           : workspace.dirty === true
-            ? `Local changes are present${branch ? ` on ${branch}` : ''}.`
+            ? korean
+              ? `로컬 변경사항이 있습니다${branch ? ` (${branch} 브랜치)` : ''}.`
+              : `Local changes are present${branch ? ` on ${branch}` : ''}.`
             : commit
-              ? `Git is at ${commit.slice(0, 10)}${branch ? ` on ${branch}` : ''}${workspace.dirty === false ? ' with a clean working tree' : ''}.`
-              : 'The project folder and Git state were checked.'
-        : 'Recent code and Git state have not been confirmed yet.',
+              ? korean
+                ? `Git은 ${commit.slice(0, 10)}${branch ? ` (${branch} 브랜치)` : ''}${workspace.dirty === false ? '이며 작업 트리는 깨끗합니다' : ''}.`
+                : `Git is at ${commit.slice(0, 10)}${branch ? ` on ${branch}` : ''}${workspace.dirty === false ? ' with a clean working tree' : ''}.`
+              : korean
+                ? '프로젝트 폴더와 Git 상태를 확인했습니다.'
+                : 'The project folder and Git state were checked.'
+        : korean
+          ? '최근 코드와 Git 상태는 아직 확인되지 않았습니다.'
+          : 'Recent code and Git state have not been confirmed yet.',
     openOrUncertain: firstCandidate?.prerequisites[0]
       ? firstCandidate.prerequisites[0]
       : firstCandidate?.actionSource === 'suggested' &&
           firstCandidateHasCodex &&
           !firstCandidateHasCodebase
-        ? 'The proposed next step is supported by Codex context but is not confirmed by cited codebase evidence.'
+        ? korean
+          ? '제안된 다음 단계는 Codex 맥락에는 근거가 있지만, 인용된 코드베이스 근거로 확인되지는 않았습니다.'
+          : 'The proposed next step is supported by Codex context but is not confirmed by cited codebase evidence.'
         : work?.workspaceChanged
-          ? 'The project changed after the saved overview was prepared.'
+          ? korean
+            ? '저장된 Overview가 준비된 뒤 프로젝트가 변경되었습니다.'
+            : 'The project changed after the saved overview was prepared.'
           : work?.stale || ready?.state === 'limited' || ready?.state === 'unavailable'
-            ? 'Some current project information still needs a fresh check.'
+            ? korean
+              ? '일부 현재 프로젝트 정보는 다시 확인해야 합니다.'
+              : 'Some current project information still needs a fresh check.'
             : firstCandidate
-              ? 'No additional blocker is recorded for the selected project state.'
-              : 'The first overview still needs to establish what remains open.',
+              ? korean
+                ? '선택한 프로젝트 상태에 추가로 기록된 차단 요소는 없습니다.'
+                : 'No additional blocker is recorded for the selected project state.'
+              : korean
+                ? '첫 Overview에서 아직 열려 있는 항목을 확인해야 합니다.'
+                : 'The first overview still needs to establish what remains open.',
     next:
       firstCandidate?.nextAction ??
       (work?.generatedAt
-        ? 'Prepare an updated overview when you want StateCarry to re-check the project.'
-        : 'Prepare the first overview from the codebase and Git state. Codex context can be added if it helps.'),
+        ? korean
+          ? 'StateCarry가 프로젝트를 다시 확인해야 할 때 업데이트된 Overview를 준비하세요.'
+          : 'Prepare an updated overview when you want StateCarry to re-check the project.'
+        : korean
+          ? '코드베이스와 Git 상태를 바탕으로 첫 Overview를 준비하세요. 필요하면 Codex 맥락을 추가할 수 있습니다.'
+          : 'Prepare the first overview from the codebase and Git state. Codex context can be added if it helps.'),
   };
   return {
     id: entry.workId,
@@ -383,6 +420,7 @@ export function presentProject(entry: ProjectWorkspaceEntry, online = true): Pro
     canDecide: online && !disconnected && !!ready?.canAct,
     canRefresh: online && !disconnected && !work?.busy,
     generatedAt: work?.generatedAt ?? null,
+    outputLanguage,
     sourceCount: work?.sessionCount ?? 0,
     sourceSummary,
     projectState,

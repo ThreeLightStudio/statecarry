@@ -1,6 +1,7 @@
 import {
   DomainError,
   resumeResultSchema,
+  resumeLocalizationResultSchema,
   resumeCorrectionSchema,
   workspaceSnapshotSchema,
   type ResumeWork,
@@ -9,6 +10,7 @@ import {
   type ResumeCoordination,
   type WorkspaceInspectionHints,
   type SourceRevision,
+  type OutputLanguage,
 } from '@statecarry/contracts';
 import type { StateCarry } from './service';
 import { selectedRecords } from './goals';
@@ -418,6 +420,11 @@ export class Resumes {
       !!storedWorkspace && workspaceSnapshotSchema.safeParse(storedWorkspace).success;
     const storedWorkspaceBeforeValid =
       !!storedWorkspaceBefore && workspaceSnapshotSchema.safeParse(storedWorkspaceBefore).success;
+    const hasCheckedProjectBasis =
+      storedWorkspaceValid &&
+      storedWorkspaceBeforeValid &&
+      storedWorkspace!.status === 'checked' &&
+      storedWorkspaceBefore!.status === 'checked';
     const workspaceSnapshotsDiffer =
       storedWorkspaceValid &&
       storedWorkspaceBeforeValid &&
@@ -443,11 +450,12 @@ export class Resumes {
       ? resumeResultSchema.safeParse({ candidates: work.resume.candidates })
       : null;
     const scopeChanged = !!work.resume && work.resume.scope !== scope;
+    const sourceAvailabilityBlocks =
+      !hasCheckedProjectBasis && (unavailable || partiallyUnavailable);
     const structurallyStale =
       !work.resume ||
       scopeChanged ||
-      unavailable ||
-      partiallyUnavailable ||
+      sourceAvailabilityBlocks ||
       workspaceUnavailable ||
       workspaceChanged ||
       storedResult?.success !== true;
@@ -471,7 +479,7 @@ export class Resumes {
           return !text?.includes(e.quote);
         });
       });
-    const stale = structurallyStale || !evidenceAccessible;
+    const stale = structurallyStale || !evidenceAccessible || !!this.errors.get(id);
     const updatesAvailable = !stale && work.resume?.version !== version;
     const continuation =
       this.core.repo
@@ -545,25 +553,21 @@ export class Resumes {
     const hasReadableBrief = candidates.length > 0;
     const state: ResumeWork['state'] = this.running.has(id)
       ? 'checking'
-      : partiallyUnavailable
+      : viewError
         ? hasReadableBrief
           ? 'limited'
-          : 'unavailable'
-        : viewError
+          : 'failed'
+        : workspaceUnavailable || sourceAvailabilityBlocks
           ? hasReadableBrief
             ? 'limited'
-            : 'failed'
-          : workspaceUnavailable || unavailable
-            ? hasReadableBrief
-              ? 'limited'
-              : 'unavailable'
-            : !work.resume
-              ? 'empty'
-              : candidates.length
-                ? stale
-                  ? 'limited'
-                  : 'ready'
-                : 'empty';
+            : 'unavailable'
+          : !work.resume
+            ? 'empty'
+            : candidates.length
+              ? stale
+                ? 'limited'
+                : 'ready'
+              : 'empty';
     const stateDetail =
       state === 'checking'
         ? 'Checking the connected records and project.'
@@ -581,21 +585,30 @@ export class Resumes {
                   ? hasReadableBrief
                     ? 'The project could not be checked. The last saved brief is shown, but continuing is blocked until it can be checked.'
                     : 'The project could not be checked yet. Connect a readable project before continuing.'
-                  : partiallyUnavailable
+                  : partiallyUnavailable && !hasCheckedProjectBasis
                     ? hasReadableBrief
                       ? 'Some connected records are only partially available. The last saved brief is shown for review.'
                       : 'Some connected records are only partially available. Review the connection before preparing a brief.'
-                    : unavailable
+                    : unavailable && !hasCheckedProjectBasis
                       ? hasReadableBrief
                         ? 'Some connected records are unavailable. The last saved brief is shown for review.'
                         : 'Some connected records are unavailable. Review the connection before preparing a brief.'
-                      : state === 'empty'
-                        ? 'No return brief is available yet.'
-                        : state === 'limited'
-                          ? 'This brief needs to be checked again before continuing.'
-                          : 'This brief is ready to use.';
+                      : partiallyUnavailable || unavailable
+                        ? 'This brief uses the checked project state. Some optional Codex context is incomplete or unavailable, so treat that context as a limitation rather than a blocker.'
+                        : state === 'empty'
+                          ? 'No return brief is available yet.'
+                          : state === 'limited'
+                            ? 'This brief needs to be checked again before continuing.'
+                            : 'This brief is ready to use.';
     const limitations = [
-      ...new Set([...(workspace?.limitations ?? []), ...(viewError ? [viewError] : [])]),
+      ...new Set([
+        ...(workspace?.limitations ?? []),
+        ...checkpoints.flatMap((checkpoint) => checkpoint.limitations),
+        ...(partiallyUnavailable || unavailable
+          ? ['Some optional Codex context is incomplete or unavailable.']
+          : []),
+        ...(viewError ? [viewError] : []),
+      ]),
     ];
     const blockedActions =
       state === 'limited' || state === 'failed' || state === 'unavailable'
@@ -634,13 +647,14 @@ export class Resumes {
       busy: this.running.has(id),
       error: viewError,
       generatedAt: work.resume?.generatedAt ?? null,
+      outputLanguage: work.resume?.outputLanguage ?? 'en',
       correctedKeys: corrections.filter((c) => c.kind !== 'restore').map((c) => c.candidateKey),
       dismissedKeys: corrections.filter((c) => c.kind === 'wrong-work').map((c) => c.candidateKey),
       workspace,
       workspaceChanged,
     };
   }
-  async refresh(id: string) {
+  async refresh(id: string, outputLanguage: OutputLanguage = 'en') {
     // Coalesce repeated explicit refresh requests. Route remounts and double
     // clicks must not queue a second model call for the same work snapshot.
     if (this.running.has(id)) return;
@@ -660,24 +674,22 @@ export class Resumes {
       const checkpoints = this.core.repo
         .list('checkpoint')
         .filter((c) => c.workId === id && links.some((l) => l.threadId === c.threadId));
-      // A partial read cannot support a new judgment. Keep the previous brief
-      // visible as a last-known snapshot and require a complete recheck before
-      // replacing it with a new candidate.
-      if (
-        (links.length > 0 && !sources.length) ||
-        checkpoints.some((c) => ['failed', 'partial', 'reading'].includes(c.status))
-      ) {
-        throw new DomainError(
-          'SOURCE_UNAVAILABLE',
-          'Connected records are only partially available. The last checked brief was kept.',
-        );
-      }
       if (!this.core.summary.generateResume)
         throw new DomainError('CAPABILITY_UNSUPPORTED', 'Resume analysis is unavailable');
+      // Codex is optional project context. A partial or failed conversation read
+      // must not block an overview when checked project evidence is available.
+      // Exclude failed/in-flight conversations from model input; partial reads
+      // may contribute only the records that were actually collected.
+      const readableThreadIds = new Set(
+        checkpoints
+          .filter((checkpoint) => ['checked', 'partial'].includes(checkpoint.status))
+          .map((checkpoint) => checkpoint.threadId),
+      );
+      const readableLinks = links.filter((link) => readableThreadIds.has(link.threadId));
       // Bound input per linked session; omissions are explicit and cannot prove completion.
       // Reserve room for bounded project-file observations in the provider input.
-      const budget = Math.floor(60000 / Math.max(1, links.length));
-      const sessionRecords = links.flatMap((l) => {
+      const budget = Math.floor(60000 / Math.max(1, readableLinks.length));
+      const sessionRecords = readableLinks.flatMap((l) => {
         const rows = sources.filter((s) => s.threadId === l.threadId && s.actor !== 'system');
         const selected = new Map<string, (typeof rows)[number]>();
         const take = (items: typeof rows, allowance: number) => {
@@ -725,12 +737,13 @@ export class Resumes {
         );
       const overrides = (work.resumeOverrides ?? []).filter((c) => c.scope === scope);
       const raw = await this.core.summary.generateResume({
+        outputLanguage,
         goal: work.goal?.origin === 'user-input' ? work.goal.text : null,
         purpose: work.projectProfile?.purpose ?? null,
         cwd: connection.cwd,
         workspace: workspaceBefore,
         sessions: [
-          ...links.map((l) => ({ id: l.threadId, title: l.title })),
+          ...readableLinks.map((l) => ({ id: l.threadId, title: l.title })),
           ...(workspaceRecords.length
             ? [{ id: PROJECT_INSPECTION_THREAD, title: 'Project inspection' }]
             : []),
@@ -738,7 +751,15 @@ export class Resumes {
         records,
         coverage: {
           note: 'Bounded recent excerpts, not full history. Absence cannot prove done. Do not assume every linked session has the same goal.',
-          limitations: checkpoints.flatMap((c) => c.limitations),
+          limitations: [
+            ...checkpoints.flatMap((c) => c.limitations),
+            ...checkpoints
+              .filter((checkpoint) => checkpoint.status !== 'checked')
+              .map(
+                (checkpoint) =>
+                  `Codex context ${checkpoint.threadId} is ${checkpoint.status}; only available project evidence may be used.`,
+              ),
+          ],
         },
         corrections: overrides,
         previousCandidates:
@@ -750,10 +771,8 @@ export class Resumes {
       if (new Set(parsed.candidates.map((c) => c.key)).size !== parsed.candidates.length)
         throw new Error('Duplicate candidate keys');
       for (const c of parsed.candidates) {
-        if (
-          c.threadId !== PROJECT_INSPECTION_THREAD &&
-          !links.some((l) => l.threadId === c.threadId)
-        )
+        const allowedThreadIds = new Set(records.map((record) => record.threadId));
+        if (c.threadId !== PROJECT_INSPECTION_THREAD && !allowedThreadIds.has(c.threadId))
           throw new Error('Action location outside allowed sessions');
         const sourceById = new Map(records.map((record) => [record.revisionId, record]));
         // An implementation claim is useful only when the connected record
@@ -763,7 +782,9 @@ export class Resumes {
         // bucket.
         if (c.progress?.implemented?.length) {
           const implementationNotice =
-            'Implementation was reported, but no file or tool observation confirms it.';
+            outputLanguage === 'ko'
+              ? '구현되었다는 보고는 있지만 파일 또는 도구 관찰로 확인되지 않았습니다.'
+              : 'Implementation was reported, but no file or tool observation confirms it.';
           const implemented: typeof c.progress.implemented = [];
           const reported = [...(c.progress.reported ?? [])];
           for (const item of c.progress.implemented) {
@@ -812,19 +833,21 @@ export class Resumes {
         // as finished work.
         if (c.status === 'done' && !c.completion?.verified?.length) {
           c.status = 'unclear';
-          c.reason = 'Completion was reported, but independent verification is not recorded.';
-          if (c.currentState.length + 61 <= 240)
-            c.currentState = `${c.currentState.replace(/[.!?]\s*$/, '')}. Independent verification is not recorded.`;
-          else
-            c.currentState =
-              'Completion was reported, but independent verification is not recorded.';
+          const completionReason =
+            outputLanguage === 'ko'
+              ? '완료되었다는 보고는 있지만 독립 검증 기록은 없습니다.'
+              : 'Completion was reported, but independent verification is not recorded.';
+          const completionSuffix =
+            outputLanguage === 'ko'
+              ? '독립 검증 기록은 아직 없습니다.'
+              : 'Independent verification is not recorded.';
+          c.reason = completionReason;
+          if (c.currentState.length + completionSuffix.length + 1 <= 240)
+            c.currentState = `${c.currentState.replace(/[.!?]\s*$/, '')}. ${completionSuffix}`;
+          else c.currentState = completionReason;
         }
         if (c.status === 'active' && (!c.nextAction || !c.doneWhen || !c.actionSource))
           throw new Error('Active work needs an action, source and completion condition');
-        if (checkpoints.some((p) => p.status === 'partial'))
-          c.prerequisites.unshift(
-            'Some source records are compressed or incomplete. Confirm this step against the available evidence.',
-          );
         if (c.status !== 'active') {
           c.nextAction = null;
           c.doneWhen = null;
@@ -856,6 +879,7 @@ export class Resumes {
         resume: {
           scope,
           version,
+          outputLanguage,
           candidates: parsed.candidates,
           generatedAt: this.core.clock.now(),
           workspaceBefore,
@@ -868,6 +892,70 @@ export class Resumes {
       this.running.delete(id);
       this.core.events.changed(id);
     }
+  }
+  async localize(id: string, outputLanguage: OutputLanguage) {
+    if (this.running.has(id))
+      throw new DomainError(
+        'PROJECT_BUSY',
+        'Wait for the current overview preparation to finish.',
+        409,
+      );
+    const work = this.core.work(id);
+    if (!work.resume)
+      throw new DomainError(
+        'VALIDATION',
+        'Prepare an overview before changing its response language.',
+      );
+    const stored = resumeResultSchema.safeParse({ candidates: work.resume.candidates });
+    if (!stored.success)
+      throw new DomainError(
+        'VALIDATION',
+        'The saved overview is incompatible and must be prepared again.',
+      );
+    if ((work.resume.outputLanguage ?? 'en') === outputLanguage) return this.view(id);
+    const provider = this.core.summary as typeof this.core.summary & {
+      localizeResume?: (input: unknown) => Promise<unknown>;
+    };
+    if (!provider.localizeResume)
+      throw new DomainError('CAPABILITY_UNSUPPORTED', 'Overview localization is unavailable.');
+    const raw = await provider.localizeResume({
+      outputLanguage,
+      candidates: stored.data.candidates.map((candidate) => ({
+        key: candidate.key,
+        goal: candidate.goal,
+        currentState: candidate.currentState,
+        reason: candidate.reason,
+        nextAction: candidate.nextAction,
+        doneWhen: candidate.doneWhen,
+        prerequisites: candidate.prerequisites,
+      })),
+    });
+    const localized = resumeLocalizationResultSchema.parse(raw);
+    const byKey = new Map(localized.candidates.map((candidate) => [candidate.key, candidate]));
+    const originalKeys = stored.data.candidates.map((candidate) => candidate.key);
+    if (
+      localized.candidates.length !== originalKeys.length ||
+      originalKeys.some((key) => !byKey.has(key)) ||
+      localized.candidates.some((candidate) => !originalKeys.includes(candidate.key))
+    )
+      throw new Error('Localized overview changed candidate identity');
+    const candidates = stored.data.candidates.map((candidate) => {
+      const text = byKey.get(candidate.key)!;
+      return {
+        ...candidate,
+        goal: text.goal,
+        currentState: text.currentState,
+        reason: text.reason,
+        nextAction: text.nextAction,
+        doneWhen: text.doneWhen,
+        prerequisites: text.prerequisites,
+      };
+    });
+    // Parse the merged result so localization cannot weaken the normal Resume contract.
+    resumeResultSchema.parse({ candidates });
+    this.core.repo.put('work', { ...work, resume: { ...work.resume, candidates, outputLanguage } });
+    this.core.events.changed(id);
+    return this.view(id);
   }
   setGoal(id: string, raw: unknown) {
     const input = raw as { text?: unknown; version?: unknown };

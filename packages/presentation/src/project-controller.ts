@@ -77,6 +77,7 @@ export class ProjectController {
   private settledDuringRead = new Set<string>();
   private changeTimer: ReturnType<typeof setTimeout> | null = null;
   private unsubscribe?: () => void;
+  private outputLanguage: 'en' | 'ko' = 'en';
   constructor(
     private gateway: ProjectGateway,
     private resume: ResumeGateway,
@@ -518,7 +519,7 @@ export class ProjectController {
   async prepare(id: string) {
     await this.mutate(
       id,
-      () => this.resume.refresh(id),
+      () => this.refreshOverview(id),
       'Overview preparation started. This page will update when the project check finishes.',
     );
   }
@@ -550,7 +551,7 @@ export class ProjectController {
     if (!saved || !result) return null;
     if (!result.reused) {
       try {
-        await this.resume.refresh(result.workId);
+        await this.refreshOverview(result.workId);
       } catch {
         // Registration is already durable. A failed first overview request must
         // not turn project creation into a failed create or send the user back
@@ -679,6 +680,55 @@ export class ProjectController {
   }
   connections() {
     return this.gateway.connections();
+  }
+  capabilities() {
+    if (!this.gateway.capabilities)
+      return Promise.reject(new Error('Integration capabilities are unavailable.'));
+    return this.gateway.capabilities();
+  }
+  setOutputLanguage(language: 'en' | 'ko') {
+    this.outputLanguage = language;
+  }
+  async localizeGeneratedOverviews(language: 'en' | 'ko'): Promise<boolean> {
+    this.outputLanguage = language;
+    if (!this.value.online || this.value.checkingCurrent || this.value.busyWorkId) return false;
+    const targets = this.workspace.projects.filter(
+      (entry) =>
+        !entry.disconnectedAt &&
+        !!entry.resume?.generatedAt &&
+        (entry.resume.outputLanguage ?? 'en') !== language,
+    );
+    if (!targets.length) return true;
+    if (!this.resume.localize) {
+      this.set({ error: 'Existing overview language cannot be updated in this environment.' });
+      return false;
+    }
+    const generation = this.generation;
+    this.set({ busyWorkId: 'response-language', error: null, notice: null });
+    try {
+      for (const target of targets) await this.resume.localize(target.workId, language);
+      if (!this.active || generation !== this.generation) return false;
+      await this.refresh();
+      if (!this.active || generation !== this.generation) return false;
+      this.set({
+        notice:
+          language === 'ko'
+            ? 'Existing project overviews were updated to Korean.'
+            : 'Existing project overviews were updated to English.',
+      });
+      return true;
+    } catch (error) {
+      if (this.active && generation === this.generation) {
+        await this.refresh();
+        this.set({ error: projectError(error) });
+      }
+      return false;
+    } finally {
+      if (this.active && generation === this.generation) this.set({ busyWorkId: null });
+    }
+  }
+  private refreshOverview(id: string) {
+    return this.outputLanguage === 'ko' ? this.resume.refresh(id, 'ko') : this.resume.refresh(id);
   }
   discover(cwd: string) {
     return this.gateway.discover(cwd);

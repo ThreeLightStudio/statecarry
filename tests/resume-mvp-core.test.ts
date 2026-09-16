@@ -311,6 +311,86 @@ describe('resume MVP core boundaries', () => {
       candidates: [expect.objectContaining({ key: 'goal-a' })],
     });
   });
+
+  it('prepares from checked project evidence when optional Codex context is partial', async () => {
+    const h = harness();
+    const current: WorkspaceSnapshot = {
+      ...snapshot([
+        {
+          path: 'src/export.ts',
+          hash: 'project-evidence',
+          size: 42,
+          preview: 'export function run() { return true; }',
+          status: 'checked',
+          limitation: null,
+        },
+      ]),
+      changedPaths: ['src/export.ts'],
+    };
+    const core = new StateCarry(
+      h.repo,
+      h.reader,
+      h.summary,
+      h.navigator,
+      h.core.clock,
+      h.core.ids,
+      h.core.events,
+      undefined,
+      { inspect: () => structuredClone(current) },
+    );
+    const id = core.connect({
+      requestId: core.ids.next(),
+      expectedRevision: 0,
+      payload: { title: 'Project', cwd: '/tmp/example', threadIds: ['thread-a'], discover: false },
+    }).workId;
+    const record = source('A conversation excerpt that is only partially available.');
+    h.records([record]);
+    const read = h.reader.read.bind(h.reader);
+    h.reader.read = async (...args) => ({
+      ...(await read(...args)),
+      status: 'partial',
+      limitations: ['A Codex record could not be read.'],
+    });
+    let supplied: any;
+    h.summary.generateResume = async (input: any) => {
+      supplied = input;
+      const git = input.records.find((item: any) => item.kind === 'gitObservation');
+      return {
+        candidates: [
+          {
+            key: 'project-first',
+            goal: 'Continue from the checked project state',
+            currentState: 'The codebase is readable even though optional Codex context is partial.',
+            status: 'active',
+            reason: 'The project inspection provides current evidence for a bounded next step.',
+            nextAction: 'Review the current export implementation',
+            actionSource: 'suggested',
+            doneWhen: 'The current export implementation has been reviewed.',
+            threadId: 'project-inspection',
+            prerequisites: [],
+            evidence: [{ revisionId: git.revisionId, quote: git.text }],
+            progress: { reported: [], implemented: [], verified: [] },
+            completion: { reported: [], verified: [] },
+          },
+        ],
+      };
+    };
+
+    await core.resumes.refresh(id);
+
+    expect(supplied.coverage.limitations.join(' ')).toContain('partial');
+    expect(core.resumes.view(id)).toMatchObject({
+      state: 'ready',
+      stale: false,
+      candidates: [
+        expect.objectContaining({ key: 'project-first', threadId: 'project-inspection' }),
+      ],
+      limitations: expect.arrayContaining([
+        'Some optional Codex context is incomplete or unavailable.',
+      ]),
+    });
+  });
+
   it('publishes an empty state when a complete check finds no safe candidate', async () => {
     const h = harness(),
       id = h.connect();

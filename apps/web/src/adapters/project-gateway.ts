@@ -6,7 +6,7 @@ import type {
   ProjectSourcesInput,
   ProjectDeletionPreview,
 } from '@statecarry/presentation';
-import type { Connection, Receipt, SourceRevision } from '@statecarry/contracts';
+import type { Capabilities, Connection, Receipt, SourceRevision } from '@statecarry/contracts';
 
 export class ProjectRequestError extends Error {
   constructor(
@@ -45,6 +45,9 @@ export class HttpProjectGateway implements ProjectGateway {
   }
   list() {
     return this.request<ProjectWorkspace>('/project-workspace');
+  }
+  capabilities() {
+    return this.request<Capabilities>('/capabilities');
   }
   create(input: ProjectCreateInput) {
     return this.command('/project-workspace', 0, input);

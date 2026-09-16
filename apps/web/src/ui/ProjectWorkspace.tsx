@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ComponentProps,
+  type ReactNode,
+} from 'react';
 import {
   projectError,
   projectHref,
@@ -11,6 +18,14 @@ import {
   type RecordRange,
   type SavedResumeEdits,
 } from '@statecarry/presentation';
+import '@/styles/globals.css';
+import { Alert } from '@/components/ui/alert';
+import { Badge as UiBadge } from '@/components/ui/badge';
+import { Button as UiButton, buttonVariants } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 import './project-workspace.css';
 
 type WorkspaceState = ReturnType<ProjectController['getSnapshot']>;
@@ -18,6 +33,48 @@ type Navigate = (href: string) => void;
 type WorkspaceProps = { controller: ProjectController; onNavigate: Navigate };
 type ProjectProps = WorkspaceProps & { project: ProjectView; state: WorkspaceState };
 const emptyEdits: SavedResumeEdits = { goalDraft: null, actionDrafts: [], expanded: [], scroll: 0 };
+const responseLanguageKey = 'statecarry.response-language.v1';
+
+function readResponseLanguage(): 'en' | 'ko' {
+  try {
+    return window.localStorage.getItem(responseLanguageKey) === 'ko' ? 'ko' : 'en';
+  } catch {
+    return 'en';
+  }
+}
+
+function writeResponseLanguage(language: 'en' | 'ko') {
+  try {
+    window.localStorage.setItem(responseLanguageKey, language);
+  } catch {
+    // The preference remains active for this tab when browser storage is unavailable.
+  }
+}
+
+function legacyButtonVariant(className?: string) {
+  if (className?.includes('pw-button--primary')) return 'default' as const;
+  if (className?.includes('pw-button--quiet')) return 'ghost' as const;
+  if (className?.includes('pw-button--danger')) return 'destructive' as const;
+  return 'outline' as const;
+}
+
+function Button({ className, variant, ...props }: ComponentProps<typeof UiButton>) {
+  return (
+    <UiButton
+      variant={variant ?? legacyButtonVariant(className)}
+      className={cn('pw-button', className)}
+      {...props}
+    />
+  );
+}
+
+function routeButtonClass(className?: string) {
+  if (!className?.includes('pw-button')) return className;
+  return cn(buttonVariants({ variant: legacyButtonVariant(className) }), className);
+}
+
+const cardSurface =
+  'min-w-0 space-y-3.5 rounded-xl border border-border bg-card p-6 text-card-foreground shadow-sm';
 
 function RouteLink({
   href,
@@ -37,7 +94,7 @@ function RouteLink({
   return (
     <a
       href={href}
-      className={className}
+      className={routeButtonClass(className)}
       aria-current={current}
       onClick={(event) => {
         if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
@@ -54,7 +111,11 @@ function RouteLink({
 
 function Badge({ children, kind = '' }: { children: ReactNode; kind?: string }) {
   const alias = kind === 'accepted' ? 'completed' : kind === 'continue' ? 'ready' : kind;
-  return <span className={`pw-badge pw-badge--${alias}`}>{children}</span>;
+  return (
+    <UiBadge variant="secondary" className={`pw-badge pw-badge--${alias}`}>
+      {children}
+    </UiBadge>
+  );
 }
 
 function OverviewDate({ value }: { value: string | null }) {
@@ -80,6 +141,9 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
   const { route } = state;
   const project = state.projects.find((item) => item.id === route.workId);
   const mainRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    controller.setOutputLanguage(readResponseLanguage());
+  }, [controller]);
   useEffect(() => {
     const heading = mainRef.current?.querySelector<HTMLElement>('h1');
     heading?.focus({ preventScroll: true });
@@ -153,9 +217,17 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
               ))}
           </nav>
         </div>
-        <p className="pw-rail-foot">
-          A place to return, understand your work, and choose what comes next.
-        </p>
+        <div className="pw-rail-foot">
+          <RouteLink
+            href="#/settings"
+            onNavigate={onNavigate}
+            className="pw-settings-link"
+            current={route.page === 'global-settings' ? 'page' : undefined}
+          >
+            Settings
+          </RouteLink>
+          <p>A place to return, understand your work, and choose what comes next.</p>
+        </div>
       </aside>
       <main ref={mainRef} className="pw-main" id="workspace-main" tabIndex={-1}>
         <div className="pw-topbar">
@@ -177,6 +249,12 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
                 <span>Settings</span>
               </>
             )}
+            {route.page === 'global-settings' && (
+              <>
+                <span aria-hidden="true">/</span>
+                <span>Settings</span>
+              </>
+            )}
             {route.page === 'original' && (
               <>
                 <span aria-hidden="true">/</span>
@@ -192,22 +270,22 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
                   ? 'Connected locally'
                   : 'Connection unavailable'}
             </span>
-            <button
+            <Button
               type="button"
               className="pw-button pw-button--quiet"
               disabled={state.loading || (state.online && state.checkingCurrent)}
               onClick={() => void controller.checkForChanges()}
             >
               Check for changes
-            </button>
+            </Button>
           </div>
         </div>
         {state.error && (
           <section className="pw-notice" role="alert">
             <p>{state.error}</p>
-            <button className="pw-button" onClick={() => void controller.refresh()}>
+            <Button className="pw-button" onClick={() => void controller.refresh()}>
               Read latest state
-            </button>
+            </Button>
           </section>
         )}
         {state.memoryError && (
@@ -216,17 +294,24 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
           </p>
         )}
         {state.notice && (
-          <div className="pw-notice" role="status">
-            <p>{state.notice}</p>
-            <button className="pw-button pw-button--quiet" onClick={() => controller.clearNotice()}>
-              Dismiss message
-            </button>
+          <div className="pw-toast-layer" aria-live="polite">
+            <Alert className="pw-toast" role="status">
+              <p>{state.notice}</p>
+              <Button
+                className="pw-button pw-button--quiet"
+                onClick={() => controller.clearNotice()}
+              >
+                Dismiss message
+              </Button>
+            </Alert>
           </div>
         )}
         {route.page === 'home' ? (
           <Home state={state} controller={controller} onNavigate={onNavigate} />
         ) : route.page === 'new' ? (
           <CreateProject controller={controller} onNavigate={onNavigate} />
+        ) : route.page === 'global-settings' ? (
+          <GlobalSettings state={state} controller={controller} onNavigate={onNavigate} />
         ) : project ? (
           route.page === 'settings' ? (
             <ProjectSettings
@@ -264,6 +349,214 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
         )}
       </main>
     </div>
+  );
+}
+
+function GlobalSettings({
+  state,
+  controller,
+  onNavigate,
+}: WorkspaceProps & { state: WorkspaceState }) {
+  const [language, setLanguage] = useState<'en' | 'ko'>(() => readResponseLanguage());
+  const [capabilities, setCapabilities] = useState<Awaited<
+    ReturnType<ProjectController['capabilities']>
+  > | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [localizing, setLocalizing] = useState(false);
+  const [capabilityError, setCapabilityError] = useState('');
+  const mounted = useRef(true);
+  const localizationAttempt = useRef('');
+
+  const readCapabilities = async () => {
+    try {
+      const next = await controller.capabilities();
+      if (mounted.current) {
+        setCapabilities(next);
+        setCapabilityError('');
+      }
+    } catch {
+      if (mounted.current)
+        setCapabilityError('Codex status could not be read from the local StateCarry service.');
+    }
+  };
+
+  useEffect(() => {
+    mounted.current = true;
+    void readCapabilities();
+    return () => {
+      mounted.current = false;
+    };
+  }, [controller]);
+
+  useEffect(() => {
+    if (!state.online || state.loading || state.checkingCurrent || state.busyWorkId) return;
+    const mismatched = state.projects
+      .filter((project) => project.generatedAt && project.outputLanguage !== language)
+      .map((project) => `${project.id}:${project.generatedAt}:${project.outputLanguage}`)
+      .join('|');
+    if (!mismatched) return;
+    const attempt = `${language}:${mismatched}`;
+    if (localizationAttempt.current === attempt) return;
+    localizationAttempt.current = attempt;
+    setLocalizing(true);
+    void controller.localizeGeneratedOverviews(language).finally(() => {
+      if (mounted.current) setLocalizing(false);
+    });
+  }, [
+    controller,
+    language,
+    state.busyWorkId,
+    state.checkingCurrent,
+    state.loading,
+    state.online,
+    state.projects,
+  ]);
+
+  const checkIntegrations = async () => {
+    setChecking(true);
+    await Promise.all([controller.checkForChanges(), readCapabilities()]);
+    if (mounted.current) setChecking(false);
+  };
+
+  const changeLanguage = (next: 'en' | 'ko') => {
+    setLanguage(next);
+    writeResponseLanguage(next);
+    controller.setOutputLanguage(next);
+    localizationAttempt.current = '';
+    setLocalizing(true);
+    void controller.localizeGeneratedOverviews(next).finally(() => {
+      if (mounted.current) setLocalizing(false);
+    });
+  };
+
+  return (
+    <>
+      <header className="pw-hero">
+        <div className="pw-hero-copy">
+          <span className="pw-eyebrow">Settings</span>
+          <h1 tabIndex={-1}>StateCarry settings</h1>
+          <p className="pw-lead">
+            Check the local integrations StateCarry can read and choose the language used for newly
+            prepared project overviews.
+          </p>
+        </div>
+        <Button
+          className="pw-button"
+          disabled={checking || state.loading || (state.online && state.checkingCurrent)}
+          onClick={() => void checkIntegrations()}
+        >
+          {checking ? 'Checking integrations…' : 'Check integrations'}
+        </Button>
+      </header>
+
+      <div className="pw-stack">
+        <Card className={cardSurface} aria-labelledby="response-language-heading">
+          <h2 id="response-language-heading">Response language</h2>
+          <p className="pw-small">
+            This changes overview explanation text without changing the StateCarry interface or
+            rewriting quoted source evidence. Existing prepared overviews are translated without
+            re-analyzing the project.
+          </p>
+          <label className="pw-field">
+            Overview responses
+            <select
+              name="response-language"
+              value={language}
+              disabled={localizing}
+              onChange={(event) => changeLanguage(event.target.value === 'ko' ? 'ko' : 'en')}
+            >
+              <option value="en">English</option>
+              <option value="ko">Korean</option>
+            </select>
+          </label>
+          {localizing && (
+            <p className="pw-small" role="status">
+              Updating existing overview text without re-analyzing project evidence…
+            </p>
+          )}
+        </Card>
+
+        <Card className={cardSurface} aria-labelledby="codex-integration-heading">
+          <div className="pw-section-head">
+            <h2 id="codex-integration-heading">Codex</h2>
+            <Badge kind={capabilities?.summary.state === 'ready' ? 'continue' : 'limited'}>
+              {capabilities
+                ? capabilities.summary.state === 'ready'
+                  ? 'Available'
+                  : 'Needs attention'
+                : 'Checking'}
+            </Badge>
+          </div>
+          {capabilities ? (
+            <>
+              <p>{capabilities.summary.detail}</p>
+              <p className="pw-small">
+                Local source: {capabilities.source} · model{' '}
+                {capabilities.summary.model ?? 'not reported'}
+              </p>
+            </>
+          ) : capabilityError ? (
+            <p className="pw-notice" role="alert">
+              {capabilityError}
+            </p>
+          ) : (
+            <p className="pw-small" role="status">
+              Reading Codex capability status…
+            </p>
+          )}
+          <p className="pw-small">
+            Codex conversations are optional project context. Choose them separately for each
+            project.
+          </p>
+        </Card>
+
+        <Card className={cardSurface} aria-labelledby="project-integrations-heading">
+          <h2 id="project-integrations-heading">Project integrations</h2>
+          <p className="pw-small">
+            Codebase and Git checks are automatic for each registered project folder. They do not
+            need a separate account connection.
+          </p>
+          {state.projects.length ? (
+            <div className="pw-stack">
+              {state.projects.map((project) => (
+                <section
+                  key={project.id}
+                  className="pw-settings-project"
+                  aria-label={project.title}
+                >
+                  <div className="pw-section-head">
+                    <div>
+                      <h3>{project.title}</h3>
+                      <p className="pw-small">{project.cwd}</p>
+                    </div>
+                    <RouteLink
+                      className="pw-button"
+                      href={`${projectHref(project.id)}/settings`}
+                      onNavigate={onNavigate}
+                    >
+                      Manage Codex context
+                    </RouteLink>
+                  </div>
+                  <div
+                    className="pw-source-summary"
+                    aria-label={`Integration status for ${project.title}`}
+                  >
+                    {project.sourceSummary.map((source) => (
+                      <div key={source.kind} className="pw-source-summary-item">
+                        <strong>{source.label}</strong>
+                        <span>{source.detail}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          ) : (
+            <p className="pw-small">Add a project to see its codebase and Git check status.</p>
+          )}
+        </Card>
+      </div>
+    </>
   );
 }
 
@@ -316,7 +609,7 @@ function Home({ state, controller, onNavigate }: WorkspaceProps & { state: Works
       <div className="pw-grid" role="search" aria-label="Find registered work">
         <label className="pw-field">
           Find a project or task
-          <input
+          <Input
             type="search"
             name="workspace-search"
             placeholder="Search names, purpose, or folders"
@@ -352,7 +645,10 @@ function Home({ state, controller, onNavigate }: WorkspaceProps & { state: Works
                 href={projectHref(project.id, task.key)}
                 onNavigate={onNavigate}
                 beforeNavigate={() => controller.select(project.id, task.key)}
-                className={`pw-card pw-card-link${project.focused ? ' pw-card--focused' : ''}`}
+                className={cn(
+                  cardSurface,
+                  `pw-card pw-card-link${project.focused ? ' pw-card--focused' : ''}`,
+                )}
               >
                 <div className="pw-card-meta">
                   <Badge kind={project.canDecide ? task.status : 'limited'}>
@@ -401,7 +697,7 @@ function Home({ state, controller, onNavigate }: WorkspaceProps & { state: Works
         </div>
         <div className="pw-grid">
           {projects.map((project) => (
-            <article key={project.id} className="pw-card pw-card--quiet">
+            <article key={project.id} className={cn(cardSurface, 'pw-card pw-card--quiet')}>
               <div className="pw-card-meta">
                 {project.focused && <Badge>Your focus</Badge>}
                 <Badge kind={project.disconnected ? 'disconnected' : ''}>
@@ -422,13 +718,13 @@ function Home({ state, controller, onNavigate }: WorkspaceProps & { state: Works
                   : `${project.tasks.filter((task) => task.status !== 'accepted' && task.status !== 'paused').length} tasks to consider`}
               </p>
               {project.disconnected && (
-                <button
+                <Button
                   className="pw-button"
                   disabled={!state.online || state.busyWorkId === project.id}
                   onClick={() => void controller.restore(project.id)}
                 >
                   Restore project
-                </button>
+                </Button>
               )}
             </article>
           ))}
@@ -477,13 +773,13 @@ function ProjectPage({ project, state, controller, onNavigate }: ProjectProps) {
         <section className="pw-empty">
           <h2>This project is disconnected</h2>
           <p>{project.stateDescription}</p>
-          <button
+          <Button
             className="pw-button pw-button--primary"
             disabled={!state.online || busy}
             onClick={() => void controller.restore(project.id)}
           >
             Restore project
-          </button>
+          </Button>
         </section>
       ) : !missing && !project.tasks.length && !project.dismissed.length && !project.generatedAt ? (
         <ProjectSetup
@@ -494,7 +790,10 @@ function ProjectPage({ project, state, controller, onNavigate }: ProjectProps) {
         />
       ) : (
         <>
-          <section className="pw-card pw-project-state" aria-label="Project state">
+          <section
+            className={cn(cardSurface, 'pw-card pw-project-state')}
+            aria-label="Project state"
+          >
             <div className="pw-section-head">
               <h2>Project state</h2>
               <span className="pw-small">Codebase, Git, and optional Codex context</span>
@@ -537,12 +836,12 @@ function ProjectPage({ project, state, controller, onNavigate }: ProjectProps) {
                   </span>
                 )}
                 <div>
-                  <button
+                  <Button
                     className="pw-button pw-button--quiet"
                     onClick={() => controller.editGoal(project.id)}
                   >
                     {project.goal ? 'Edit goal' : selected ? 'Record my goal' : 'Set a goal'}
-                  </button>
+                  </Button>
                 </div>
               </>
             )}
@@ -562,13 +861,13 @@ function ProjectPage({ project, state, controller, onNavigate }: ProjectProps) {
                 ) : null}
                 <div className="pw-actions">
                   <OverviewDate value={project.generatedAt} />
-                  <button
+                  <Button
                     className={project.canDecide ? 'pw-button pw-button--quiet' : 'pw-button'}
                     disabled={!project.canRefresh || busy}
                     onClick={() => void controller.prepare(project.id)}
                   >
                     Prepare an updated overview
-                  </button>
+                  </Button>
                 </div>
                 {!project.sourceCount && (
                   <RouteLink href={`${projectHref(project.id)}/settings`} onNavigate={onNavigate}>
@@ -611,9 +910,9 @@ function ProjectPage({ project, state, controller, onNavigate }: ProjectProps) {
                       The recorded tasks are accepted. You can leave this project here or record
                       another goal.
                     </p>
-                    <button className="pw-button" onClick={() => controller.editGoal(project.id)}>
+                    <Button className="pw-button" onClick={() => controller.editGoal(project.id)}>
                       Choose another goal
-                    </button>
+                    </Button>
                   </section>
                 )}
             </div>
@@ -638,16 +937,16 @@ function ProjectPage({ project, state, controller, onNavigate }: ProjectProps) {
                   <summary>Tasks set aside</summary>
                   <div className="pw-stack">
                     {project.dismissed.map((task) => (
-                      <div className="pw-card" key={task.key}>
+                      <Card className="pw-card space-y-3.5 p-6" key={task.key}>
                         <p>{task.title}</p>
-                        <button
+                        <Button
                           className="pw-button"
                           disabled={!project.canDecide || busy}
                           onClick={() => void controller.correct(project.id, task.key, 'restore')}
                         >
                           Restore this task
-                        </button>
-                      </div>
+                        </Button>
+                      </Card>
                     ))}
                   </div>
                 </details>
@@ -672,16 +971,16 @@ function ProjectSetup({ project, state, controller, onNavigate }: ProjectProps) 
         ) : (
           <>
             <p>{project.goal || 'No current goal has been recorded.'}</p>
-            <button
+            <Button
               className="pw-button pw-button--quiet"
               onClick={() => controller.editGoal(project.id)}
             >
               {project.goal ? 'Edit goal' : 'Set a goal'}
-            </button>
+            </Button>
           </>
         )}
       </section>
-      <section className="pw-card" aria-labelledby="first-overview-heading">
+      <section className={cn(cardSurface, 'pw-card')} aria-labelledby="first-overview-heading">
         <h2 id="first-overview-heading">Prepare this project's first overview</h2>
         <p>
           StateCarry starts from the project itself. It checks the codebase and Git state
@@ -715,7 +1014,7 @@ function ProjectSetup({ project, state, controller, onNavigate }: ProjectProps) 
           </p>
         )}
         <div className="pw-actions">
-          <button
+          <Button
             className="pw-button pw-button--primary"
             disabled={!project.canRefresh || busy}
             onClick={() => void controller.prepare(project.id)}
@@ -723,7 +1022,7 @@ function ProjectSetup({ project, state, controller, onNavigate }: ProjectProps) 
             {busy || project.stateLabel === 'Preparing an update'
               ? 'Preparing overview…'
               : 'Prepare the first overview'}
-          </button>
+          </Button>
           <RouteLink
             className="pw-button pw-button--quiet"
             href={`${projectHref(project.id)}/settings`}
@@ -760,7 +1059,7 @@ function GoalEditor({
     >
       <label>
         Your intended result
-        <textarea
+        <Textarea
           name="goal"
           maxLength={400}
           value={draft.text}
@@ -773,30 +1072,30 @@ function GoalEditor({
             This draft was written against an earlier overview. Compare it with the current work
             before saving.
           </p>
-          <button
+          <Button
             type="button"
             className="pw-button"
             disabled={!project.canEdit || busy}
             onClick={() => controller.rebaseGoal(project.id)}
           >
             I reviewed this goal against the current overview
-          </button>
+          </Button>
         </div>
       )}
       <div className="pw-actions">
-        <button
+        <Button
           className="pw-button pw-button--primary"
           disabled={!project.canEdit || busy || stale || !draft.text.trim()}
         >
           Save goal
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           className="pw-button pw-button--quiet"
           onClick={() => controller.discardGoal(project.id)}
         >
           Discard goal draft
-        </button>
+        </Button>
         <span className="pw-small">Draft kept on this device.</span>
       </div>
     </form>
@@ -854,7 +1153,7 @@ function TaskDetail({
     }
   };
   return (
-    <article className="pw-card" aria-label="Selected task">
+    <article className={cn(cardSurface, 'pw-card')} aria-label="Selected task">
       <div className="pw-card-meta">
         <Badge kind={task.status}>{task.statusLabel}</Badge>
         <span className="pw-small">{task.sourceLabel}</span>
@@ -889,52 +1188,58 @@ function TaskDetail({
         )}
         {task.status === 'accepted' || task.status === 'paused' ? (
           <div className="pw-actions">
-            <button
+            <Button
               className="pw-button"
               disabled={!canDecide}
               onClick={() => void controller.correct(project.id, task.key, 'restore')}
             >
               {task.status === 'accepted' ? 'Reopen this task' : 'Restore this task'}
-            </button>
+            </Button>
           </div>
         ) : (
           <div className="pw-actions">
             {task.canAct && task.destinationUrl && (
-              <a className="pw-button pw-button--primary" href={task.destinationUrl}>
+              <a
+                className={cn(
+                  buttonVariants({ variant: 'default' }),
+                  'pw-button pw-button--primary',
+                )}
+                href={task.destinationUrl}
+              >
                 Open working conversation
               </a>
             )}
             {task.canAct && (
-              <button
+              <Button
                 className={`pw-button${task.destinationUrl ? '' : ' pw-button--primary'}`}
                 disabled={busy}
                 onClick={() => void copyTask()}
               >
                 Copy task for my working tool
-              </button>
+              </Button>
             )}
             {(task.status === 'review' || task.canAct) && (
-              <button
+              <Button
                 className={`pw-button${task.status === 'review' ? ' pw-button--primary' : ''}`}
                 disabled={!canDecide}
                 onClick={() => void controller.correct(project.id, task.key, 'done')}
               >
                 Accept as complete
-              </button>
+              </Button>
             )}
-            <button
+            <Button
               className="pw-button"
               onClick={() => controller.editAction(project.id, task.key)}
             >
               Edit next step
-            </button>
-            <button
+            </Button>
+            <Button
               className="pw-button pw-button--quiet"
               disabled={!canDecide}
               onClick={() => void controller.correct(project.id, task.key, 'paused')}
             >
               Pause this task
-            </button>
+            </Button>
           </div>
         )}
         {task.canAct && (
@@ -960,7 +1265,7 @@ function TaskDetail({
           <h3>Correct the next step</h3>
           <label>
             Next step
-            <textarea
+            <Textarea
               name="next-action"
               maxLength={1200}
               value={draft.action}
@@ -971,7 +1276,7 @@ function TaskDetail({
           </label>
           <label>
             Finish condition
-            <textarea
+            <Textarea
               name="done-when"
               maxLength={1200}
               value={draft.done}
@@ -983,18 +1288,18 @@ function TaskDetail({
           {draft.version !== project.version && (
             <div className="pw-notice">
               <p>This draft uses an earlier overview. Review the current task before saving it.</p>
-              <button
+              <Button
                 className="pw-button"
                 type="button"
                 disabled={!project.canEdit || busy}
                 onClick={() => controller.rebaseAction(project.id, task.key)}
               >
                 I reviewed this step against the current overview
-              </button>
+              </Button>
             </div>
           )}
           <div className="pw-actions">
-            <button
+            <Button
               className="pw-button pw-button--primary"
               disabled={
                 !project.canEdit ||
@@ -1005,14 +1310,14 @@ function TaskDetail({
               }
             >
               Save next step
-            </button>
-            <button
+            </Button>
+            <Button
               className="pw-button pw-button--quiet"
               type="button"
               onClick={() => controller.discardAction(project.id, task.key)}
             >
               Discard step draft
-            </button>
+            </Button>
           </div>
         </form>
       )}
@@ -1043,13 +1348,13 @@ function TaskDetail({
       <details className="pw-details">
         <summary>This is the wrong work</summary>
         <p>Set this suggestion aside while keeping the project and your other tasks.</p>
-        <button
+        <Button
           className="pw-button"
           disabled={!canDecide}
           onClick={() => void controller.correct(project.id, task.key, 'wrong-work')}
         >
           Set this task aside
-        </button>
+        </Button>
       </details>
       <details className="pw-details">
         <summary>Inspect original records</summary>
@@ -1074,7 +1379,10 @@ function TaskDetail({
             </RouteLink>
           ))}
           {task.destinationUrl && (
-            <a className="pw-button" href={task.destinationUrl}>
+            <a
+              className={cn(buttonVariants({ variant: 'outline' }), 'pw-button')}
+              href={task.destinationUrl}
+            >
               Open original conversation
             </a>
           )}
@@ -1111,7 +1419,7 @@ function OriginalInspection({ project, state, onNavigate }: ProjectProps) {
       {state.inspectionLoading ? (
         <p role="status">Reading the original record…</p>
       ) : inspection ? (
-        <section className="pw-card">
+        <section className={cn(cardSurface, 'pw-card')}>
           <h2>{inspection.title}</h2>
           <p className="pw-small">
             {inspection.actor}
@@ -1249,7 +1557,7 @@ function CreateProject({ controller, onNavigate }: WorkspaceProps) {
         </div>
       </header>
       <form
-        className="pw-form pw-card"
+        className={cn(cardSurface, 'pw-form pw-card')}
         onSubmit={(event) => {
           event.preventDefault();
           void submit();
@@ -1257,7 +1565,7 @@ function CreateProject({ controller, onNavigate }: WorkspaceProps) {
       >
         <label>
           Project folder
-          <input
+          <Input
             name="cwd"
             required
             disabled={busy}
@@ -1306,7 +1614,7 @@ function CreateProject({ controller, onNavigate }: WorkspaceProps) {
           <>
             <label>
               Project name <span className="pw-field-help">Optional</span>
-              <input
+              <Input
                 name="title"
                 disabled={busy}
                 maxLength={120}
@@ -1319,7 +1627,7 @@ function CreateProject({ controller, onNavigate }: WorkspaceProps) {
             </label>
             <label>
               Why this project exists
-              <textarea
+              <Textarea
                 name="purpose"
                 disabled={busy}
                 maxLength={1200}
@@ -1330,7 +1638,7 @@ function CreateProject({ controller, onNavigate }: WorkspaceProps) {
             </label>
             <label>
               First goal <span className="pw-field-help">Optional</span>
-              <textarea
+              <Textarea
                 name="initial-goal"
                 disabled={busy}
                 maxLength={400}
@@ -1348,12 +1656,12 @@ function CreateProject({ controller, onNavigate }: WorkspaceProps) {
         )}
         <div className="pw-actions">
           {!duplicate && (
-            <button
+            <Button
               className="pw-button pw-button--primary"
               disabled={!state.online || state.checkingCurrent || busy || folder === null}
             >
               {busy ? 'Adding project…' : 'Add project'}
-            </button>
+            </Button>
           )}
           <RouteLink className="pw-button pw-button--quiet" href="#/home" onNavigate={onNavigate}>
             Cancel
@@ -1473,14 +1781,14 @@ function SourcePicker({
         only reads available sources.
       </p>
       <div>
-        <button
+        <Button
           type="button"
           className="pw-button"
           disabled={disabled || searching || turnBusy !== null || !cwd.trim().startsWith('/')}
           onClick={() => void find()}
         >
           {searching ? 'Finding conversations…' : 'Find conversations in this folder'}
-        </button>
+        </Button>
       </div>
       {partial && (
         <p className="pw-notice">
@@ -1516,7 +1824,7 @@ function SourcePicker({
                 <>
                   {!turns[thread.id] ? (
                     <div>
-                      <button
+                      <Button
                         type="button"
                         className="pw-button pw-button--quiet"
                         disabled={disabled || turnBusy !== null}
@@ -1525,7 +1833,7 @@ function SourcePicker({
                         {turnBusy === thread.id
                           ? 'Reading starting points…'
                           : 'Choose a starting point'}
-                      </button>
+                      </Button>
                     </div>
                   ) : (
                     <label>
@@ -1585,7 +1893,7 @@ function SourcePicker({
                             <label key={field}>
                               {edge === 'start' ? 'First' : 'Last'}{' '}
                               {field === 'turnId' ? 'turn position' : 'item position'}
-                              <input
+                              <Input
                                 disabled={disabled}
                                 value={exact?.[edge]?.[field] ?? ''}
                                 onChange={(event) =>
@@ -1607,23 +1915,23 @@ function SourcePicker({
                       </fieldset>
                     ))}
                     <div className="pw-actions">
-                      <button
+                      <Button
                         type="button"
                         className="pw-button"
                         disabled={disabled || !exact}
                         onClick={() => range(thread.id)}
                       >
                         Use the starting point and later records
-                      </button>
+                      </Button>
                       {exact?.end && (
-                        <button
+                        <Button
                           type="button"
                           className="pw-button"
                           disabled={disabled}
                           onClick={() => range(thread.id, { start: exact.start })}
                         >
                           Include later records
-                        </button>
+                        </Button>
                       )}
                     </div>
                   </details>
@@ -1795,7 +2103,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
         </RouteLink>
       </header>
       <div className="pw-stack">
-        <section className="pw-card" aria-labelledby="project-profile-heading">
+        <section className={cn(cardSurface, 'pw-card')} aria-labelledby="project-profile-heading">
           <h2 id="project-profile-heading">Purpose and focus</h2>
           <form
             className="pw-form"
@@ -1806,7 +2114,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
           >
             <label>
               Project name
-              <input
+              <Input
                 name="title"
                 required
                 maxLength={120}
@@ -1816,7 +2124,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
             </label>
             <label>
               Why this project exists
-              <textarea
+              <Textarea
                 name="purpose"
                 maxLength={1200}
                 value={profile.purpose}
@@ -1838,18 +2146,18 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
                   The project changed after these settings were opened. Compare your input with the
                   latest saved project before saving.
                 </p>
-                <button
+                <Button
                   type="button"
                   className="pw-button"
                   disabled={!state.online || busy}
                   onClick={() => setProfile({ ...profile, revision: project.revision })}
                 >
                   I reviewed these settings against the current project
-                </button>
+                </Button>
               </div>
             )}
             <div>
-              <button
+              <Button
                 className="pw-button pw-button--primary"
                 disabled={
                   !state.online ||
@@ -1859,11 +2167,11 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
                 }
               >
                 Save project settings
-              </button>
+              </Button>
             </div>
           </form>
         </section>
-        <section className="pw-card" aria-labelledby="project-sources-heading">
+        <section className={cn(cardSurface, 'pw-card')} aria-labelledby="project-sources-heading">
           <h2 id="project-sources-heading">
             Codex context <span className="pw-small">Optional</span>
           </h2>
@@ -1880,13 +2188,13 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
               {sourceError && (
                 <div className="pw-notice" role="alert">
                   <p>{sourceError}</p>
-                  <button
+                  <Button
                     className="pw-button"
                     disabled={loadingSources}
                     onClick={() => void readSources()}
                   >
                     Read source settings again
-                  </button>
+                  </Button>
                 </div>
               )}
               {sourceDraft.loaded && (
@@ -1911,18 +2219,18 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
                         The project changed after this source selection was opened. Read the latest
                         scope before saving.
                       </p>
-                      <button
+                      <Button
                         type="button"
                         className="pw-button"
                         disabled={!state.online || busy || loadingSources}
                         onClick={() => void readSources()}
                       >
                         Reload the current source selection
-                      </button>
+                      </Button>
                     </div>
                   )}
                   <div>
-                    <button
+                    <Button
                       className="pw-button pw-button--primary"
                       disabled={
                         !state.online ||
@@ -1932,14 +2240,17 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
                       }
                     >
                       Save Codex context
-                    </button>
+                    </Button>
                   </div>
                 </form>
               )}
             </>
           )}
         </section>
-        <section className="pw-card" aria-labelledby="project-collection-heading">
+        <section
+          className={cn(cardSurface, 'pw-card')}
+          aria-labelledby="project-collection-heading"
+        >
           <h2 id="project-collection-heading">Collection</h2>
           <p>
             {project.disconnected
@@ -1949,7 +2260,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
           <p className="pw-small">
             Your project folder and original conversations stay in their source tools.
           </p>
-          <button
+          <Button
             className="pw-button"
             disabled={!state.online || busy}
             onClick={() =>
@@ -1957,9 +2268,9 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
             }
           >
             {project.disconnected ? 'Restore project' : 'Disconnect project'}
-          </button>
+          </Button>
         </section>
-        <section className="pw-card" aria-labelledby="project-removal-heading">
+        <section className={cn(cardSurface, 'pw-card')} aria-labelledby="project-removal-heading">
           <h2 id="project-removal-heading">Remove saved application data</h2>
           <p>
             Remove this registration and the saved StateCarry records that belong to it. Source
@@ -1969,13 +2280,13 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
             This does not remove your project folder or original conversations. Review the current
             scope before confirming.
           </p>
-          <button
+          <Button
             className="pw-button pw-button--danger"
             disabled={!state.online || busy || previewing}
             onClick={() => void previewRemoval()}
           >
             {previewing ? 'Reading removal scope…' : 'Review saved-data removal'}
-          </button>
+          </Button>
           {preview && (
             <div className="pw-stack" aria-label="Removal preview">
               <p>{preview.explanation}</p>
@@ -2014,13 +2325,13 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
                     Remove the saved StateCarry data for {project.title}
                   </label>
                   <div>
-                    <button
+                    <Button
                       className="pw-button pw-button--danger"
                       disabled={!state.online || busy || !confirmRemoval}
                       onClick={() => void remove()}
                     >
                       Remove this project's saved data
-                    </button>
+                    </Button>
                   </div>
                 </>
               )}

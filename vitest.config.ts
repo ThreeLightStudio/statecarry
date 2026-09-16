@@ -10,6 +10,6 @@ const alias = Object.fromEntries(
   ]),
 );
 export default defineConfig({
-  resolve: { alias },
+  resolve: { alias: { ...alias, '@': fileURLToPath(new URL('./apps/web/src', import.meta.url)) } },
   test: { include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'], fileParallelism: false },
 });

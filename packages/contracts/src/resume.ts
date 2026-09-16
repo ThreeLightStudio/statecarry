@@ -4,6 +4,35 @@ import type { Capabilities, Continuation } from './index';
 const text = z.string().min(1).max(1200);
 const evidence = z.object({ revisionId: z.string().min(1), quote: text }).strict();
 
+export const outputLanguageSchema = z.enum(['en', 'ko']);
+export type OutputLanguage = z.infer<typeof outputLanguageSchema>;
+export const resumeRefreshSchema = z
+  .object({ outputLanguage: outputLanguageSchema.optional().default('en') })
+  .strict();
+export type ResumeRefreshInput = z.infer<typeof resumeRefreshSchema>;
+export const resumeLocalizeSchema = z.object({ outputLanguage: outputLanguageSchema }).strict();
+export type ResumeLocalizeInput = z.infer<typeof resumeLocalizeSchema>;
+
+export const resumeLocalizedCandidateSchema = z
+  .object({
+    key: z.string().min(1).max(160),
+    goal: z.string().min(1).max(120),
+    currentState: z
+      .string()
+      .min(1)
+      .max(240)
+      .regex(/[.!?]$/, 'Use complete sentences, not a clipped fragment'),
+    reason: z.string().min(1).max(200),
+    nextAction: z.string().min(1).max(240).nullable(),
+    doneWhen: z.string().min(1).max(200).nullable(),
+    prerequisites: z.array(text).max(5),
+  })
+  .strict();
+export const resumeLocalizationResultSchema = z
+  .object({ candidates: z.array(resumeLocalizedCandidateSchema).max(5) })
+  .strict();
+export type ResumeLocalizationResult = z.infer<typeof resumeLocalizationResultSchema>;
+
 /**
  * Evidence grouped by the level of progress it can establish.  These fields
  * are optional so stored resume briefs written before progress attribution was
@@ -87,6 +116,8 @@ export type ResumeStored = {
   scope: string;
   version: string;
   generatedAt: string;
+  /** Language used for generated explanatory candidate fields. Legacy briefs default to English. */
+  outputLanguage?: OutputLanguage;
   candidates: ResumeCandidate[];
   /** Workspace state captured immediately before and after analysis. */
   workspaceBefore?: WorkspaceSnapshot | null;
@@ -115,6 +146,8 @@ export type ResumeWork = {
   error: string | null;
   stale: boolean;
   generatedAt: string | null;
+  /** Language currently used by generated overview fields. */
+  outputLanguage?: OutputLanguage;
   correctedKeys: string[];
   dismissedKeys: string[];
   /** Whether an explicitly supported coordination conversation was found. */

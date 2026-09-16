@@ -5,6 +5,7 @@ import type {
   Continuation,
   ContinuationPayload,
   Receipt,
+  OutputLanguage,
 } from '@statecarry/contracts';
 const PROJECT_INSPECTION_THREAD = 'project-inspection';
 export type {
@@ -23,7 +24,8 @@ export interface ResumeGateway {
   list(): Promise<ResumeWork[]>;
   setGoal(workId: string, text: string, version: string): Promise<void>;
   setCoordination?(workId: string, threadId: string | null, version: string): Promise<void>;
-  refresh(workId: string): Promise<void>;
+  refresh(workId: string, outputLanguage?: OutputLanguage): Promise<void>;
+  localize?(workId: string, outputLanguage: OutputLanguage): Promise<void>;
   correct(workId: string, correction: ResumeCorrection): Promise<void>;
   prepareContinuation?(
     workId: string,
