@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 const grouped = process.platform !== 'win32';
 const children = [
-  spawn('rtk', ['pnpm', 'exec', 'tsx', 'apps/server/src/index.ts'], {
+  spawn('rtk', ['pnpm', 'exec', 'tsx', 'watch', 'apps/server/src/index.ts'], {
     stdio: 'inherit',
     detached: grouped,
   }),
