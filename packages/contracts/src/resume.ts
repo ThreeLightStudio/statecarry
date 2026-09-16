@@ -17,6 +17,7 @@ export const resumeLocalizedCandidateSchema = z
   .object({
     key: z.string().min(1).max(160),
     goal: z.string().min(1).max(120),
+    recentWork: z.string().min(1).max(200).nullable().optional(),
     currentState: z
       .string()
       .min(1)
@@ -72,6 +73,7 @@ export const resumeCandidateSchema = z
   .object({
     key: z.string().min(1).max(160),
     goal: z.string().min(1).max(120),
+    recentWork: z.string().min(1).max(200).nullable().optional(),
     currentState: z
       .string()
       .min(1)

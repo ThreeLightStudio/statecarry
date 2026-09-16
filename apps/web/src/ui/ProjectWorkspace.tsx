@@ -26,6 +26,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { Star } from 'lucide-react';
 import './project-workspace.css';
 
 type WorkspaceState = ReturnType<ProjectController['getSnapshot']>;
@@ -267,16 +268,17 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
               {state.loading
                 ? 'Reading saved state…'
                 : state.online
-                  ? 'Connected locally'
-                  : 'Connection unavailable'}
+                  ? 'Local service connected'
+                  : 'Local service unavailable'}
             </span>
             <Button
               type="button"
               className="pw-button pw-button--quiet"
+              title="Re-read the latest saved project state. StateCarry also refreshes when you return to the app."
               disabled={state.loading || (state.online && state.checkingCurrent)}
               onClick={() => void controller.checkForChanges()}
             >
-              Check for changes
+              Refresh now
             </Button>
           </div>
         </div>
@@ -297,10 +299,7 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
           <div className="pw-toast-layer" aria-live="polite">
             <Alert className="pw-toast" role="status">
               <p>{state.notice}</p>
-              <Button
-                className="pw-button pw-button--quiet"
-                onClick={() => controller.clearNotice()}
-              >
+              <Button className="pw-button" onClick={() => controller.clearNotice()}>
                 Dismiss message
               </Button>
             </Alert>
@@ -414,7 +413,7 @@ function GlobalSettings({
 
   const checkIntegrations = async () => {
     setChecking(true);
-    await Promise.all([controller.checkForChanges(), readCapabilities()]);
+    await readCapabilities();
     if (mounted.current) setChecking(false);
   };
 
@@ -440,13 +439,6 @@ function GlobalSettings({
             prepared project overviews.
           </p>
         </div>
-        <Button
-          className="pw-button"
-          disabled={checking || state.loading || (state.online && state.checkingCurrent)}
-          onClick={() => void checkIntegrations()}
-        >
-          {checking ? 'Checking integrations…' : 'Check integrations'}
-        </Button>
       </header>
 
       <div className="pw-stack">
@@ -482,18 +474,23 @@ function GlobalSettings({
             <Badge kind={capabilities?.summary.state === 'ready' ? 'continue' : 'limited'}>
               {capabilities
                 ? capabilities.summary.state === 'ready'
-                  ? 'Available'
-                  : 'Needs attention'
+                  ? 'Ready on this machine'
+                  : 'Not ready'
                 : 'Checking'}
             </Badge>
           </div>
           {capabilities ? (
             <>
-              <p>{capabilities.summary.detail}</p>
-              <p className="pw-small">
-                Local source: {capabilities.source} · model{' '}
-                {capabilities.summary.model ?? 'not reported'}
+              <p>
+                {capabilities.summary.state === 'ready'
+                  ? 'StateCarry can use the Codex installation available on this machine.'
+                  : capabilities.summary.detail}
               </p>
+              {capabilities.summary.state !== 'ready' && (
+                <p className="pw-small">
+                  Confirm Codex can start normally on this machine, then recheck its status here.
+                </p>
+              )}
             </>
           ) : capabilityError ? (
             <p className="pw-notice" role="alert">
@@ -508,6 +505,15 @@ function GlobalSettings({
             Codex conversations are optional project context. Choose them separately for each
             project.
           </p>
+          <div>
+            <Button
+              className="pw-button"
+              disabled={checking}
+              onClick={() => void checkIntegrations()}
+            >
+              {checking ? 'Checking Codex…' : 'Recheck Codex'}
+            </Button>
+          </div>
         </Card>
 
         <Card className={cardSurface} aria-labelledby="project-integrations-heading">
@@ -697,7 +703,26 @@ function Home({ state, controller, onNavigate }: WorkspaceProps & { state: Works
         </div>
         <div className="pw-grid">
           {projects.map((project) => (
-            <article key={project.id} className={cn(cardSurface, 'pw-card pw-card--quiet')}>
+            <article
+              key={project.id}
+              className={cn(cardSurface, 'pw-card pw-card--quiet pw-project-card')}
+            >
+              <Button
+                type="button"
+                className="pw-focus-toggle"
+                variant="ghost"
+                aria-label={
+                  project.focused
+                    ? `Remove ${project.title} from Home focus`
+                    : `Make ${project.title} my Home focus`
+                }
+                aria-pressed={project.focused}
+                title={project.focused ? 'Remove from Home focus' : 'Make this my Home focus'}
+                disabled={!state.online || state.checkingCurrent || state.busyWorkId !== null}
+                onClick={() => void controller.setFocused(project.id, !project.focused)}
+              >
+                <Star aria-hidden="true" fill={project.focused ? 'currentColor' : 'none'} />
+              </Button>
               <div className="pw-card-meta">
                 {project.focused && <Badge>Your focus</Badge>}
                 <Badge kind={project.disconnected ? 'disconnected' : ''}>
@@ -1049,6 +1074,7 @@ function GoalEditor({
 }) {
   const draft = edits.goalDraft!;
   const stale = draft.version !== project.version;
+  const unchanged = !stale && draft.text.trim() === project.goal.trim();
   return (
     <form
       className="pw-form"
@@ -1085,7 +1111,7 @@ function GoalEditor({
       <div className="pw-actions">
         <Button
           className="pw-button pw-button--primary"
-          disabled={!project.canEdit || busy || stale || !draft.text.trim()}
+          disabled={!project.canEdit || busy || stale || unchanged || !draft.text.trim()}
         >
           Save goal
         </Button>
@@ -1097,6 +1123,7 @@ function GoalEditor({
           Discard goal draft
         </Button>
         <span className="pw-small">Draft kept on this device.</span>
+        {unchanged && <span className="pw-small">No goal changes to save.</span>}
       </div>
     </form>
   );
@@ -1626,7 +1653,7 @@ function CreateProject({ controller, onNavigate }: WorkspaceProps) {
               <span className="pw-field-help">Leave blank to use the project folder name.</span>
             </label>
             <label>
-              Why this project exists
+              Why this project exists <span className="pw-field-help">Optional</span>
               <Textarea
                 name="purpose"
                 disabled={busy}
@@ -1768,6 +1795,21 @@ function SourcePicker({
       }),
     );
   };
+  const selectAll = () => {
+    const ids = [...new Set(threads.map((thread) => thread.id))].slice(0, 30);
+    const startTurnIds = { ...value.startTurnIds };
+    const recordRanges = { ...value.recordRanges };
+    for (const id of ids) {
+      if (value.threadIds.includes(id)) continue;
+      const inheritedStart = inherited?.startTurnIds[id];
+      const inheritedRange = inherited?.recordRanges?.[id];
+      if (inheritedStart && !startTurnIds[id]) startTurnIds[id] = inheritedStart;
+      if (inheritedRange && !recordRanges[id]) recordRanges[id] = inheritedRange;
+    }
+    onChange(selectedSources({ ...value, threadIds: ids, startTurnIds, recordRanges }));
+  };
+  const clearSelection = () =>
+    onChange({ ...value, threadIds: [], startTurnIds: {}, recordRanges: {} });
   const range = (id: string, next?: RecordRange) => {
     const ranges = { ...value.recordRanges };
     if (next) ranges[id] = next;
@@ -1804,6 +1846,29 @@ function SourcePicker({
         <p className="pw-notice" role="alert">
           {error}
         </p>
+      )}
+      {threads.length > 0 && (
+        <div className="pw-actions">
+          <Button
+            type="button"
+            className="pw-button"
+            disabled={disabled || searching || turnBusy !== null || value.threadIds.length >= 30}
+            onClick={selectAll}
+          >
+            Select all conversations
+          </Button>
+          <Button
+            type="button"
+            className="pw-button pw-button--quiet"
+            disabled={disabled || !value.threadIds.length}
+            onClick={clearSelection}
+          >
+            Clear selection
+          </Button>
+          <span className="pw-small" role="status">
+            {value.threadIds.length} selected
+          </span>
+        </div>
       )}
       <div>
         {threads.map((thread) => {
@@ -2131,14 +2196,22 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
                 onChange={(event) => setProfile({ ...profile, purpose: event.target.value })}
               />
             </label>
-            <label className="pw-checkbox">
-              <input
-                type="checkbox"
-                checked={profile.focused}
-                onChange={(event) => setProfile({ ...profile, focused: event.target.checked })}
-              />
-              Keep this project in my focus on Home
-            </label>
+            <div className="pw-setting-row">
+              <div className="pw-setting-copy">
+                <strong>Home focus</strong>
+                <span className="pw-small">
+                  Put this project first on Home. Choosing it moves Home focus from another project.
+                </span>
+              </div>
+              <label className="pw-checkbox">
+                <input
+                  type="checkbox"
+                  checked={profile.focused}
+                  onChange={(event) => setProfile({ ...profile, focused: event.target.checked })}
+                />
+                My Home focus
+              </label>
+            </div>
             <p className="pw-small">Working folder: {project.cwd}</p>
             {profile.revision !== project.revision && (
               <div className="pw-notice">

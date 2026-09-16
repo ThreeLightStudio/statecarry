@@ -120,9 +120,12 @@ describe('project workspace HTTP contract', () => {
       );
       expect((await call<ProjectWorkspace>('/project-workspace')).body.projects[0]).toMatchObject({
         resume: null,
-        focused: false,
+        focused: true,
       });
       expect((await call(`${path}/restore`, 'POST', h.command(id, {}))).status).toBe(200);
+      expect((await call<ProjectWorkspace>('/project-workspace')).body.projects[0]).toMatchObject({
+        focused: true,
+      });
       const preview = h.core.projects.deletionPreview(id);
       expect((await call(`${path}/deletion`)).body).toEqual(preview);
       const badToken = await call(`${path}/deletion`, 'POST', h.command(id, { token: 'invalid' }));

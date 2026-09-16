@@ -140,7 +140,7 @@ export class Projects {
           workId: work.id,
           connectionId: connection.id,
           ...profile,
-          focused: !connection.removedAt && profile.focused,
+          focused: profile.focused,
           cwd: connection.cwd,
           revision: work.revision,
           disconnectedAt: connection.removedAt ?? null,
@@ -244,11 +244,6 @@ export class Projects {
   settings(workId: string, command: Command): Receipt {
     const profile = projectProfileSchema.parse(command.payload);
     const result = this.commit(workId, 'project-settings', command, (work, connection) => {
-      if (connection.removedAt && profile.focused)
-        throw new DomainError(
-          'VALIDATION',
-          'Reconnect this project before choosing it as your focus.',
-        );
       if (profile.focused)
         for (const other of this.core.repo.list('work'))
           if (other.id !== workId && other.projectProfile?.focused)
@@ -312,7 +307,7 @@ export class Projects {
       });
       this.core.repo.put('work', {
         ...work,
-        projectProfile: { ...this.profile(work), focused: false },
+        projectProfile: { ...this.profile(work) },
         revision: work.revision + 1,
       });
     });
@@ -332,7 +327,7 @@ export class Projects {
       });
       this.core.repo.put('work', {
         ...work,
-        projectProfile: { ...this.profile(work), focused: false },
+        projectProfile: { ...this.profile(work) },
         revision: work.revision + 1,
       });
     });

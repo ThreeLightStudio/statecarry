@@ -329,6 +329,7 @@ export function presentProject(entry: ProjectWorkspaceEntry, online = true): Pro
   const recentCommit = workspace?.recentCommits?.[0];
   const outputLanguage = work?.outputLanguage ?? 'en';
   const korean = outputLanguage === 'ko';
+  const generatedRecentWork = firstCandidate?.recentWork;
   const projectState = {
     currentState: work?.busy
       ? korean
@@ -343,25 +344,30 @@ export function presentProject(entry: ProjectWorkspaceEntry, online = true): Pro
             ? '아직 프로젝트 Overview가 준비되지 않았습니다.'
             : 'No project overview has been prepared yet.')),
     recentWork:
-      workspace?.status === 'checked'
-        ? recentCommit
-          ? korean
-            ? `최신 커밋: ${recentCommit.subject || recentCommit.hash.slice(0, 10)}${workspace.dirty === true ? ' · 로컬 작업 트리 변경도 있습니다.' : '.'}`
-            : `Latest commit: ${recentCommit.subject || recentCommit.hash.slice(0, 10)}${workspace.dirty === true ? ' · local working-tree changes are also present.' : '.'}`
-          : workspace.dirty === true
+      generatedRecentWork !== undefined
+        ? (generatedRecentWork ??
+          (korean
+            ? '최근 의미 있는 작업 변화는 현재 Overview 근거에서 확인되지 않았습니다.'
+            : 'No recent meaningful work is established by the current overview evidence.'))
+        : workspace?.status === 'checked'
+          ? recentCommit
             ? korean
-              ? `로컬 변경사항이 있습니다${branch ? ` (${branch} 브랜치)` : ''}.`
-              : `Local changes are present${branch ? ` on ${branch}` : ''}.`
-            : commit
+              ? `최신 커밋: ${recentCommit.subject || recentCommit.hash.slice(0, 10)}${workspace.dirty === true ? ' · 로컬 작업 트리 변경도 있습니다.' : '.'}`
+              : `Latest commit: ${recentCommit.subject || recentCommit.hash.slice(0, 10)}${workspace.dirty === true ? ' · local working-tree changes are also present.' : '.'}`
+            : workspace.dirty === true
               ? korean
-                ? `Git은 ${commit.slice(0, 10)}${branch ? ` (${branch} 브랜치)` : ''}${workspace.dirty === false ? '이며 작업 트리는 깨끗합니다' : ''}.`
-                : `Git is at ${commit.slice(0, 10)}${branch ? ` on ${branch}` : ''}${workspace.dirty === false ? ' with a clean working tree' : ''}.`
-              : korean
-                ? '프로젝트 폴더와 Git 상태를 확인했습니다.'
-                : 'The project folder and Git state were checked.'
-        : korean
-          ? '최근 코드와 Git 상태는 아직 확인되지 않았습니다.'
-          : 'Recent code and Git state have not been confirmed yet.',
+                ? `로컬 변경사항이 있습니다${branch ? ` (${branch} 브랜치)` : ''}.`
+                : `Local changes are present${branch ? ` on ${branch}` : ''}.`
+              : commit
+                ? korean
+                  ? `Git은 ${commit.slice(0, 10)}${branch ? ` (${branch} 브랜치)` : ''}${workspace.dirty === false ? '이며 작업 트리는 깨끗합니다' : ''}.`
+                  : `Git is at ${commit.slice(0, 10)}${branch ? ` on ${branch}` : ''}${workspace.dirty === false ? ' with a clean working tree' : ''}.`
+                : korean
+                  ? '프로젝트 폴더와 Git 상태를 확인했습니다.'
+                  : 'The project folder and Git state were checked.'
+          : korean
+            ? '최근 코드와 Git 상태는 아직 확인되지 않았습니다.'
+            : 'Recent code and Git state have not been confirmed yet.',
     openOrUncertain: firstCandidate?.prerequisites[0]
       ? firstCandidate.prerequisites[0]
       : firstCandidate?.actionSource === 'suggested' &&

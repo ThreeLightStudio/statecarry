@@ -199,6 +199,8 @@ describe('project-oriented presentation and return memory', () => {
       { revisionId: 'workspace-git:git-one', quote: RAW },
       { revisionId: 'source-a', quote: RAW },
     ];
+    rows.projects[0].resume!.candidates[0].recentWork =
+      'Refined the project overview flow and kept the in-progress workspace changes visible.';
     const view = presentProjects(rows).find((entry) => entry.id === 'a')!;
     expect(view.sourceSummary).toEqual([
       expect.objectContaining({
@@ -217,8 +219,9 @@ describe('project-oriented presentation and return memory', () => {
         detail: expect.stringContaining('1 Codex conversation'),
       }),
     ]);
-    expect(view.projectState.recentWork).toContain('Refine project overview flow');
-    expect(view.projectState.recentWork).toContain('working-tree changes');
+    expect(view.projectState.recentWork).toBe(
+      'Refined the project overview flow and kept the in-progress workspace changes visible.',
+    );
     expect(view.tasks[0].evidenceSources.map((source) => source.label)).toEqual([
       'Codebase',
       'Git',
@@ -325,6 +328,20 @@ describe('project-oriented presentation and return memory', () => {
     expect(controller.getSnapshot().edits.a.goalDraft?.text).toBe('A newer unsaved goal');
     expect(controller.getSnapshot().edits.b.goalDraft?.text).toBe('Other project draft');
     expect(controller.getSnapshot().notice).toBeNull();
+    controller.stop();
+  });
+  it('does not write or reread when the saved goal text is unchanged', async () => {
+    const h = setup();
+    const controller = h.controller();
+    await controller.start({ page: 'project', workId: 'a' });
+    const reads = vi.mocked(h.gateway.list).mock.calls.length;
+    const goal = h.rows().projects[0].resume!.goalText!;
+    controller.editGoal('a', `  ${goal}  `);
+    await controller.saveGoal('a');
+    expect(h.resume.setGoal).not.toHaveBeenCalled();
+    expect(h.gateway.list).toHaveBeenCalledTimes(reads);
+    expect(controller.getSnapshot().edits.a.goalDraft).toBeNull();
+    expect(controller.getSnapshot().notice).toContain('already saved');
     controller.stop();
   });
   it('does not clear restarted-controller input when an old save finishes', async () => {

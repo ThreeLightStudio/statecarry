@@ -108,6 +108,7 @@ it('sends Korean generation instructions while restoring evidence in its origina
           {
             key: 'export-review',
             goal: '내보내기 구현 확인',
+            recentWork: '내보내기 구현을 정리하고 현재 검토 상태를 확인했습니다.',
             currentState: '내보내기 구현이 기록되어 있으며 현재 상태를 확인해야 합니다.',
             status: 'active',
             reason: '현재 코드 상태를 확인해야 다음 작업을 안전하게 정할 수 있습니다.',
@@ -130,6 +131,7 @@ it('sends Korean generation instructions while restoring evidence in its origina
     records: [{ revisionId: 'r1', text: evidence, threadId: 'thread-a', actor: 'user' }],
   });
   expect(instructions).toContain('natural Korean');
+  expect(instructions).toContain('recentWork');
   expect(instructions).not.toContain('complete short English sentences');
   expect(result.candidates[0].evidence).toEqual([{ revisionId: 'r1', quote: evidence }]);
   expect(result.candidates[0].progress?.reported).toEqual([{ revisionId: 'r1', quote: evidence }]);
@@ -228,6 +230,7 @@ it('localizes only explanatory fields and keeps localization input free of evide
           {
             key: 'same-key',
             goal: '내보내기를 확인합니다',
+            recentWork: '최근 내보내기 구현을 정리했습니다.',
             currentState: '내보내기 구현이 준비되어 있습니다.',
             reason: '마지막 확인이 남아 있습니다.',
             nextAction: 'src/export.ts',
@@ -244,6 +247,7 @@ it('localizes only explanatory fields and keeps localization input free of evide
       {
         key: 'same-key',
         goal: 'Review export',
+        recentWork: 'Refined the export implementation.',
         currentState: 'The export is ready.',
         reason: 'One review remains.',
         nextAction: 'src/export.ts',
@@ -254,7 +258,11 @@ it('localizes only explanatory fields and keeps localization input free of evide
   });
   expect(prompt).not.toContain('evidence');
   expect(instructions).toContain('complete, grammatical sentence ending in ., !, or ?');
-  expect(result.candidates[0]).toMatchObject({ key: 'same-key', nextAction: 'src/export.ts' });
+  expect(result.candidates[0]).toMatchObject({
+    key: 'same-key',
+    recentWork: '최근 내보내기 구현을 정리했습니다.',
+    nextAction: 'src/export.ts',
+  });
 });
 
 it('repairs a clipped English current state without adding evidence or re-analysis input', async () => {
@@ -312,6 +320,7 @@ it('persists localized text and language while preserving candidate evidence and
   const original = {
     key: 'same-key',
     goal: 'Review export',
+    recentWork: 'Refined the export implementation.',
     currentState: 'The export is ready for review.',
     status: 'active' as const,
     reason: 'One review remains.',
@@ -333,6 +342,7 @@ it('persists localized text and language while preserving candidate evidence and
       {
         key: original.key,
         goal: '내보내기를 검토합니다',
+        recentWork: '내보내기 구현을 정리했습니다.',
         currentState: '내보내기가 검토 준비 상태입니다.',
         reason: '마지막 검토가 남아 있습니다.',
         nextAction: '내보내기를 검토합니다',
@@ -359,6 +369,7 @@ it('persists localized text and language while preserving candidate evidence and
     completion: original.completion,
   });
   expect(after.candidates[0].goal).toBe('내보내기를 검토합니다');
+  expect(after.candidates[0].recentWork).toBe('내보내기 구현을 정리했습니다.');
   expect(generate).toHaveBeenCalledTimes(0);
   expect(h.core.resumes.view(id).outputLanguage).toBe('ko');
 });

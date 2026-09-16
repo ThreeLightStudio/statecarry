@@ -204,6 +204,26 @@
   background: color-mix(in oklab, var(--muted) 55%, white);
 }
 
+.pw-project-card {
+  @apply relative;
+}
+
+.pw-project-card > .pw-card-meta {
+  @apply pr-10;
+}
+
+.pw-focus-toggle {
+  @apply absolute top-4 right-4 size-9 p-0 text-muted-foreground;
+}
+
+.pw-focus-toggle[aria-pressed='true'] {
+  @apply text-primary;
+}
+
+.pw-focus-toggle svg {
+  @apply size-4;
+}
+
 .pw-card-link {
   @apply block h-full no-underline transition-[border-color,box-shadow] duration-150;
 }
@@ -400,6 +420,18 @@
 
 .pw-checkbox {
   @apply items-start gap-2.5 font-normal;
+}
+
+.pw-setting-row {
+  @apply flex items-start justify-between gap-5 rounded-md border border-border bg-muted px-4 py-3.5;
+}
+
+.pw-setting-copy {
+  @apply grid gap-1;
+}
+
+.pw-setting-row .pw-checkbox {
+  @apply shrink-0;
 }
 
 .pw-field-help {

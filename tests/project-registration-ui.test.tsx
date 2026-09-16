@@ -317,7 +317,7 @@ it('does not recreate a pruned old key when the displayed project disappears dur
       'An obsolete draft goal',
     );
     h.rows.projects = [freshProject()];
-    await press(mounted.host, 'Check for changes');
+    await press(mounted.host, 'Refresh now');
     expect(mounted.host.textContent).toContain('Project not available');
     expect(data.memory().read('alpha')).toBeNull();
     expect(data.storage.getItem('statecarry.work.v1.alpha')).toBeNull();

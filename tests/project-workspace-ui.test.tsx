@@ -48,6 +48,10 @@ it('compares all registered work with explicit focus, searchable projects and ex
     expect(
       mounted.host.querySelector('section[aria-labelledby="all-projects-heading"]')?.textContent,
     ).toContain('4 shown · 4 registered');
+    const disconnectedFocus = mounted.host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Make Project disconnected my Home focus"]',
+    );
+    expect(disconnectedFocus).toBeTruthy();
     await typeField(mounted.host, 'input[name="workspace-search"]', 'beta');
     expect(pending.querySelectorAll('a')).toHaveLength(2);
     expect(
@@ -369,6 +373,20 @@ it('keeps newer input and the destination project when a previous project save c
     );
   } finally {
     saved.resolve();
+    await mounted.unmount();
+  }
+});
+
+it('does not offer a save when the current goal text has not changed', async () => {
+  const h = projectUiFixture();
+  window.history.replaceState(null, '', '#/project/alpha');
+  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  try {
+    await press(mounted.host, 'Edit goal');
+    expect(button(mounted.host, 'Save goal').disabled).toBe(true);
+    expect(mounted.host.textContent).toContain('No goal changes to save.');
+    expect(h.resumeGateway.setGoal).not.toHaveBeenCalled();
+  } finally {
     await mounted.unmount();
   }
 });

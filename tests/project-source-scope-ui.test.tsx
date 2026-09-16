@@ -212,3 +212,23 @@ it('does not restore deliberately cleared boundaries on another selected convers
     await mounted.unmount();
   }
 });
+
+it('selects all discovered Codex conversations while preserving inherited boundaries', async () => {
+  const f = sourceScopeFixture();
+  window.history.replaceState(null, '', `#/project/${f.id}/settings`);
+  const mounted = await mountProjectRoot(f.projectGateway, f.resumeGateway);
+  try {
+    await press(mounted.host, 'Find conversations in this folder');
+    await press(mounted.host, 'Select all conversations');
+    expect(mounted.host.textContent).toContain('3 selected');
+    await press(mounted.host, 'Save Codex context');
+    expect(f.connection()).toMatchObject({
+      threadIds: ['thread-a', 'thread-b', 'thread-c'],
+      startTurnIds: f.inherited.startTurnIds,
+      recordRanges: f.inherited.recordRanges,
+    });
+    expect(f.resumeGateway.refresh).not.toHaveBeenCalled();
+  } finally {
+    await mounted.unmount();
+  }
+});

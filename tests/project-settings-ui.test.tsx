@@ -88,14 +88,16 @@ it('shows global integration settings, persists Korean responses, and uses them 
         .querySelector<HTMLAnchorElement>('a[href="#/settings"]')
         ?.getAttribute('aria-current'),
     ).toBe('page');
-    expect(mounted.host.textContent).toContain('Codex summary generation is available.');
+    expect(mounted.host.textContent).toContain(
+      'StateCarry can use the Codex installation available on this machine.',
+    );
     expect(mounted.host.textContent).toContain('Branch main');
     expect(mounted.host.textContent).toContain('The project folder is checked automatically');
     expect(h.projectGateway.capabilities).toHaveBeenCalledTimes(1);
 
-    await press(mounted.host, 'Check integrations');
+    await press(mounted.host, 'Recheck Codex');
     expect(h.projectGateway.capabilities).toHaveBeenCalledTimes(2);
-    expect(h.projectGateway.list).toHaveBeenCalledTimes(2);
+    expect(h.projectGateway.list).toHaveBeenCalledTimes(1);
 
     await typeField(mounted.host, 'select[name="response-language"]', 'ko');
     expect(window.localStorage.getItem('statecarry.response-language.v1')).toBe('ko');

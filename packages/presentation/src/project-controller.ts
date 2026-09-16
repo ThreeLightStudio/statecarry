@@ -463,8 +463,19 @@ export class ProjectController {
   }
   async saveGoal(id: string) {
     const draft = this.readEdits(id).goalDraft;
+    const work = this.entry(id).resume;
     const generation = this.generation;
     if (!draft?.text.trim()) return;
+    if (
+      work &&
+      draft.version === work.version &&
+      draft.text.trim() === (work.goalText ?? '').trim()
+    ) {
+      this.discardGoal(id);
+      if (this.value.route.workId === id)
+        this.set({ notice: 'This goal is already saved. No project check was started.' });
+      return;
+    }
     await this.mutate(
       id,
       async () => {
@@ -565,6 +576,17 @@ export class ProjectController {
       id,
       () => this.gateway.settings(id, revision, input),
       'Project settings were saved.',
+    );
+  }
+  setFocused(id: string, focused: boolean) {
+    const project = this.entry(id);
+    const profile = { title: project.title, purpose: project.purpose, focused: project.focused };
+    return this.mutate(
+      id,
+      () => this.gateway.settings(id, project.revision, { ...profile, focused }),
+      focused
+        ? 'This project is now your Home focus.'
+        : 'This project was removed from your Home focus.',
     );
   }
   sources(id: string, input: ProjectSourcesInput, revision = this.entry(id).revision) {

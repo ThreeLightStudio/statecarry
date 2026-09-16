@@ -86,12 +86,19 @@ it('checks once on app return or explicit request, with no periodic read or anal
     await act(async () => {
       window.dispatchEvent(new Event('blur'));
       window.dispatchEvent(new Event('focus'));
+    });
+    expect(h.projectGateway.list).toHaveBeenCalledTimes(1);
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    await act(async () => {
       document.dispatchEvent(new Event('visibilitychange'));
-      window.dispatchEvent(new Event('focus'));
+    });
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
     });
     expect(h.projectGateway.list).toHaveBeenCalledTimes(2);
     await act(async () => {
-      button(mounted.host, 'Check for changes').click();
+      button(mounted.host, 'Refresh now').click();
     });
     expect(h.projectGateway.list).toHaveBeenCalledTimes(3);
     expect(h.resumeGateway.refresh).not.toHaveBeenCalled();

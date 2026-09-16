@@ -153,6 +153,16 @@ describe('project workspace registration and decisions', () => {
     expect(h.core.work(id).projectProfile?.title).toBe(before.title);
   });
 
+  it('keeps the project revision stable when the saved goal text is unchanged', () => {
+    const h = harness();
+    const id = registerProject(h, { goal: 'Keep this exact goal.' }).receipt.workId;
+    const before = structuredClone(h.core.work(id));
+    const version = h.core.resumes.view(id).version;
+    const view = h.core.resumes.setGoal(id, { text: '  Keep this exact goal.  ', version });
+    expect(h.core.work(id)).toEqual(before);
+    expect(view.version).toBe(version);
+  });
+
   it('preserves a discovered conversation range when making it an explicit source', () => {
     const h = harness();
     const { receipt } = registerProject(h, { threadIds: ['thread-a'] });
@@ -276,13 +286,14 @@ describe('project workspace registration and decisions', () => {
     expect(h.core.projects.list().projects[0]).toMatchObject({
       workId: id,
       connectionId: receipt.resultId,
-      focused: false,
+      focused: true,
       resume: null,
       disconnectedAt: h.core.clock.now(),
     });
-    expect(() =>
-      h.core.projects.settings(id, h.command(id, { title: 'Export', purpose: '', focused: true })),
-    ).toThrowError(expect.objectContaining({ code: 'VALIDATION' }));
+    h.core.projects.settings(
+      id,
+      h.command(id, { title: 'Export', purpose: 'Portable exports.', focused: true }),
+    );
     const restore = h.command(id, {});
     h.core.projects.restore(id, restore);
     expect(h.core.projects.restore(id, restore).command).toBe('project-restore');
@@ -291,7 +302,7 @@ describe('project workspace registration and decisions', () => {
       connectionId: receipt.resultId,
       title: 'Export',
       purpose: 'Portable exports.',
-      focused: false,
+      focused: true,
       disconnectedAt: null,
       resume: { goalText: before.goal?.text },
     });

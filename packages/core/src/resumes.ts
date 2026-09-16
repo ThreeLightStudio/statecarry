@@ -923,6 +923,7 @@ export class Resumes {
       candidates: stored.data.candidates.map((candidate) => ({
         key: candidate.key,
         goal: candidate.goal,
+        recentWork: candidate.recentWork,
         currentState: candidate.currentState,
         reason: candidate.reason,
         nextAction: candidate.nextAction,
@@ -944,6 +945,7 @@ export class Resumes {
       return {
         ...candidate,
         goal: text.goal,
+        recentWork: text.recentWork,
         currentState: text.currentState,
         reason: text.reason,
         nextAction: text.nextAction,
@@ -969,6 +971,8 @@ export class Resumes {
     const text = typeof input.text === 'string' ? input.text.trim() : '';
     if (!text || text.length > 400)
       throw new DomainError('VALIDATION', 'Describe the intended result in 1–400 characters.');
+    if (work.projectProfile && work.goal?.origin === 'user-input' && work.goal.text.trim() === text)
+      return this.view(id);
     this.core.repo.transaction(() => {
       // Older registrations acquire their independent project identity on this
       // explicit edit, never on a read. Preserve the legacy goal-intent endpoint.

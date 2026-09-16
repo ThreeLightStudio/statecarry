@@ -32,27 +32,20 @@ export function Root({ projectGateway, resumeGateway, resumeMemory }: RootProps)
       void controller.refresh();
     };
     let wasAway = document.visibilityState === 'hidden';
-    const away = () => {
-      wasAway = true;
-    };
     const returned = () => {
       if (!wasAway || document.visibilityState === 'hidden') return;
       wasAway = false;
       void controller.checkForChanges();
     };
     const visibilityChanged = () => {
-      if (document.visibilityState === 'hidden') away();
+      if (document.visibilityState === 'hidden') wasAway = true;
       else returned();
     };
     void controller.start(readRoute());
     window.addEventListener('hashchange', changed);
-    window.addEventListener('blur', away);
-    window.addEventListener('focus', returned);
     document.addEventListener('visibilitychange', visibilityChanged);
     return () => {
       window.removeEventListener('hashchange', changed);
-      window.removeEventListener('blur', away);
-      window.removeEventListener('focus', returned);
       document.removeEventListener('visibilitychange', visibilityChanged);
       controller.stop();
     };
