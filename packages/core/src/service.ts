@@ -1,4 +1,5 @@
 import { Resumes } from './resumes';
+import { Projects } from './projects';
 import { selectedRecords, goalCandidates, dedicatedRelationship, relationshipKind } from './goals';
 import {
   DomainError,
@@ -44,6 +45,8 @@ import { conversationFlows } from './conversation-flow';
 import { ContextQuestions } from './questions';
 import { Explanations } from './explanations';
 import { Continuations } from './continuations';
+import { collectionResult, discoveryResult } from './collection-change';
+import { normalizeProjectFolder } from './project-folder';
 
 export const EXTRACTOR_VERSION = 'statecarry-06.1';
 class UnsupportedSessionExecutor implements SessionExecutor {
@@ -85,6 +88,7 @@ export function isControlledVerification(s: SourceRevision): boolean {
   }
 }
 export class StateCarry {
+  readonly projects = new Projects(this);
   readonly resumes = new Resumes(this);
   readonly questions = new ContextQuestions(this);
   readonly explanations = new Explanations(this);
@@ -160,6 +164,22 @@ export class StateCarry {
   private activeConnectionForWork(workId: string): Connection {
     const work = this.work(workId);
     return this.connection(work.projectId);
+  }
+  isCollecting(workId: string): boolean {
+    return this.collecting.has(workId);
+  }
+  /** Includes work still unwinding after its durable status has changed. */
+  hasProjectActivity(workId: string): boolean {
+    const work = this.repo.get('work', workId);
+    return (
+      this.collectionPromises.has(workId) ||
+      this.collecting.has(workId) ||
+      this.processing.has(workId) ||
+      (!!work && this.discovering.has(work.projectId)) ||
+      this.resumes.isRunning(workId) ||
+      this.questions.hasPendingWork(workId) ||
+      this.explanations.hasPendingWork(workId)
+    );
   }
   /** Capture workspace state at the boundary between the core and its local
    * project provider. Unknown state is explicit and never borrowed from an
@@ -412,6 +432,24 @@ export class StateCarry {
           'New connection must start at revision zero',
           409,
         );
+      const folder = normalizeProjectFolder(input.cwd);
+      if (folder === null)
+        throw new DomainError('VALIDATION', 'Use an absolute project folder path.');
+      if (
+        this.repo
+          .list('work')
+          .some(
+            (work) =>
+              work.projectProfile &&
+              normalizeProjectFolder(this.repo.get('connection', work.projectId)?.cwd ?? '') ===
+                folder,
+          )
+      )
+        throw new DomainError(
+          'VALIDATION',
+          'This folder is already a project. Connect conversations through that project’s source settings.',
+          409,
+        );
       const id = this.ids.next(),
         workId = this.ids.next(),
         at = this.clock.now();
@@ -474,6 +512,12 @@ export class StateCarry {
     const work = this.work(workId);
     if (work.revision !== command.expectedRevision)
       throw new DomainError('REVISION_CONFLICT', 'Goal candidates changed', 409);
+    if (work.projectProfile)
+      throw new DomainError(
+        'VALIDATION',
+        'Set the current goal in this project. A goal does not create another project registration.',
+        409,
+      );
     const candidates = this.goalCandidates(workId),
       candidate = candidates.find((c) => c.id === command.payload.candidateId);
     if (!candidate || !['confirm', 'dismiss'].includes(String(command.payload.action)))
@@ -629,13 +673,16 @@ export class StateCarry {
       this.repo.put('work', {
         ...work,
         goal,
-        title: text.slice(0, 120),
+        title: work.projectProfile?.title ?? text.slice(0, 120),
         revision: work.revision + 1,
         linkVersion: work.linkVersion + 1,
         latestSummaryId: null,
       });
       const connection = this.repo.get('connection', work.projectId)!;
-      this.repo.put('connection', { ...connection, title: text.slice(0, 120) });
+      this.repo.put('connection', {
+        ...connection,
+        title: work.projectProfile?.title ?? text.slice(0, 120),
+      });
       this.refreshInput(workId);
       const receipt: Receipt = {
         id: command.requestId,
@@ -655,19 +702,53 @@ export class StateCarry {
   }
   updateConnection(connectionId: string, command: Command): Receipt {
     const input = connectionInputSchema.parse(command.payload);
-    const bodyHash = this.ids.hash({
-      action: 'connection-scope',
-      connectionId,
-      ...command,
-      requestId: undefined,
-    });
+    return this.updateConnectionScope(connectionId, command, input);
+  }
+  /** Shared by validated legacy connection and project source commands. */
+  updateConnectionScope(
+    connectionId: string,
+    command: Command,
+    input: ReturnType<typeof connectionInputSchema.parse>,
+    projectWorkId?: string,
+  ): Receipt {
+    const bodyHash = this.ids.hash(
+      projectWorkId
+        ? {
+            action: 'project-sources',
+            workId: projectWorkId,
+            expectedRevision: command.expectedRevision,
+            payload: command.payload,
+          }
+        : { action: 'connection-scope', connectionId, ...command, requestId: undefined },
+    );
     const receipt = this.repo.transaction(() => {
       const existing = this.receipt(command.requestId, bodyHash);
       if (existing) return existing;
       const c = this.connection(connectionId);
       const w = this.work(c.workId);
+      if (projectWorkId && w.id !== projectWorkId)
+        throw new DomainError('NOT_FOUND', 'Project connection not found', 404);
       if (w.revision !== command.expectedRevision)
         throw new DomainError('REVISION_CONFLICT', 'Connection scope changed', 409);
+      const folder = normalizeProjectFolder(input.cwd);
+      if (folder === null)
+        throw new DomainError('VALIDATION', 'Use an absolute project folder path.');
+      if (
+        this.repo
+          .list('work')
+          .some(
+            (other) =>
+              other.id !== w.id &&
+              (w.projectProfile || other.projectProfile) &&
+              normalizeProjectFolder(this.repo.get('connection', other.projectId)?.cwd ?? '') ===
+                folder,
+          )
+      )
+        throw new DomainError(
+          'VALIDATION',
+          'That folder already belongs to another project registration.',
+          409,
+        );
       if (
         [...Object.keys(input.startTurnIds), ...Object.keys(input.recordRanges ?? {})].some(
           (id) => !input.threadIds.includes(id),
@@ -738,13 +819,16 @@ export class StateCarry {
       this.repo.put('work', {
         ...w,
         title: input.title,
+        ...(w.projectProfile
+          ? { projectProfile: { ...w.projectProfile, title: input.title } }
+          : {}),
         revision: w.revision + 1,
         linkVersion: w.linkVersion + 1,
       });
       this.refreshInput(w.id);
       const r: Receipt = {
         id: command.requestId,
-        command: 'connection-scope',
+        command: projectWorkId ? 'project-sources' : 'connection-scope',
         bodyHash,
         workId: w.id,
         committedRevision: this.work(w.id).revision,
@@ -780,7 +864,11 @@ export class StateCarry {
         );
       const at = this.clock.now();
       this.repo.put('connection', { ...c, removedAt: at, revision: c.revision + 1 });
-      this.repo.put('work', { ...w, revision: w.revision + 1 });
+      this.repo.put('work', {
+        ...w,
+        ...(w.projectProfile ? { projectProfile: { ...w.projectProfile, focused: false } } : {}),
+        revision: w.revision + 1,
+      });
       const result: Receipt = {
         id: command.requestId,
         command: 'connection-remove',
@@ -820,7 +908,11 @@ export class StateCarry {
         );
       const at = this.clock.now();
       this.repo.put('connection', { ...c, removedAt: null, revision: c.revision + 1 });
-      this.repo.put('work', { ...w, revision: w.revision + 1 });
+      this.repo.put('work', {
+        ...w,
+        ...(w.projectProfile ? { projectProfile: { ...w.projectProfile, focused: false } } : {}),
+        revision: w.revision + 1,
+      });
       const result: Receipt = {
         id: command.requestId,
         command: 'connection-restore',
@@ -1030,9 +1122,12 @@ export class StateCarry {
   private async collectOnce(workId: string): Promise<void> {
     if (this.collecting.has(workId) || this.closing) return;
     this.collecting.add(workId);
+    let changed = false;
+    let invalidated = false;
+    let scope: Connection | null = null;
     try {
-      const w = this.work(workId),
-        connection = this.activeConnectionForWork(workId);
+      const connection = this.activeConnectionForWork(workId);
+      scope = connection;
       for (const link of this.links(workId).filter((l) => l.status === 'linked')) {
         const currentConnection = this.repo.get('connection', connection.id);
         if (
@@ -1043,6 +1138,7 @@ export class StateCarry {
         const id = this.ids.hash([workId, link.threadId]),
           prior = this.repo.get('checkpoint', id),
           now = this.clock.now();
+        const before = this.ids.hash(collectionResult(prior, this.repo.get('link', id)));
         this.repo.put(
           'checkpoint',
           prior
@@ -1062,7 +1158,6 @@ export class StateCarry {
                 manifest: null,
               },
         );
-        this.events.changed(workId);
         try {
           const read = await this.reader.read(
             link.threadId,
@@ -1079,6 +1174,10 @@ export class StateCarry {
             currentConnection.revision !== connection.revision
           )
             return;
+          if (this.repo.get('link', id)?.status !== 'linked') {
+            invalidated = true;
+            return;
+          }
           const current = this.repo.get('checkpoint', id)!;
           this.repo.put('checkpoint', {
             ...current,
@@ -1088,32 +1187,62 @@ export class StateCarry {
             lastAttemptAt: now,
           });
         }
+        changed ||=
+          before !==
+          this.ids.hash(
+            collectionResult(this.repo.get('checkpoint', id), this.repo.get('link', id)),
+          );
       }
-      this.events.changed(workId);
     } finally {
       this.collecting.delete(workId);
+      const current = scope && this.repo.get('connection', scope.id);
+      // A scope mutation publishes its own change. An obsolete read must not
+      // announce completion under that new scope or revive removed work.
+      if (
+        changed &&
+        !invalidated &&
+        this.isConnectionActive(current) &&
+        current.revision === scope?.revision
+      )
+        this.events.changed(workId);
+      // An independent read can have observed `reading` even when the final
+      // content is identical. This terminal signal is not a content change.
+      this.events.collectionSettled?.(workId);
     }
   }
   async discover(connection: Connection): Promise<void> {
-    if (!connection.discover || this.discovering.has(connection.id) || this.closing) return;
-    if (!this.isConnectionActive(this.repo.get('connection', connection.id))) return;
+    if (
+      !connection.discover ||
+      !connection.threadIds.length ||
+      this.discovering.has(connection.id) ||
+      this.closing
+    )
+      return;
+    const initial = this.repo.get('connection', connection.id);
+    if (!this.isConnectionActive(initial) || initial.revision !== connection.revision) return;
+    const before = this.ids.hash(discoveryResult(initial.discovery));
+    let changed = false;
+    let invalidated = false;
+    // Discovery may itself attach a proven continuation. Track only revisions
+    // committed here so an unrelated scope edit still rejects late results.
+    let scopeRevision = connection.revision;
     this.discovering.add(connection.id);
     try {
       const result = await this.reader.discover(connection.cwd);
       const discoveredConnection = this.repo.get('connection', connection.id);
       if (
         !this.isConnectionActive(discoveredConnection) ||
-        discoveredConnection.revision !== connection.revision
+        discoveredConnection.revision !== scopeRevision
       )
         return;
       this.repo.put('connection', {
-        ...connection,
+        ...discoveredConnection,
         discovery: {
           status: result.complete ? 'checked' : 'partial',
           attemptedAt: this.clock.now(),
           successfulAt: result.complete
             ? this.clock.now()
-            : (connection.discovery?.successfulAt ?? null),
+            : (discoveredConnection.discovery?.successfulAt ?? null),
           threadIds: result.threads.map((t) => t.id),
           manifest: result.manifest,
           limitations: result.limitations,
@@ -1121,12 +1250,13 @@ export class StateCarry {
       });
       const failures: string[] = [];
       for (const thread of result.threads) {
+        const beforeRead = this.repo.get('connection', connection.id);
+        if (!this.isConnectionActive(beforeRead) || beforeRead.revision !== scopeRevision) return;
         const existing = this.links(connection.workId).find((l) => l.threadId === thread.id);
         if (existing && existing.status !== 'proposed') continue;
-        const beforeRead = this.repo.get('connection', connection.id)!;
         // Visible metadata is retained even when reading a new session fails.
         const id = this.ids.hash([connection.workId, thread.id]);
-        if (!existing)
+        if (!existing) {
           this.repo.put('link', {
             id,
             workId: connection.workId,
@@ -1139,7 +1269,13 @@ export class StateCarry {
             role: 'work',
             history: [],
           });
+          changed = true;
+        } else if (existing.title !== thread.title) {
+          this.repo.put('link', { ...existing, title: thread.title });
+          changed = true;
+        }
         if (!result.complete) continue;
+        let expectedLink = this.repo.get('link', id)!;
         try {
           const rawRead = await this.reader.read(
             thread.id,
@@ -1155,9 +1291,17 @@ export class StateCarry {
           const currentBeforeApply = this.repo.get('connection', connection.id);
           if (
             !this.isConnectionActive(currentBeforeApply) ||
-            currentBeforeApply.revision !== beforeRead.revision
+            currentBeforeApply.revision !== scopeRevision
           )
             return;
+          const currentLink = this.repo.get('link', id);
+          if (
+            currentLink?.revision !== expectedLink.revision ||
+            currentLink.status !== 'proposed'
+          ) {
+            invalidated = true;
+            return;
+          }
           if (existing?.sourceFingerprint === read.manifest.fingerprint) continue;
           const linkedIds = this.links(connection.workId)
             .filter((l) => l.status === 'linked')
@@ -1207,15 +1351,30 @@ export class StateCarry {
               });
             }
           });
-          if (evidence.length)
+          changed = true;
+          expectedLink = this.repo.get('link', id)!;
+          if (evidence.length) {
+            scopeRevision = this.repo.get('connection', connection.id)!.revision;
             this.applyRead(connection.workId, this.repo.get('connection', connection.id)!, read);
+          }
         } catch (error) {
+          const current = this.repo.get('connection', connection.id);
+          if (!this.isConnectionActive(current) || current.revision !== scopeRevision) return;
+          const currentLink = this.repo.get('link', id);
+          // A rejected older read is not a new failure of a user's revised selection.
+          if (
+            currentLink?.revision !== expectedLink.revision ||
+            currentLink.status !== expectedLink.status
+          ) {
+            invalidated = true;
+            return;
+          }
           failures.push(`${thread.id}: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
       if (failures.length) {
         const c = this.repo.get('connection', connection.id);
-        if (this.isConnectionActive(c) && c.revision === connection.revision)
+        if (this.isConnectionActive(c) && c.revision === scopeRevision)
           this.repo.put('connection', {
             ...c,
             discovery: {
@@ -1227,7 +1386,7 @@ export class StateCarry {
       }
     } catch (error) {
       const current = this.repo.get('connection', connection.id);
-      if (this.isConnectionActive(current) && current.revision === connection.revision)
+      if (this.isConnectionActive(current) && current.revision === scopeRevision)
         this.repo.put('connection', {
           ...current,
           discovery: {
@@ -1241,7 +1400,14 @@ export class StateCarry {
         });
     } finally {
       this.discovering.delete(connection.id);
-      this.events.changed(connection.workId);
+      const current = this.repo.get('connection', connection.id);
+      if (
+        !invalidated &&
+        this.isConnectionActive(current) &&
+        current.revision === scopeRevision &&
+        (changed || before !== this.ids.hash(discoveryResult(current.discovery)))
+      )
+        this.events.changed(connection.workId);
     }
   }
   async process(workId: string): Promise<void> {

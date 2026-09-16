@@ -20,6 +20,16 @@ export const workspaceFileObservationSchema = z
   .strict();
 export type WorkspaceFileObservation = z.infer<typeof workspaceFileObservationSchema>;
 
+export const workspaceGitCommitSchema = z
+  .object({
+    hash: z.string().min(1).max(200),
+    subject: z.string().max(500),
+    committedAt: z.string().datetime({ offset: true }),
+    changedPaths: z.array(z.string().min(1).max(2000)).max(120),
+  })
+  .strict();
+export type WorkspaceGitCommit = z.infer<typeof workspaceGitCommitSchema>;
+
 /** Bounded clues from connected records used to choose project files for inspection. */
 export const workspaceInspectionHintsSchema = z
   .object({
@@ -66,6 +76,10 @@ export const workspaceSnapshotSchema = z
     branch: z.string().max(500).nullable(),
     commit: z.string().max(200).nullable(),
     dirty: z.boolean().nullable(),
+    /** Bounded recent repository history captured with the workspace check. */
+    recentCommits: z.array(workspaceGitCommitSchema).max(12).optional(),
+    /** Bounded paths changed in the working tree at inspection time. */
+    changedPaths: z.array(z.string().min(1).max(2000)).max(120).optional(),
     status: z.enum(['checked', 'unknown']),
     checkedAt: z.string().datetime(),
     limitations: z.array(z.string().max(1500)).max(20),

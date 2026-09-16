@@ -24,10 +24,23 @@ const active = (s: string) =>
   ['queued', 'generating', 'repairing', 'checking', 'result-unknown'].includes(s);
 export class ContextQuestions {
   private sessions = new Map<string, QuestionSession>();
-  private tasks = new Set<Promise<void>>();
+  private tasks = new Map<Promise<void>, string>();
   private closing = false;
   private storageUnknown = false;
   constructor(private core: StateCarry) {}
+  hasPendingWork(workId: string): boolean {
+    return (
+      this.storageUnknown ||
+      [...this.tasks.values()].includes(workId) ||
+      this.core.repo
+        .list('questionExecution')
+        .some((execution) => execution.workId === workId && active(execution.status))
+    );
+  }
+  forgetWork(workId: string): void {
+    for (const session of this.sessions.values())
+      if (session.workId === workId) this.end(workId, session.id);
+  }
   private now() {
     return this.core.clock.now();
   }
@@ -315,7 +328,7 @@ export class ContextQuestions {
         this.tasks.delete(promise);
         this.core.events.changed(s.workId);
       });
-    this.tasks.add(promise);
+    this.tasks.set(promise, s.workId);
   }
   private async run(s: QuestionSession, t: QuestionTurn, e: QuestionExecution) {
     // Shared across the original request and its one manual retry; old rows default to zero.
@@ -526,6 +539,6 @@ export class ContextQuestions {
     for (const s of this.sessions.values()) this.end(s.workId, s.id);
   }
   async settled() {
-    await Promise.allSettled([...this.tasks]);
+    await Promise.allSettled([...this.tasks.keys()]);
   }
 }

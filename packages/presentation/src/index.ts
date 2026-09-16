@@ -10,3 +10,5 @@ export type { RecordRange } from '@statecarry/contracts';
 export * from './resume';
 export * from './resume-memory';
 export * from './labels';
+export * from './projects';
+export * from './project-controller';

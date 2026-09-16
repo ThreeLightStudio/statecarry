@@ -3,12 +3,43 @@ import type { ResumeMemory, SavedResumeEdits } from '@statecarry/presentation';
 const text = (value: unknown, limit: number): value is string =>
   typeof value === 'string' && value.length <= limit;
 
+const prefix = 'statecarry.resume.v1.';
+const draftPrefixes = [prefix, 'statecarry.work.v1.'];
+type ResumeStorage = Pick<Storage, 'getItem' | 'setItem'> &
+  Partial<Pick<Storage, 'length' | 'key' | 'removeItem'>> & { keys?: () => Iterable<string> };
+
 /** A separate namespace keeps Resume drafts independent of legacy detail edits. */
 export class LocalResumeMemory implements ResumeMemory {
-  constructor(private storage: () => Pick<Storage, 'getItem' | 'setItem'>) {}
+  constructor(private storage: () => ResumeStorage) {}
 
   private key(id: string) {
-    return `statecarry.resume.v1.${id}`;
+    return `${prefix}${id}`;
+  }
+
+  prune(activeIds: readonly string[]) {
+    const storage = this.storage();
+    // Minimal read/write storage adapters remain usable without cleanup support.
+    if (!storage.removeItem) return;
+    let keys: string[];
+    if (storage.keys) keys = [...storage.keys()];
+    else if (storage.key && typeof storage.length === 'number') {
+      keys = [];
+      const length = storage.length;
+      for (let index = 0; index < length; index++) {
+        const key = storage.key(index);
+        if (key !== null) keys.push(key);
+      }
+    } else return;
+
+    // Snapshot enumeration before removing anything; indexed Storage keys shift
+    // on removal. Enumeration/removal errors reach the caller's persistence UI.
+    const active = new Set(activeIds);
+    for (const key of keys) {
+      const namespace = draftPrefixes.find((candidate) => key.startsWith(candidate));
+      if (!namespace) continue;
+      const id = key.slice(namespace.length);
+      if (id && !active.has(id)) storage.removeItem(key);
+    }
   }
 
   read(id: string): SavedResumeEdits | null {

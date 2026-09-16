@@ -122,7 +122,10 @@ export class SQLiteRepository implements StateRepository {
         'handoff',
         'continuation',
         'receipt',
-      ].includes(kind) && 'workId' in entity
+      ].includes(kind) &&
+      'workId' in entity &&
+      // A deletion receipt is an idempotency record, not a live project owner.
+      !(kind === 'receipt' && 'command' in entity && entity.command === 'project-delete')
         ? entity.workId
         : null;
     this.db
@@ -130,6 +133,19 @@ export class SQLiteRepository implements StateRepository {
         'INSERT INTO entities(kind,id,owner_id,body) VALUES(?,?,?,?) ON CONFLICT(kind,id) DO UPDATE SET owner_id=excluded.owner_id,body=excluded.body',
       )
       .run(kind, entity.id, owner, JSON.stringify(entity));
+  }
+  remove<K extends keyof Entities>(kind: K, id: string): void {
+    this.transaction(() => {
+      if (kind === 'work') {
+        // Keep only the existing request ledger so old requests cannot recreate
+        // the deleted registration. All content rows must already be removed.
+        this.db
+          .prepare("UPDATE entities SET owner_id=NULL WHERE kind='receipt' AND owner_id=?")
+          .run(id);
+      }
+      this.db.prepare('DELETE FROM entities WHERE kind=? AND id=?').run(kind, id);
+      if (kind === 'work') this.db.prepare('DELETE FROM work_owners WHERE id=?').run(id);
+    });
   }
   transaction<T>(fn: () => T): T {
     if (this.inTransaction) return fn();

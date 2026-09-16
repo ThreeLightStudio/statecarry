@@ -549,6 +549,7 @@ export function Resume({
         if (!alive) return;
         disconnected = state === 'disconnected';
         setTransport(disconnected ? 'disconnected' : 'connecting');
+        if (!disconnected) void load();
       },
     );
     return () => {

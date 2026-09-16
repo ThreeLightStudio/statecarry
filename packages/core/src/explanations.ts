@@ -21,10 +21,27 @@ import {
 
 export class Explanations {
   private task: Promise<void> | null = null;
+  private runningWorkId: string | null = null;
   private closing = false;
   private recovering: Promise<void> | null = null;
   private storageUnknown = false;
   constructor(private core: StateCarry) {}
+  hasPendingWork(workId: string): boolean {
+    return (
+      this.storageUnknown ||
+      !!this.recovering ||
+      this.runningWorkId === workId ||
+      this.core.repo
+        .list('explanationJob')
+        .some(
+          (job) =>
+            job.workId === workId &&
+            ['waiting', 'queued', 'generating', 'repairing', 'checking', 'result-unknown'].includes(
+              job.status,
+            ),
+        )
+    );
+  }
   private now() {
     return this.core.clock.now();
   }
@@ -361,12 +378,14 @@ export class Explanations {
     for (const j of valid) if (j.status === 'waiting') this.save({ ...j, status: 'queued' });
     const job = valid[0];
     if (!job) return;
+    this.runningWorkId = job.workId;
     this.task = this.run(this.core.repo.get('explanationJob', job.id)!)
       .catch(() => {
         this.storageUnknown = true;
       })
       .finally(() => {
         this.task = null;
+        this.runningWorkId = null;
         this.core.events.changed(job.workId);
       });
   }

@@ -2,9 +2,38 @@ import { describe, expect, it } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { workspaceSnapshotSchema } from '@statecarry/contracts';
 import { GitProjectInspector } from '../apps/server/src/adapters/project-inspector';
 
 describe('related project inspection', () => {
+  it('captures bounded recent commits and current changed paths', () => {
+    const root = mkdtempSync(join(tmpdir(), 'statecarry-git-inspector-'));
+    try {
+      execFileSync('git', ['init', root]);
+      execFileSync('git', ['-C', root, 'config', 'user.email', 'statecarry@example.test']);
+      execFileSync('git', ['-C', root, 'config', 'user.name', 'StateCarry Test']);
+      writeFileSync(join(root, 'first.ts'), 'export const first = 1;\n');
+      execFileSync('git', ['-C', root, 'add', 'first.ts']);
+      execFileSync('git', ['-C', root, 'commit', '-m', 'add first']);
+      writeFileSync(join(root, 'second.ts'), 'export const second = 2;\n');
+      execFileSync('git', ['-C', root, 'add', 'second.ts']);
+      execFileSync('git', ['-C', root, 'commit', '-m', 'add second']);
+      writeFileSync(join(root, 'first.ts'), 'export const first = 3;\n');
+
+      const snapshot = new GitProjectInspector().inspect(root);
+      expect(() => workspaceSnapshotSchema.parse(snapshot)).not.toThrow();
+      expect(snapshot.changedPaths).toContain('first.ts');
+      expect(snapshot.recentCommits?.slice(0, 2).map((commit) => commit.subject)).toEqual([
+        'add second',
+        'add first',
+      ]);
+      expect(snapshot.recentCommits?.[0].changedPaths).toContain('second.ts');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('selects a connected file beyond the first directory sample and reads its implementation excerpt', () => {
     const root = mkdtempSync(join(tmpdir(), 'statecarry-inspector-'));
     try {
@@ -52,6 +81,29 @@ describe('related project inspection', () => {
       const second = inspector.inspect(root, { paths: ['src/main.ts'], symbols: [], terms: [] });
       expect(second.inventoryFingerprint).not.toBe(first.inventoryFingerprint);
       expect(second.fileFingerprint).toBe(first.fileFingerprint);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('excludes generated project caches from codebase evidence and inventory', () => {
+    const root = mkdtempSync(join(tmpdir(), 'statecarry-generated-cache-'));
+    try {
+      mkdirSync(join(root, '.turbo', 'cache'), { recursive: true });
+      mkdirSync(join(root, 'src'), { recursive: true });
+      for (let i = 0; i < 180; i++)
+        writeFileSync(join(root, '.turbo', 'cache', `entry-${i}.json`), `{"value":${i}}\n`);
+      writeFileSync(join(root, 'src', 'main.ts'), 'export const main = true;\n');
+
+      const inspector = new GitProjectInspector();
+      const first = inspector.inspect(root);
+      expect(first.files?.some((file) => file.path === 'src/main.ts')).toBe(true);
+      expect(first.files?.some((file) => file.path.startsWith('.turbo/'))).toBe(false);
+      const inventory = first.inventoryFingerprint;
+
+      writeFileSync(join(root, '.turbo', 'cache', 'entry-0.json'), '{"value":"changed"}\n');
+      const second = inspector.inspect(root);
+      expect(second.inventoryFingerprint).toBe(inventory);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

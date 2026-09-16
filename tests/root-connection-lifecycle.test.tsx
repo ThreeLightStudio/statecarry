@@ -1,115 +1,77 @@
 // @vitest-environment jsdom
-import { createRequire } from 'node:module';
-import { resolve } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
-import { Controller, type Gateway, type ResumeGateway } from '@statecarry/presentation';
-import type { Command, HandoffTarget, Receipt } from '@statecarry/contracts';
-import { Root } from '../apps/web/src/Root';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { harness } from './helpers';
+import {
+  act,
+  deferred,
+  follow,
+  go,
+  installBrowser,
+  mountProjectRoot,
+  press,
+  projectUiFixture,
+  settle,
+} from './project-ui-fixtures';
+import type { ProjectWorkspace } from '@statecarry/presentation';
 
-const requireWeb = createRequire(resolve('apps/web/package.json'));
-const { act, createElement } = requireWeb('react') as typeof import('react');
-const { createRoot } = requireWeb('react-dom/client') as typeof import('react-dom/client');
+beforeEach(installBrowser);
+afterEach(() => vi.unstubAllGlobals());
 
-describe('Root connection lifecycle routing', () => {
-  it('leaves details for the list on disconnect and restores the same work from that list', async () => {
-    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-    vi.stubGlobal('scrollTo', () => {});
-    const h = harness(),
-      workId = h.connect(),
-      connection = h.core.connection(h.core.work(workId).projectId);
-    let resumeRefreshes = 0;
-    const command = async (path: string, input: Command): Promise<Receipt | HandoffTarget> => {
-      if (path === `/connections/${connection.id}/remove`)
-        return h.core.removeConnection(connection.id, input);
-      if (path === `/connections/${connection.id}/restore`)
-        return h.core.restoreConnection(connection.id, input);
-      throw new Error(`Unexpected command ${path}`);
-    };
-    const gateway: Gateway = {
-      projects: async () => h.core.listProjects(),
-      connections: async () => h.core.listConnections(),
-      removedConnections: async () => h.core.listRemovedConnections(),
-      snapshot: async (id) => h.core.snapshot(id),
-      evidence: async (id, owner) => h.core.evidence(id, owner),
-      discover: h.reader.discover,
-      command,
-      receipt: async () => {
-        throw new Error('Unexpected receipt lookup');
-      },
-      subscribe: () => () => {},
-    };
-    const controller = new Controller(
-      gateway,
-      { read: () => null, write: () => {} },
-      h.core.ids.next,
-    );
-    const resumeGateway: ResumeGateway = {
-      list: async () => h.core.resumes.list(),
-      setGoal: async () => {},
-      refresh: async () => {
-        resumeRefreshes++;
-      },
-      correct: async () => {},
-      subscribe: () => () => {},
-    };
-    const host = document.createElement('div');
-    document.body.append(host);
-    window.location.hash = `#/details/${workId}`;
-    const root = createRoot(host);
-    try {
-      await act(async () => {
-        root.render(createElement(Root, { controller, resumeGateway }));
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
-      expect(window.location.hash).toBe(`#/details/${workId}`);
+it('uses the real Root and Core to disconnect, restore the same registration, and reject navigation from a late read', async () => {
+  const core = harness();
+  const id = core.connect();
+  const connectionId = core.core.work(id).projectId;
+  const h = projectUiFixture([]);
+  h.projectGateway.list = vi.fn(async () => core.core.projects.list());
+  h.projectGateway.connections = vi.fn(async () => core.core.listConnections());
+  h.projectGateway.disconnect = vi.fn(async (workId, revision) =>
+    core.core.projects.disconnect(workId, {
+      ...core.command(workId, {}),
+      expectedRevision: revision,
+    }),
+  );
+  h.projectGateway.restore = vi.fn(async (workId, revision) =>
+    core.core.projects.restore(workId, { ...core.command(workId, {}), expectedRevision: revision }),
+  );
+  window.history.replaceState(null, '', `#/details/${id}`);
+  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  try {
+    expect(window.location.hash).toBe(`#/project/${id}`);
+    await follow(mounted.host, `#/project/${id}/settings`);
+    expect(h.projectGateway.connections).toHaveBeenCalled();
+    await press(mounted.host, 'Disconnect project');
+    expect(window.location.hash).toBe('#/home');
+    expect(mounted.host.textContent).toContain('Disconnected');
+    expect(core.core.projects.list().projects).toEqual([
+      expect.objectContaining({ workId: id, disconnectedAt: expect.any(String) }),
+    ]);
+    expect(core.core.listProjects()).toEqual([]);
+    expect(h.projectGateway.delete).not.toHaveBeenCalled();
 
-      await act(async () => {
-        window.location.hash = '#/resume';
-        window.dispatchEvent(new HashChangeEvent('hashchange'));
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        // A late legacy read must not pull the browser back into the detail route.
-        await controller.navigate(`#/work/${workId}`);
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
-      expect(window.location.hash).toBe('#/resume');
+    await press(mounted.host, 'Restore project');
+    expect(window.location.hash).toBe('#/home');
+    expect(core.core.projects.list().projects).toEqual([
+      expect.objectContaining({ workId: id, disconnectedAt: null, connectionId }),
+    ]);
+    expect(core.core.connection(connectionId).workId).toBe(id);
+    expect(core.core.listProjects()).toEqual([expect.objectContaining({ workId: id })]);
 
-      await act(async () => {
-        window.location.hash = `#/details/${workId}`;
-        window.dispatchEvent(new HashChangeEvent('hashchange'));
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
-
-      const disconnect = [...host.querySelectorAll('button')].find(
-        (button) => button.textContent === 'Disconnect this work',
-      );
-      expect(disconnect).toBeTruthy();
-      await act(async () => {
-        disconnect!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
-      expect(window.location.hash).toBe('#/connections');
-      expect(host.textContent).toContain('Manage connected work');
-      expect(host.textContent).toContain('Disconnected work');
-      expect(h.core.listProjects()).toEqual([]);
-
-      const reconnect = [...host.querySelectorAll('button')].find(
-        (button) => button.textContent === 'Reconnect this work',
-      );
-      expect(reconnect).toBeTruthy();
-      await act(async () => {
-        reconnect!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
-
-      expect(window.location.hash).toBe(`#/resume/${workId}`);
-      expect(h.core.listProjects()).toEqual([expect.objectContaining({ workId })]);
-      expect(h.core.connection(connection.id).workId).toBe(workId);
-      expect(resumeRefreshes).toBe(0);
-    } finally {
-      await act(async () => root.unmount());
-      host.remove();
-      vi.unstubAllGlobals();
-    }
-  });
+    const pending = deferred<ProjectWorkspace>();
+    vi.mocked(h.projectGateway.list).mockImplementationOnce(() => pending.promise);
+    await follow(mounted.host, `#/project/${id}`);
+    await go('#/home');
+    await act(async () => {
+      pending.resolve(core.core.projects.list());
+    });
+    await settle();
+    expect(window.location.hash).toBe('#/home');
+    expect(mounted.host.querySelector('h1')?.textContent).toBe('Where will you pick up?');
+    expect(h.resumeGateway.refresh).not.toHaveBeenCalled();
+    expect(h.resumeGateway.setGoal).not.toHaveBeenCalled();
+    expect(h.resumeGateway.correct).not.toHaveBeenCalled();
+    expect(core.counts().generationCalls).toBe(0);
+    expect(core.counts().checkCalls).toBe(0);
+  } finally {
+    await mounted.unmount();
+  }
 });

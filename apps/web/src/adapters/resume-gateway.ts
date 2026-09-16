@@ -1,23 +1,50 @@
-import type { ResumeGateway, ResumeWork, ResumeCorrection } from '@statecarry/presentation';
+import type {
+  ResumeGateway,
+  ResumeWork,
+  ResumeCorrection,
+  ResumeChangeNotice,
+} from '@statecarry/presentation';
 import type { Command, Continuation, Receipt } from '@statecarry/contracts';
+import { ProjectRequestError } from './project-gateway';
 export class HttpResumeGateway implements ResumeGateway {
   subscribe(
-    listener: () => void,
+    listener: (change?: ResumeChangeNotice) => void,
     onConnection?: (state: 'connected' | 'disconnected') => void,
   ): () => void {
     if (typeof EventSource === 'undefined') return () => {};
     const source = new EventSource('/api/v1/events');
-    const onChange = () => listener();
+    const notify = (event: MessageEvent, kind?: 'collection-settled') => {
+      try {
+        const value: unknown = JSON.parse(event.data);
+        if (
+          value &&
+          typeof value === 'object' &&
+          'workId' in value &&
+          (value.workId === null || (typeof value.workId === 'string' && value.workId.length > 0))
+        ) {
+          listener({ workId: value.workId, ...(kind ? { kind } : {}) });
+          return;
+        }
+      } catch {
+        /* Unknown notices conservatively invalidate the workspace. */
+      }
+      if (!kind) listener();
+    };
+    const onChange = (event: MessageEvent) => notify(event);
+    const onSettled = (event: MessageEvent) => notify(event, 'collection-settled');
     const onConnected = () => {
-      onConnection?.('connected');
-      listener();
+      // A connection is one event, not also a second data-change notification.
+      if (onConnection) onConnection('connected');
+      else listener();
     };
     const onError = () => onConnection?.('disconnected');
     source.addEventListener('change', onChange);
+    source.addEventListener('collection-settled', onSettled);
     source.addEventListener('connected', onConnected);
     source.addEventListener('error', onError);
     return () => {
       source.removeEventListener('change', onChange);
+      source.removeEventListener('collection-settled', onSettled);
       source.removeEventListener('connected', onConnected);
       source.removeEventListener('error', onError);
       source.close();
@@ -36,7 +63,10 @@ export class HttpResumeGateway implements ResumeGateway {
     });
     const value = await response.json();
     if (!response.ok)
-      throw new Error(value.error?.message ?? 'Cannot reach StateCarry. Check the local server.');
+      throw new ProjectRequestError(
+        value.error?.code ?? 'UNAVAILABLE',
+        value.error?.message ?? 'Cannot reach StateCarry. Check the local server.',
+      );
     return value;
   }
   list(): Promise<ResumeWork[]> {
@@ -64,7 +94,10 @@ export class HttpResumeGateway implements ResumeGateway {
     });
     const value = await response.json();
     if (!response.ok)
-      throw new Error(value.error?.message ?? 'Cannot reach StateCarry. Check the local server.');
+      throw new ProjectRequestError(
+        value.error?.code ?? 'UNAVAILABLE',
+        value.error?.message ?? 'Cannot reach StateCarry. Check the local server.',
+      );
     return value;
   }
   async prepareContinuation(
@@ -107,7 +140,10 @@ export class HttpResumeGateway implements ResumeGateway {
     );
     const value = await response.json();
     if (!response.ok)
-      throw new Error(value.error?.message ?? 'Cannot read the continuation status.');
+      throw new ProjectRequestError(
+        value.error?.code ?? 'UNAVAILABLE',
+        value.error?.message ?? 'Cannot read the continuation status.',
+      );
     return value as Continuation;
   }
 }

@@ -54,3 +54,17 @@ it('only presents a conversation link when navigation capability is verified', (
   );
   expect(verified.selected?.target.existing.available).toBe(true);
 });
+
+it('does not present a Codex conversation target for project-inspection candidates', () => {
+  const value = work({
+    precision: 'thread',
+    state: 'verified-route',
+    verifiedAt: '2026-09-15T00:00:00Z',
+    detail: 'Route verified.',
+  });
+  value.candidates[0] = { ...value.candidates[0], threadId: 'project-inspection' };
+  const target = presentResumeWork(value).selected!.target.existing;
+  expect(target.available).toBe(false);
+  expect(target.url).toBeUndefined();
+  expect(target.detail).toContain('local project inspection');
+});

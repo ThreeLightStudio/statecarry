@@ -11,4 +11,7 @@ export type SavedResumeEdits = {
 export interface ResumeMemory {
   read(workId: string): SavedResumeEdits | null;
   write(workId: string, state: SavedResumeEdits): void;
+  /** Prune only after a successful, complete server list. Include disconnected
+   * registrations: their drafts still belong to an existing project. */
+  prune?(activeIds: readonly string[]): void;
 }

@@ -30,6 +30,92 @@ const snapshot = (files: NonNullable<WorkspaceSnapshot['files']>): WorkspaceSnap
 });
 
 describe('resume MVP core boundaries', () => {
+  it('prepares an overview from project inspection when no Codex conversation is connected', async () => {
+    const h = harness();
+    const current: WorkspaceSnapshot = {
+      ...snapshot([
+        {
+          path: 'src/export.ts',
+          hash: 'workspace-only',
+          size: 30,
+          preview: 'export function run() { return true; }',
+          status: 'checked',
+          limitation: null,
+        },
+      ]),
+      dirty: false,
+      changedPaths: [],
+      recentCommits: [
+        {
+          hash: '1234567890abcdef',
+          subject: 'implement export',
+          committedAt: '2026-09-15T00:00:00.000Z',
+          changedPaths: ['src/export.ts'],
+        },
+      ],
+    };
+    const core = new StateCarry(
+      h.repo,
+      h.reader,
+      h.summary,
+      h.navigator,
+      h.core.clock,
+      h.core.ids,
+      h.core.events,
+      undefined,
+      { inspect: () => structuredClone(current) },
+    );
+    const id = core.projects.create({
+      requestId: core.ids.next(),
+      expectedRevision: 0,
+      payload: {
+        title: 'Project',
+        purpose: 'Understand the local project and choose the next useful action.',
+        cwd: '/tmp/example',
+        threadIds: [],
+        discover: false,
+      },
+    }).workId;
+    let supplied: any;
+    h.summary.generateResume = async (input: any) => {
+      supplied = input;
+      const git = input.records.find((record: any) => record.kind === 'gitObservation');
+      return {
+        candidates: [
+          {
+            key: 'workspace-only',
+            goal: 'Continue the local project',
+            currentState: 'The local project contains a recent export implementation.',
+            status: 'active',
+            reason: 'The project inspection supports a bounded next step.',
+            nextAction: 'Review the export implementation',
+            actionSource: 'suggested',
+            doneWhen: 'The export implementation is reviewed.',
+            threadId: 'project-inspection',
+            prerequisites: [],
+            evidence: [{ revisionId: git.revisionId, quote: git.text }],
+            progress: { reported: [], implemented: [], verified: [] },
+            completion: { reported: [], verified: [] },
+          },
+        ],
+      };
+    };
+    await core.resumes.refresh(id);
+    expect(supplied.sessions).toEqual([{ id: 'project-inspection', title: 'Project inspection' }]);
+    expect(supplied.records.some((record: any) => record.kind === 'gitObservation')).toBe(true);
+    expect(supplied.records.some((record: any) => record.kind === 'fileObservation')).toBe(true);
+    expect(core.resumes.view(id)).toMatchObject({
+      sessionCount: 0,
+      state: 'ready',
+      candidates: [expect.objectContaining({ threadId: 'project-inspection' })],
+    });
+    expect(core.projects.list().projects[0].resume).toMatchObject({
+      sessionCount: 0,
+      state: 'ready',
+      candidates: [expect.objectContaining({ threadId: 'project-inspection' })],
+    });
+  });
+
   it('detects a file edit while Git remains dirty on the same revision', async () => {
     const h = harness();
     let current = snapshot([

@@ -41,6 +41,8 @@ export interface StateRepository {
   get<K extends keyof Entities>(kind: K, id: string): Entities[K] | null;
   list<K extends keyof Entities>(kind: K): Entities[K][];
   put<K extends keyof Entities>(kind: K, entity: Entities[K]): void;
+  /** Remove app-owned state only. Call within a transaction for a project deletion. */
+  remove<K extends keyof Entities>(kind: K, id: string): void;
   transaction<T>(fn: () => T): T;
 }
 export interface SourceReader {
@@ -138,4 +140,6 @@ export interface Identity {
 }
 export interface Events {
   changed(workId: string | null): void;
+  /** Completes an observation that a concurrent reader may have seen in progress. */
+  collectionSettled?(workId: string): void;
 }

@@ -10,6 +10,7 @@ import {
   type Observation,
 } from '@statecarry/contracts';
 import type { StateCarry } from '@statecarry/core';
+import { canonicalProjectCommand } from './adapters/project-folder';
 
 export class ChangeEvents extends EventEmitter {
   constructor(private record?: (event: Observation) => Promise<boolean>) {
@@ -24,6 +25,9 @@ export class ChangeEvents extends EventEmitter {
   }
   changed(workId: string | null) {
     this.emit('change', { workId });
+  }
+  collectionSettled(workId: string) {
+    this.emit('collection-settled', { workId });
   }
 }
 const json = (res: ServerResponse, status: number, value: unknown) => {
@@ -94,16 +98,45 @@ export function createHttpServer(
         res.write('event: connected\ndata: {}\n\n');
         const change = (value: unknown) =>
           res.write(`event: change\ndata: ${JSON.stringify(value)}\n\n`);
+        const settled = (value: unknown) =>
+          res.write(`event: collection-settled\ndata: ${JSON.stringify(value)}\n\n`);
         events.on('change', change);
+        events.on('collection-settled', settled);
         const timer = setInterval(() => res.write(': keepalive\n\n'), 20000);
         req.on('close', () => {
           events.off('change', change);
+          events.off('collection-settled', settled);
           clearInterval(timer);
         });
         return;
       }
       if (path.startsWith('/api/v1/')) {
         const parts = path.slice('/api/v1/'.length).split('/').map(decodeURIComponent);
+        if (parts[0] === 'project-workspace') {
+          if (req.method === 'GET' && parts.length === 1)
+            return json(res, 200, core.projects.list());
+          if (req.method === 'GET' && parts.length === 3 && parts[2] === 'deletion')
+            return json(res, 200, core.projects.deletionPreview(parts[1]));
+          if (req.method === 'POST') {
+            const command = commandSchema.parse(await body(req));
+            if (parts.length === 1)
+              return json(res, 200, core.projects.create(canonicalProjectCommand(command)));
+            if (parts.length === 3) {
+              const [, workId, action] = parts;
+              if (action === 'settings')
+                return json(res, 200, core.projects.settings(workId, command));
+              if (action === 'sources')
+                return json(res, 200, core.projects.sources(workId, command));
+              if (action === 'disconnect')
+                return json(res, 200, core.projects.disconnect(workId, command));
+              if (action === 'restore')
+                return json(res, 200, core.projects.restore(workId, command));
+              if (action === 'deletion')
+                return json(res, 200, core.projects.delete(workId, command));
+            }
+          }
+          throw new DomainError('NOT_FOUND', 'Project workspace route not found.', 404);
+        }
         if (parts[0] === 'resume') {
           if (req.method === 'GET' && parts.length === 1)
             return json(res, 200, core.resumes.list());
@@ -226,9 +259,13 @@ export function createHttpServer(
           if (parts[0] === 'connections' && parts.length === 3 && parts[2] === 'restore')
             return json(res, 200, core.restoreConnection(parts[1], command));
           if (parts[0] === 'connections' && parts.length === 2)
-            return json(res, 200, core.updateConnection(parts[1], command));
+            return json(
+              res,
+              200,
+              core.updateConnection(parts[1], canonicalProjectCommand(command)),
+            );
           if (parts[0] === 'connections' && parts.length === 1) {
-            const receipt = core.connect(command);
+            const receipt = core.connect(canonicalProjectCommand(command));
             json(res, 200, receipt);
             events.changed(receipt.workId);
             return;

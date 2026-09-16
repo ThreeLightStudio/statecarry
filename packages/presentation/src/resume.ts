@@ -6,16 +6,18 @@ import type {
   ContinuationPayload,
   Receipt,
 } from '@statecarry/contracts';
+const PROJECT_INSPECTION_THREAD = 'project-inspection';
 export type {
   ResumeWork,
   ResumeCandidate,
   ResumeCorrection,
   Continuation,
 } from '@statecarry/contracts';
+export type ResumeChangeNotice = { workId: string | null; kind?: 'collection-settled' };
 export interface ResumeGateway {
   /** Optional change stream. It updates a displayed brief but never starts analysis. */
   subscribe?(
-    listener: () => void,
+    listener: (change?: ResumeChangeNotice) => void,
     onConnection?: (state: 'connected' | 'disconnected') => void,
   ): () => void;
   list(): Promise<ResumeWork[]>;
@@ -289,7 +291,7 @@ export function continuationPayload(
       ]),
     ].slice(0, 20),
     doneWhen: candidate.doneWhen,
-    previousThreadId: candidate.threadId,
+    previousThreadId: candidate.threadId === PROJECT_INSPECTION_THREAD ? null : candidate.threadId,
     evidence,
   };
 }
@@ -375,6 +377,7 @@ export function resumeNatureLabel(nature: string | null | undefined) {
 }
 
 function targetFor(candidate: ResumeCandidate, work: ResumeWork): ResumeTargetViewModel {
+  const inspectionOnly = candidate.threadId === PROJECT_INSPECTION_THREAD;
   const url = `codex://threads/${encodeURIComponent(candidate.threadId)}`;
   const currentEnough =
     !work.stale && !work.updatesAvailable && !work.workspaceChanged && !work.busy && !work.error;
@@ -399,12 +402,15 @@ function targetFor(candidate: ResumeCandidate, work: ResumeWork): ResumeTargetVi
   return {
     existing: {
       mode: 'existing-conversation',
-      available: navigationReady,
-      ...(navigationReady ? { url } : {}),
-      label: 'Open the recorded conversation',
-      detail: navigationReady
-        ? 'Opens the connected Codex conversation. It does not send or execute the next action.'
-        : (work.navigation?.detail ?? 'Opening the connected conversation is not available here.'),
+      available: navigationReady && !inspectionOnly,
+      ...(navigationReady && !inspectionOnly ? { url } : {}),
+      label: inspectionOnly ? 'Project inspection source' : 'Open the recorded conversation',
+      detail: inspectionOnly
+        ? 'This overview came from the local project inspection, so there is no Codex conversation to open.'
+        : navigationReady
+          ? 'Opens the connected Codex conversation. It does not send or execute the next action.'
+          : (work.navigation?.detail ??
+            'Opening the connected conversation is not available here.'),
     },
     newSession: {
       mode: 'new-session',
@@ -711,7 +717,9 @@ export function manualReviewContinuationText(
     `Next action: ${candidate.nextAction ?? 'Confirm the next action from the connected records.'}`,
     `Constraints: ${constraints.length ? constraints.join('; ') : 'None recorded'}`,
     `Done when: ${candidate.doneWhen ?? 'Record the completion check after the next action is confirmed.'}`,
-    `Previous conversation: ${candidate.threadId}`,
+    candidate.threadId === PROJECT_INSPECTION_THREAD
+      ? 'Previous source: local project inspection'
+      : `Previous conversation: ${candidate.threadId}`,
     evidence.length ? `Evidence:\n${evidence.map((item) => `- ${item.quote}`).join('\n')}` : '',
     'Confirm the current project and record state before changing files.',
   ]

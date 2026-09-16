@@ -19,6 +19,8 @@ const MAX_DISCOVERED_FILES = 6000;
 const MAX_FILE_BYTES = 96 * 1024;
 const MAX_PREVIEW = 4000;
 const MAX_HINT_SCAN_FILES = 600;
+const MAX_RECENT_COMMITS = 8;
+const MAX_GIT_PATHS = 120;
 const SOURCE_EXTENSIONS = new Set([
   '.c',
   '.cc',
@@ -61,6 +63,8 @@ const IGNORED_DIRECTORIES = new Set([
   'dist',
   'build',
   '.cache',
+  '.statecarry',
+  '.turbo',
   '.next',
   'coverage',
   'vendor',
@@ -341,20 +345,57 @@ export class GitProjectInspector implements ProjectInspector {
     let branch: string | null = null;
     let commit: string | null = null;
     let dirty: boolean | null = null;
+    let changedPaths: string[] = [];
+    let recentCommits: NonNullable<WorkspaceSnapshot['recentCommits']> = [];
     const limitations: string[] = [];
     let status: WorkspaceSnapshot['status'] = 'checked';
     try {
-      const run = (args: string[]) =>
+      const runRaw = (args: string[]) =>
         execFileSync('git', ['-C', cwd, ...args], {
           encoding: 'utf8',
           stdio: ['ignore', 'pipe', 'pipe'],
           timeout: 5000,
           windowsHide: true,
-        }).trim();
+        });
+      const run = (args: string[]) => runRaw(args).trim();
       root = run(['rev-parse', '--show-toplevel']) || root;
       branch = run(['branch', '--show-current']) || null;
       commit = run(['rev-parse', 'HEAD']) || null;
-      dirty = run(['status', '--porcelain', '--untracked-files=all']).length > 0;
+      const statusOutput = runRaw(['status', '--porcelain=v1', '--untracked-files=all']);
+      dirty = statusOutput.trim().length > 0;
+      changedPaths = statusOutput
+        .replace(/\n$/, '')
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => line.slice(3).trim())
+        .map((path) => (path.includes(' -> ') ? path.split(' -> ').at(-1)! : path))
+        .filter(Boolean)
+        .slice(0, MAX_GIT_PATHS);
+      const recentHashes = run(['log', `-${MAX_RECENT_COMMITS}`, '--pretty=format:%H'])
+        .split('\n')
+        .map((hash) => hash.trim())
+        .filter(Boolean);
+      recentCommits = recentHashes.map((hash) => {
+        const detail = run([
+          'show',
+          '--no-renames',
+          '--date=iso-strict',
+          '--pretty=format:%H%x1f%cI%x1f%s',
+          '--name-only',
+          hash,
+        ]);
+        const [header = '', ...pathLines] = detail.split('\n');
+        const [resolvedHash = hash, committedAt = '', subject = ''] = header.split('\x1f');
+        return {
+          hash: resolvedHash,
+          committedAt,
+          subject,
+          changedPaths: pathLines
+            .map((path) => path.trim())
+            .filter(Boolean)
+            .slice(0, MAX_GIT_PATHS),
+        };
+      });
     } catch (error) {
       status = 'unknown';
       const detail = error instanceof Error ? error.message : String(error);
@@ -368,6 +409,8 @@ export class GitProjectInspector implements ProjectInspector {
       branch,
       commit,
       dirty,
+      changedPaths,
+      recentCommits,
       status,
       checkedAt,
       limitations: [...new Set(limitations)].slice(0, 20),

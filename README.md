@@ -1,10 +1,10 @@
 # StateCarry — development preview
 
-Pick up interrupted Codex work. StateCarry reads the records you connect, suggests a task to resume and its first useful action, and supports opening the original Codex session after local navigation setup.
+Return to a project and understand what to do next. Home helps you choose across registered projects; each project explains the selected work, why it matters, and what would finish the next step. Connected Codex records support that explanation and provide a place to continue.
 
-**Development preview:** source preparation and automated checks are separate from a validated end-to-end MVP. Work-specific state and navigation gaps remain in the [roadmap](docs/roadmap.md).
+**Development preview:** the owner-approved Home/Project replacement is tracked in the [implementation milestones](docs/project-ui-implementation.md). Automated regression checks and browser inspection are separate from acceptance through real work returns. See the [roadmap](docs/roadmap.md).
 
-**Resume → Confirm → Act.** Check what to do and when that step is finished. Expand **Why This?** only when you need the evidence. Use **Not This** to correct the work, next step, completion, or pause status.
+**Choose a project → understand the work → choose the next step.** Prepared explanations remain readable without opening transcripts. Original inspection is an explicitly selected activity. Reported completion, a recorded check, and your acceptance remain distinct.
 
 This is a local Mac application with a browser UI. It does not execute the next action or send a message to Codex. Records and corrections are stored on your Mac. **Relevant conversation excerpts and scoped project observations, including limited file previews, are sent through your signed-in Codex account for model analysis; this is not offline AI.**
 
@@ -31,13 +31,15 @@ An agent can install dependencies, build, and diagnose startup. Sign in yourself
 
 ## First use
 
-1. Choose **Connect records**. Enter a name and your Codex project's absolute folder path.
-2. Find conversations and select the records you allow StateCarry to read. Start with the related sessions for one goal. Optional turn boundaries narrow access. Folder discovery can propose additional related sessions; disable it if you only want your selection.
-3. Save the connection. StateCarry opens Resume and starts finding candidates. Initial analysis can take time; the page shows its progress. Return visits read saved results; request a recheck when a fresh analysis is needed. Editing a goal can also trigger analysis.
-4. Read the purpose, **Where you left off**, **Why this is next**, **Next action**, and **Complete when**. Inferred goals are labelled. **Confirm or edit goal / Set goal** saves your intended result within the same connected work; it creates no project or session. Required constraints appear before the primary action. A suggested action is labelled and needs your judgment.
-5. Choose **Confirm & open in Codex** when the recorded route is available. Otherwise, choose **Copy handoff instructions** and paste them into the intended conversation. Opening or copying does not perform the proposed work. The full message and previous conversation ID are under **Review handoff instructions**; supporting records and optional session tools remain in separate details.
+1. Choose **Add a project**. Select the absolute working-folder path, then enter a recognizable name, its purpose, and an optional current goal. A conversation is not required to save this context. A folder already registered opens the existing project; a new session does not create another project or replace its saved context.
+2. Connect relevant conversations now or through **Project settings** later. Choose the allowed conversations and starting point; exact record boundaries remain available as an advanced source-setting action. Existing ranges are retained until explicitly changed.
+3. Request an updated overview when you want StateCarry to analyze the selected records. Adding a registration, revisiting a screen, changing source settings, and reconnecting do not silently run a model. Editing a goal saves the goal and invalidates an incompatible previous overview; preparation remains explicit.
+4. On **Home**, compare work that needs a choice, or find a project in the full list. Your explicitly selected focus can lead the list. Recent activity does not automatically establish priority. Selecting a task opens that same task in its project.
+5. In the project, read the current situation, **Your next choice**, its reason, and finish condition. Continue in the working conversation when the recorded route is supported, or copy the task context to your working tool. Neither action performs the work. Review returned results before accepting them; pause or correct a suggestion when appropriate.
 
-Returning reads the saved candidate. Newer records can mark that snapshot as older so you can confirm relevance or recheck. **Find resume candidates / Recheck records** performs a fresh collection and bounded analysis. Review the candidate's goal and evidence after changing a goal or access scope; known validity gaps are listed below.
+Returning reads the saved project state. New records or changed project conditions can mark it as needing review. Preparation performs a fresh collection and bounded analysis. A missing or failed overview shows the available context and a recovery choice instead of exposing a raw response. Opening **What is this based on?** explains the available basis and its limits. **Inspect original records** deliberately opens source material separately.
+
+Routine collection checks are quiet when their result is unchanged. Actual record changes are grouped into a background read; the current explanation and unfinished input stay in place, and only the affected project's actions wait for that check. Returning to the app or choosing **Check for changes** reads the latest saved state and checks project files without starting AI analysis. File-only changes are checked on those reads, navigation and continuation preparation; this is not a continuous file watcher.
 
 For first-time navigation setup, run the following command in an interactive terminal, replacing `YOUR_THREAD_ID` with a conversation you intend to open:
 
@@ -47,19 +49,20 @@ rtk proxy node dist/verify-connection.mjs --verify-navigation YOUR_THREAD_ID
 
 The helper opens that conversation and asks you to inspect its title and content before recording confirmation. An accepted OS request alone is not proof of arrival. Existing navigation evidence is preserved. This diagnostic is optional for source checks and is not run by the automated tests.
 
-| State   | What you see                                            |
-| ------- | ------------------------------------------------------- |
-| active  | A first action, its source and its completion condition |
-| waiting | Dependency and condition for resuming                   |
-| paused  | The deferral and relevant resumption condition          |
-| unclear | What needs to be clarified; no invented next action     |
-| done    | Completion; no next action                              |
+| State             | What you see                                                     |
+| ----------------- | ---------------------------------------------------------------- |
+| Ready to continue | A next step, its reason and its finish condition                 |
+| Result to review  | A reported result awaiting your evaluation and acceptance        |
+| Waiting for input | The missing input or condition for resuming                      |
+| Paused            | Work you deliberately deferred, with a way to restore it         |
+| Decision needed   | What remains unclear; no invented executable next step           |
+| Accepted          | The task you accepted; a successor objective is not manufactured |
 
-**Not This** lets you dismiss wrong work, supply a corrected next step and its Done When, mark done, or pause. Corrections persist across restarts and inform later analysis within the same record scope. Restore is available for mistakes. Other candidates are under **Resume something else**. Original records are never edited.
+You can edit the next step and finish condition, accept a reviewed task, pause it, or set a wrong suggestion aside. Corrections persist within their applicable record scope. Reopening a task reverses the corresponding choice; it does not rewrite the original record. Other tasks remain reachable within the same project.
 
-Goal and action drafts, candidate selection, open reading panels and scroll position are saved in this browser for each work. Returning from details or reloading keeps these edits. A draft from earlier records retains its original version: review it against the latest brief and explicitly choose **Use current records for this edit** before saving it against that version. Browser storage failures are shown on screen; clearing site data removes browser drafts, not saved server records.
+Goal and next-step drafts, task selection, explanation-panel choices and reading position are stored in this browser per work. Returning from another screen or restarting keeps these drafts and their original versions. Review a draft against the current work before explicitly adopting a newer version for its save. A missing server task cannot be revived by local input. After a successful full project list, drafts belonging to removed registrations are cleared; disconnected registrations keep theirs. Storage failures are shown; clearing site data removes browser drafts, not saved server records. Unsaved registration and project-settings forms are separate from these work drafts.
 
-Use **Manage connections** to find disconnected work. **Disconnect this work** in the details screen stops that connection and opens the management page. **Reconnect this work** restores the original work, saved results and corrections without creating another connection or starting analysis. Collection can resume after reconnection; a fresh analysis remains explicit.
+**Project settings** separates purpose/focus, source scope, collection and saved-data removal. Disconnecting retains the same registration and its saved work. Restoring reconnects it without creating a replacement or starting analysis. A separate removal preview describes which database records and exclusive source copies will be removed, which shared copies remain, and whether pending work prevents removal. Removal is not reversible through Restore. Original folders/conversations, request receipts, separate diagnostic files and backups are retained; this is not secure physical erasure of every copy.
 
 ## Scope and data
 
@@ -75,7 +78,7 @@ Open the matching port. The server binds to `127.0.0.1` and rejects unexpected H
 
 The isolated model reader disables execution tools. Original records remain untrusted evidence. Exact quote validation checks source references; it does not guarantee the model's interpretation is correct. Use correction when the suggested work or action is wrong.
 
-Legacy context screens remain under **More context / connection settings**. Entering these screens reads saved results; explanation preparation requires its explicit button. Their background long-form analysis is disabled by default. `STATECARRY_LEGACY_ANALYSIS=1` explicitly enables that older processing path; it is unnecessary for Resume and consumes additional model usage.
+The production entry now uses the Home/Project flow. Old Resume/work/detail bookmarks resolve to the corresponding project instead of opening the competing legacy UI. Historical UI modules and their regressions remain in source, but are not reachable through the new production entry. Legacy long-form background analysis remains disabled by default. `STATECARRY_LEGACY_ANALYSIS=1` still enables that older processing path and is unnecessary for this flow.
 
 ## Troubleshooting
 
@@ -83,7 +86,7 @@ Legacy context screens remain under **More context / connection settings**. Ente
 - **Records missing / partially collected:** check CLI login, selected session IDs and turn boundaries in connection settings. No action is shown when collection fails. Compressed or partial records are identified before acting.
 - **Analysis failed:** check the visible error, account limits and configured model access, then retry. Existing records and corrections are retained.
 - **App link does not open:** install/open Codex desktop, permit your browser's external-app link, or use the displayed session ID manually.
-- **Unexpected candidate:** use Not This. A recent session is not necessarily your desired work.
+- **Unexpected task:** edit the next step or set the suggestion aside. A recent conversation is not necessarily the work you intend to continue.
 
 ## Development and release checks
 
@@ -98,13 +101,15 @@ cache boundaries, contribution guidance, diagnostics and local packaging.
 
 ## Known limitations
 
+The owner approved the Home/Project replacement after reporting unclear flow and early raw-data exposure in the earlier UI. The new flow and scoped database removal are undergoing the checks recorded in the [implementation milestones](docs/project-ui-implementation.md). Passing automated checks and inspecting synthetic browser cases do not establish human comprehension, correct real model output, or a complete later work return.
+
 Goal and correction drafts are local to the same browser profile and origin (including port); they are not synchronized between devices. A server disconnection keeps the already-loaded brief available for review in the current tab, while actions requiring current records remain blocked. Reconnection reloads saved results without starting analysis. Only drafts and reading preferences are written to browser storage, not server evidence or action permissions. After a completely new tab or browser process starts offline, the server must return before its saved brief can be read again.
 
-The compact narrative uses the existing generated current-state summary and recorded reason. It does not independently verify the model's interpretation. Route, storage and recovery tests use controlled inputs; actual Codex arrival, human understanding, and a complete later work return remain in the [roadmap](docs/roadmap.md).
+Project explanations reuse validated structured current-state and reason fields, with prepared messages for known missing/failed states. Generation instructions require understandable project-specific prose, but do not independently verify the model's interpretation. Existing registrations retain their identities; registrations in the same folder are not automatically merged. Actual Codex arrival, real explanation quality and human work-return acceptance remain in the [roadmap](docs/roadmap.md).
 
 Changing the goal or record scope hides the previous candidate until the selected records are checked. A temporary read failure can retain a same-scope brief with accessible supporting evidence, but its action remains blocked. An unchanged bounded file sample is shown as a limitation without forcing another identical analysis; it is not proof that every project file was checked.
 
-The primary v0 scope excludes automatic execution, full project management, new provider integrations and environment restoration. Existing auxiliary context screens are retained. A public download and a completed real-work validation are separate release steps. Keep private `.cache/` observations out of shared source and builds.
+The primary v0 scope excludes automatic execution, full project management, new provider integrations and environment restoration. Existing auxiliary context screens are subject to a keep/move/remove review in the redesign; they are not a permanent requirement. A public download and completed real-work validation are separate release steps. Keep private `.cache/` observations out of shared source and builds.
 
 ## License
 

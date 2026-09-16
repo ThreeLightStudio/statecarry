@@ -6,6 +6,7 @@ export * from './resume';
 export * from './workspace';
 export * from './questions';
 export * from './explanations';
+export * from './projects';
 
 export const idSchema = z.string().min(1).max(250);
 export const missingSchema = z.enum([
@@ -338,6 +339,7 @@ export type Job = {
   resultId: string | null;
 };
 export type Work = {
+  projectProfile?: import('./projects').ProjectProfile;
   resume?: import('./resume').ResumeStored;
   resumeOverrides?: import('./resume').ResumeOverride[];
   /** User-selected conversation responsible for overall progress. */ coordinationThreadId?:
@@ -535,6 +537,8 @@ export type ApiErrorCode =
   | 'VALIDATION'
   | 'REVISION_CONFLICT'
   | 'IDEMPOTENCY_CONFLICT'
+  | 'PROJECT_BUSY'
+  | 'PROJECT_DELETION_CHANGED'
   | 'SOURCE_UNAVAILABLE'
   | 'SUMMARY_UNAVAILABLE'
   | 'RESULT_UNKNOWN'

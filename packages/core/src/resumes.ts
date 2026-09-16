@@ -13,10 +13,34 @@ import {
 import type { StateCarry } from './service';
 import { selectedRecords } from './goals';
 
+const PROJECT_INSPECTION_THREAD = 'project-inspection';
+
 export class Resumes {
   private running = new Set<string>();
   private errors = new Map<string, string>();
   constructor(private core: StateCarry) {}
+  isRunning(id: string): boolean {
+    return this.running.has(id);
+  }
+  forget(id: string): void {
+    this.errors.delete(id);
+  }
+  /** Only explicit decisions on candidates still visible in the same scope count. */
+  decisionKeys(id: string, candidates: ResumeCandidate[]) {
+    const { work, scope } = this.context(id);
+    const visible = new Set(candidates.map((candidate) => candidate.key));
+    const decisions = (work.resumeOverrides ?? []).filter(
+      (item) => item.scope === scope && visible.has(item.candidateKey),
+    );
+    return {
+      acceptedKeys: decisions
+        .filter((item) => item.kind === 'done')
+        .map((item) => item.candidateKey),
+      pausedKeys: decisions
+        .filter((item) => item.kind === 'paused')
+        .map((item) => item.candidateKey),
+    };
+  }
   private workspace(id: string, hints?: WorkspaceInspectionHints): WorkspaceSnapshot | null {
     const work = this.core.work(id),
       connection = this.core.repo.get('connection', work.projectId);
@@ -36,6 +60,8 @@ export class Resumes {
       branch: value.branch,
       commit: value.commit,
       dirty: value.dirty,
+      changedPaths: value.changedPaths ?? [],
+      recentCommits: value.recentCommits ?? [],
       status: value.status,
       limitations: value.limitations ?? [],
       fileFingerprint: value.fileFingerprint ?? value.fingerprint ?? null,
@@ -80,16 +106,13 @@ export class Resumes {
       terms: [...terms].slice(0, 120),
     };
   }
-  /** Convert bounded file observations into citable tool records for analysis. */
-  private workspaceRecords(
-    workspace: WorkspaceSnapshot | null,
-    links: ReturnType<StateCarry['links']>,
-  ) {
+  /** Convert bounded project inspection into citable tool records for analysis. */
+  private workspaceRecords(workspace: WorkspaceSnapshot | null) {
     const files = workspace?.files?.length
       ? workspace.files
       : (workspace?.fileObservations ?? workspace?.files ?? []);
-    if (!files.length || !links.length || !workspace) return [];
-    const threadId = links[0].threadId;
+    if (!workspace) return [];
+    const threadId = PROJECT_INSPECTION_THREAD;
     const result: {
       revisionId: string;
       threadId: string;
@@ -100,6 +123,39 @@ export class Resumes {
       limitations: string[];
     }[] = [];
     let remaining = 12000;
+    if (workspace.status === 'checked') {
+      const gitText = [
+        `Git workspace: branch ${workspace.branch ?? 'detached or unknown'}, commit ${workspace.commit ?? 'unknown'}, working tree ${workspace.dirty ? 'has changes' : 'is clean'}.`,
+        workspace.changedPaths?.length
+          ? `Changed paths:\n${workspace.changedPaths.map((path) => `- ${path}`).join('\n')}`
+          : 'Changed paths: none recorded.',
+        workspace.recentCommits?.length
+          ? `Recent commits:\n${workspace.recentCommits
+              .map(
+                (commit) =>
+                  `- ${commit.hash.slice(0, 12)} ${commit.committedAt} ${commit.subject}${commit.changedPaths.length ? `\n  Paths: ${commit.changedPaths.join(', ')}` : ''}`,
+              )
+              .join('\n')}`
+          : 'Recent commits: none recorded.',
+      ].join('\n');
+      const text = gitText.slice(0, Math.min(6000, remaining));
+      result.push({
+        revisionId: `workspace-git:${this.core.ids.hash({
+          branch: workspace.branch,
+          commit: workspace.commit,
+          dirty: workspace.dirty,
+          changedPaths: workspace.changedPaths ?? [],
+          recentCommits: workspace.recentCommits ?? [],
+        })}`,
+        threadId,
+        actor: 'tool',
+        kind: 'gitObservation',
+        at: workspace.checkedAt,
+        text,
+        limitations: workspace.limitations ?? [],
+      });
+      remaining -= text.length;
+    }
     const ordered = [...files].sort(
       (a, b) =>
         Number(b.selection === 'related') - Number(a.selection === 'related') ||
@@ -127,6 +183,16 @@ export class Resumes {
     }
     return result;
   }
+  private storedWorkspaceEvidence(id: string, revisionId: string): string | null {
+    const work = this.core.work(id);
+    for (const snapshot of [work.resume?.workspaceAfter, work.resume?.workspaceBefore]) {
+      const record = this.workspaceRecords(snapshot ?? null).find(
+        (item) => item.revisionId === revisionId,
+      );
+      if (record) return record.text;
+    }
+    return null;
+  }
   private context(id: string) {
     const work = this.core.work(id),
       connection = this.core.connection(work.projectId);
@@ -140,6 +206,7 @@ export class Resumes {
       connection.discoveryScope,
       links.map((l) => l.threadId).sort(),
       work.goal,
+      ...(work.projectProfile?.purpose ? [work.projectProfile.purpose] : []),
     ]);
     return { work, connection, links, scope };
   }
@@ -397,9 +464,12 @@ export class Resumes {
           ...Object.values(c.progress ?? {}).flatMap((items) => items ?? []),
           ...Object.values(c.completion ?? {}).flatMap((items) => items ?? []),
         ];
-        return evidence.some(
-          (e) => !this.core.accessibleSource(id, e.revisionId)?.text.includes(e.quote),
-        );
+        return evidence.some((e) => {
+          const text =
+            this.core.accessibleSource(id, e.revisionId)?.text ??
+            this.storedWorkspaceEvidence(id, e.revisionId);
+          return !text?.includes(e.quote);
+        });
       });
     const stale = structurallyStale || !evidenceAccessible;
     const updatesAvailable = !stale && work.resume?.version !== version;
@@ -594,7 +664,7 @@ export class Resumes {
       // visible as a last-known snapshot and require a complete recheck before
       // replacing it with a new candidate.
       if (
-        !sources.length ||
+        (links.length > 0 && !sources.length) ||
         checkpoints.some((c) => ['failed', 'partial', 'reading'].includes(c.status))
       ) {
         throw new DomainError(
@@ -646,13 +716,25 @@ export class Resumes {
             limitations: s.limitations,
           }));
       });
-      const records = [...sessionRecords, ...this.workspaceRecords(workspaceBefore, links)];
+      const workspaceRecords = this.workspaceRecords(workspaceBefore);
+      const records = [...sessionRecords, ...workspaceRecords];
+      if (!records.length)
+        throw new DomainError(
+          'SOURCE_UNAVAILABLE',
+          'No readable project or connected-record evidence is available for this overview.',
+        );
       const overrides = (work.resumeOverrides ?? []).filter((c) => c.scope === scope);
       const raw = await this.core.summary.generateResume({
         goal: work.goal?.origin === 'user-input' ? work.goal.text : null,
+        purpose: work.projectProfile?.purpose ?? null,
         cwd: connection.cwd,
         workspace: workspaceBefore,
-        sessions: links.map((l) => ({ id: l.threadId, title: l.title })),
+        sessions: [
+          ...links.map((l) => ({ id: l.threadId, title: l.title })),
+          ...(workspaceRecords.length
+            ? [{ id: PROJECT_INSPECTION_THREAD, title: 'Project inspection' }]
+            : []),
+        ],
         records,
         coverage: {
           note: 'Bounded recent excerpts, not full history. Absence cannot prove done. Do not assume every linked session has the same goal.',
@@ -668,7 +750,10 @@ export class Resumes {
       if (new Set(parsed.candidates.map((c) => c.key)).size !== parsed.candidates.length)
         throw new Error('Duplicate candidate keys');
       for (const c of parsed.candidates) {
-        if (!links.some((l) => l.threadId === c.threadId))
+        if (
+          c.threadId !== PROJECT_INSPECTION_THREAD &&
+          !links.some((l) => l.threadId === c.threadId)
+        )
           throw new Error('Action location outside allowed sessions');
         const sourceById = new Map(records.map((record) => [record.revisionId, record]));
         // An implementation claim is useful only when the connected record
@@ -796,10 +881,21 @@ export class Resumes {
     const text = typeof input.text === 'string' ? input.text.trim() : '';
     if (!text || text.length > 400)
       throw new DomainError('VALIDATION', 'Describe the intended result in 1–400 characters.');
-    this.core.describeGoal(id, {
-      requestId: this.core.ids.next(),
-      expectedRevision: work.revision,
-      payload: { text },
+    this.core.repo.transaction(() => {
+      // Older registrations acquire their independent project identity on this
+      // explicit edit, never on a read. Preserve the legacy goal-intent endpoint.
+      if (!work.projectProfile) {
+        const connection = this.core.connection(work.projectId);
+        this.core.repo.put('work', {
+          ...work,
+          projectProfile: { title: connection.title, purpose: '', focused: false },
+        });
+      }
+      this.core.describeGoal(id, {
+        requestId: this.core.ids.next(),
+        expectedRevision: work.revision,
+        payload: { text },
+      });
     });
     return this.view(id);
   }

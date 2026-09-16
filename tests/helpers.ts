@@ -25,6 +25,10 @@ export class MemoryRepository implements StateRepository {
     if (this.fail) throw new Error('injected commit failure');
     this.data.set(`${kind}:${e.id}`, structuredClone(e));
   }
+  remove<K extends keyof Entities>(kind: K, id: string) {
+    if (this.fail) throw new Error('injected commit failure');
+    this.data.delete(`${kind}:${id}`);
+  }
   transaction<T>(fn: () => T): T {
     const before = structuredClone(this.data);
     try {
