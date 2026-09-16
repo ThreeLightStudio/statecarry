@@ -1531,6 +1531,7 @@ function CreateProject({ controller, onNavigate }: WorkspaceProps) {
   const [purpose, setPurpose] = useState('');
   const [goal, setGoal] = useState('');
   const [error, setError] = useState('');
+  const [choosingFolder, setChoosingFolder] = useState(false);
   const [reusedProject, setReusedProject] = useState<{ id: string; title: string } | null>(null);
   const mounted = useRef(true);
   useEffect(() => {
@@ -1547,8 +1548,23 @@ function CreateProject({ controller, onNavigate }: WorkspaceProps) {
       : state.projects.filter((project) => registrationFolder(project.cwd) === folder);
   const existing = reusedProject ?? (matches.length === 1 ? matches[0] : null);
   const duplicate = !!existing || matches.length > 1;
+  const chooseFolder = async () => {
+    if (busy || choosingFolder) return;
+    setChoosingFolder(true);
+    setError('');
+    try {
+      const selected = await controller.chooseProjectFolder();
+      if (!mounted.current || selected === null) return;
+      setCwd(selected);
+      setReusedProject(null);
+    } catch (failure) {
+      if (mounted.current) setError(projectError(failure));
+    } finally {
+      if (mounted.current) setChoosingFolder(false);
+    }
+  };
   const submit = async () => {
-    if (duplicate || busy || !state.online || state.checkingCurrent) return;
+    if (duplicate || busy || choosingFolder || !state.online || state.checkingCurrent) return;
     if (folder === null) {
       setError('Choose an absolute project folder path.');
       return;
@@ -1590,26 +1606,38 @@ function CreateProject({ controller, onNavigate }: WorkspaceProps) {
           void submit();
         }}
       >
-        <label>
-          Project folder
-          <Input
-            name="cwd"
-            required
-            disabled={busy}
-            maxLength={2000}
-            placeholder="/Users/you/Projects/my-project"
-            value={cwd}
-            onChange={(event) => {
-              setCwd(event.target.value);
-              setReusedProject(null);
-              setError('');
-            }}
-            autoComplete="off"
-          />
+        <div className="pw-field">
+          <label htmlFor="project-folder">Project folder</label>
+          <div className="pw-folder-field">
+            <Input
+              id="project-folder"
+              name="cwd"
+              required
+              disabled={busy || choosingFolder}
+              maxLength={2000}
+              placeholder="/Users/you/Projects/my-project"
+              value={cwd}
+              onChange={(event) => {
+                setCwd(event.target.value);
+                setReusedProject(null);
+                setError('');
+              }}
+              autoComplete="off"
+            />
+            <Button
+              type="button"
+              className="pw-button"
+              disabled={busy || choosingFolder || !state.online}
+              onClick={() => void chooseFolder()}
+            >
+              {choosingFolder ? 'Choosing…' : 'Choose folder'}
+            </Button>
+          </div>
           <span className="pw-field-help">
-            The absolute path identifies where you work. Registering it does not change the folder.
+            Choose a local folder or enter its absolute path. Registering it does not change the
+            folder.
           </span>
-        </label>
+        </div>
         {existing ? (
           <section className="pw-notice" aria-label="Registered folder">
             <h2>This folder is already registered</h2>
@@ -1685,7 +1713,9 @@ function CreateProject({ controller, onNavigate }: WorkspaceProps) {
           {!duplicate && (
             <Button
               className="pw-button pw-button--primary"
-              disabled={!state.online || state.checkingCurrent || busy || folder === null}
+              disabled={
+                !state.online || state.checkingCurrent || busy || choosingFolder || folder === null
+              }
             >
               {busy ? 'Adding project…' : 'Add project'}
             </Button>

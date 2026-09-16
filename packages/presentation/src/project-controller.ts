@@ -708,6 +708,11 @@ export class ProjectController {
       return Promise.reject(new Error('Integration capabilities are unavailable.'));
     return this.gateway.capabilities();
   }
+  chooseProjectFolder() {
+    if (!this.gateway.chooseFolder)
+      return Promise.reject(new Error('The local folder picker is unavailable.'));
+    return this.gateway.chooseFolder().then((result) => result.path);
+  }
   setOutputLanguage(language: 'en' | 'ko') {
     this.outputLanguage = language;
   }

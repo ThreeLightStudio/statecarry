@@ -115,6 +115,7 @@ export function projectUiFixture(entries = [projectEntry()]) {
   };
   const projectGateway: ProjectGateway = {
     capabilities: vi.fn(async () => capabilities),
+    chooseFolder: vi.fn(async () => ({ path: null })),
     list: vi.fn(async () => structuredClone(rows)),
     create: vi.fn(async () => testReceipt('new-project')),
     settings: vi.fn(async (id) => testReceipt(id)),

@@ -49,6 +49,9 @@ export class HttpProjectGateway implements ProjectGateway {
   capabilities() {
     return this.request<Capabilities>('/capabilities');
   }
+  chooseFolder() {
+    return this.request<{ path: string | null }>('/local/folder-picker', {});
+  }
   create(input: ProjectCreateInput) {
     return this.command('/project-workspace', 0, input);
   }

@@ -12,6 +12,7 @@ import { settingsFromEnvironment } from './adapters/summary-settings';
 import { observationLog } from './adapters/observation-log';
 import { GitProjectInspector } from './adapters/project-inspector';
 import { UnsupportedSessionExecutor } from './adapters/session-executor';
+import { MacLocalFolderPicker } from './adapters/local-folder-picker';
 
 const dataDir = resolve(process.env.STATECARRY_DATA_DIR ?? `${homedir()}/.statecarry`);
 const port = Number(process.env.STATECARRY_PORT ?? 4310);
@@ -30,7 +31,9 @@ const core = new StateCarry(
   new UnsupportedSessionExecutor(),
   new GitProjectInspector(),
 );
-const server = createHttpServer(core, events, resolve(process.cwd(), 'dist/web'), port);
+const server = createHttpServer(core, events, resolve(process.cwd(), 'dist/web'), port, {
+  folderPicker: new MacLocalFolderPicker(),
+});
 await core.recover();
 const background = new BackgroundLoop(
   core,

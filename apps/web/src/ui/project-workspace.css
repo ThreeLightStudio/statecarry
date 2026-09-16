@@ -405,6 +405,14 @@
   font-weight: 550;
 }
 
+.pw-folder-field {
+  @apply flex items-center gap-2.5;
+}
+
+.pw-folder-field input {
+  @apply min-w-0 flex-1;
+}
+
 .pw-shell select {
   @apply block w-full min-w-0 rounded-md border border-input bg-background px-3 py-2.5 text-[15px] font-normal text-foreground;
   font: inherit;

@@ -13,6 +13,7 @@ import {
 } from '@statecarry/contracts';
 import type { StateCarry } from '@statecarry/core';
 import { canonicalProjectCommand } from './adapters/project-folder';
+import type { LocalFolderPicker } from './adapters/local-folder-picker';
 
 export class ChangeEvents extends EventEmitter {
   constructor(private record?: (event: Observation) => Promise<boolean>) {
@@ -61,6 +62,7 @@ export function createHttpServer(
   events: ChangeEvents,
   webDir: string,
   port = 4310,
+  local: { folderPicker?: LocalFolderPicker } = {},
 ) {
   const origins = new Set([`http://127.0.0.1:${port}`, 'http://127.0.0.1:4311']);
   return createServer(async (req, res) => {
@@ -114,6 +116,19 @@ export function createHttpServer(
       }
       if (path.startsWith('/api/v1/')) {
         const parts = path.slice('/api/v1/'.length).split('/').map(decodeURIComponent);
+        if (parts[0] === 'local' && parts[1] === 'folder-picker' && parts.length === 2) {
+          if (req.method !== 'POST') throw new DomainError('VALIDATION', 'POST required', 405);
+          z.object({})
+            .strict()
+            .parse(await body(req));
+          if (!local.folderPicker)
+            throw new DomainError(
+              'CAPABILITY_UNSUPPORTED',
+              'The local folder picker is unavailable.',
+              501,
+            );
+          return json(res, 200, { path: await local.folderPicker.choose() });
+        }
         if (parts[0] === 'project-workspace') {
           if (req.method === 'GET' && parts.length === 1)
             return json(res, 200, core.projects.list());

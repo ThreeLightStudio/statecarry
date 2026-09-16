@@ -145,6 +145,35 @@ it('keeps the same basename in a different absolute folder available for registr
   }
 });
 
+it('fills the absolute project path from the local folder picker and keeps manual entry after cancel', async () => {
+  const h = projectUiFixture();
+  vi.mocked(h.projectGateway.chooseFolder!).mockResolvedValueOnce({
+    path: '/picked/local-project',
+  });
+  window.history.replaceState(null, '', '#/new');
+  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  try {
+    await press(mounted.host, 'Choose folder');
+    expect(h.projectGateway.chooseFolder).toHaveBeenCalledTimes(1);
+    expect(mounted.host.querySelector<HTMLInputElement>('input[name=\"cwd\"]')?.value).toBe(
+      '/picked/local-project',
+    );
+    expect(mounted.host.querySelector<HTMLInputElement>('input[name=\"title\"]')?.placeholder).toBe(
+      'local-project',
+    );
+
+    await typeField(mounted.host, 'input[name=\"cwd\"]', '/manual/project');
+    vi.mocked(h.projectGateway.chooseFolder!).mockResolvedValueOnce({ path: null });
+    await press(mounted.host, 'Choose folder');
+    expect(mounted.host.querySelector<HTMLInputElement>('input[name=\"cwd\"]')?.value).toBe(
+      '/manual/project',
+    );
+    expect(h.projectGateway.create).not.toHaveBeenCalled();
+  } finally {
+    await mounted.unmount();
+  }
+});
+
 it('uses the folder name when a new project is registered without a separate name', async () => {
   const h = projectUiFixture([]);
   window.history.replaceState(null, '', '#/new');

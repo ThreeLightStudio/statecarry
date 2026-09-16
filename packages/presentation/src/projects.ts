@@ -24,6 +24,7 @@ export type { RecordRange } from '@statecarry/contracts';
 
 export interface ProjectGateway {
   capabilities?(): Promise<Capabilities>;
+  chooseFolder?(): Promise<{ path: string | null }>;
   list(): Promise<ProjectWorkspace>;
   create(input: ProjectCreateInput): Promise<Receipt>;
   settings(id: string, revision: number, input: ProjectProfile): Promise<Receipt>;
