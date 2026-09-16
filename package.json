@@ -28,6 +28,10 @@
     "task:check:boundaries": "tsx scripts/check-boundaries.ts",
     "task:test": "vitest run",
     "task:build:artifacts": "tsx scripts/build.ts",
+    "desktop:prepare": "electrobun prepare",
+    "desktop:config": "electrobun config --env=dev",
+    "desktop:dev": "electrobun dev --env=dev --watch",
+    "desktop:build": "electrobun build --env=dev",
     "start": "node dist/server.mjs",
     "verify:connection": "node dist/verify-connection.mjs",
     "package:local": "tsx scripts/package-local.ts"
@@ -40,6 +44,7 @@
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^5.0.2",
+    "electrobun": "2.0.1",
     "esbuild": "^0.28.2",
     "jsdom": "^26.1.0",
     "oxfmt": "0.68.0",

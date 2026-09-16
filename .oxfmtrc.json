@@ -3,6 +3,8 @@
   "embeddedLanguageFormatting": "off",
   "ignorePatterns": [
     ".cache/**",
+    ".cottontail-tmp/**",
+    ".hutch/**",
     ".turbo/**",
     ".statecarry/**",
     "coverage/**",
