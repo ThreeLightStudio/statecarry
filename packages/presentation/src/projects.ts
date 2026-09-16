@@ -145,20 +145,20 @@ export type ProjectView = {
 export function projectError(value: unknown): string {
   const code = value && typeof value === 'object' && 'code' in value ? String(value.code) : '';
   if (code === 'REVISION_CONFLICT')
-    return 'The project changed while you were editing. Your draft is kept. Review the latest state before saving again.';
+    return 'The project changed while you were editing. Your draft is still here. Review the latest version before saving.';
   if (code === 'PROJECT_BUSY')
-    return 'Work is still running or its outcome is unknown. Resolve that work before removing saved data.';
+    return 'StateCarry is still checking this project. Try deleting its saved data again after the check finishes.';
   if (code === 'PROJECT_DELETION_CHANGED')
-    return 'The saved data changed after the preview. Review a new removal preview before confirming.';
+    return 'The saved data changed after you reviewed it. Review what will be deleted again before confirming.';
   if (code === 'NOT_FOUND')
-    return 'This project or record is no longer available. Return to Home to see the current projects.';
+    return 'This project or source is no longer available. Return Home to see your current projects.';
   if (code === 'SOURCE_UNAVAILABLE')
-    return 'This record is not available within the current source scope. Return to the project and review its connected records.';
+    return 'This source is no longer available to this project. Return to the project and review its sources.';
   if (code === 'VALIDATION')
-    return 'The information could not be saved. Check the required fields and the selected source range.';
+    return 'StateCarry could not save this. Check the required fields and any selected conversation range.';
   if (code === 'CAPABILITY_UNSUPPORTED')
-    return 'This action is not available in the connected environment. Your current work is kept.';
-  return 'StateCarry could not complete the request. Your input is kept. Check the local connection and try again.';
+    return 'This action is not available on this Mac. Your current work is unchanged.';
+  return 'StateCarry could not complete that action. Your input is still here. Try again.';
 }
 
 /** Select only explanatory fields. Raw evidence, errors and transport details
@@ -178,13 +178,15 @@ export function presentProject(entry: ProjectWorkspaceEntry, online = true): Pro
   const sourceSummary: ProjectSourceSummary[] = [
     {
       kind: 'codebase',
-      label: 'Codebase',
+      label: 'Project files',
       detail:
         workspace?.status === 'checked'
           ? files.length
-            ? `${files.length} project file${files.length === 1 ? '' : 's'} checked in the current codebase.`
-            : 'The project folder is checked automatically when StateCarry prepares an overview.'
-          : 'The project folder will be checked automatically when StateCarry prepares an overview.',
+            ? `StateCarry inspected ${files.length} selected project file${files.length === 1 ? '' : 's'} for this overview.`
+            : 'Project files were checked for this overview.'
+          : workspace?.status === 'unknown'
+            ? 'StateCarry could not read the project files during the latest check.'
+            : 'Project files will be checked when you update the overview.',
     },
     {
       kind: 'git',
@@ -198,15 +200,17 @@ export function presentProject(entry: ProjectWorkspaceEntry, online = true): Pro
                 : ' · change status unavailable'
           }.`
         : workspace?.status === 'checked'
-          ? 'Git is unavailable for this folder. Codebase checks remain available.'
-          : 'Git branch, revision, and local changes could not be checked with this project.',
+          ? 'Git is unavailable for this folder. Project files can still be checked.'
+          : workspace?.status === 'unknown'
+            ? 'Git could not be checked because the project folder was unavailable.'
+            : 'Git will be checked when you update the overview.',
     },
     {
       kind: 'codex',
       label: 'Codex',
       detail: work?.sessionCount
-        ? `${work.sessionCount} Codex conversation${work.sessionCount === 1 ? '' : 's'} added as supporting context.`
-        : 'No Codex conversation is connected. This context is optional.',
+        ? `${work.sessionCount} Codex conversation${work.sessionCount === 1 ? '' : 's'} included in this overview.`
+        : 'No Codex conversations added. You can create an overview from project files and Git alone.',
     },
   ];
   const task = (candidate: NonNullable<typeof current>['candidates'][number]): ProjectTaskView => {
@@ -236,7 +240,7 @@ export function presentProject(entry: ProjectWorkspaceEntry, online = true): Pro
       waiting: 'Waiting for input',
       paused: 'Paused',
       accepted: 'Accepted',
-      unclear: 'Decision needed',
+      unclear: 'Needs a decision',
     }[status];
     const references = [
       ...candidate.evidence,
@@ -261,7 +265,7 @@ export function presentProject(entry: ProjectWorkspaceEntry, online = true): Pro
           ? 'An earlier result is still recorded. You corrected the next step; those earlier checks do not establish that the new step is finished.'
           : reportedResult
             ? 'A result is recorded, but your acceptance has not been recorded. Compare it with the requested outcome.'
-            : 'The current project evidence supports this overview of the work. The proposed next step still needs your judgment.',
+            : 'The available project sources support this overview. The suggested next step still needs your judgment.',
       candidate.progress?.verified?.length || candidate.completion?.verified?.length
         ? 'A tool result records a check. It establishes only what that check covered; it does not establish user acceptance.'
         : 'An independent check is not recorded for this result.',
@@ -285,8 +289,8 @@ export function presentProject(entry: ProjectWorkspaceEntry, online = true): Pro
         : work?.correctedKeys.includes(candidate.key)
           ? 'Corrected by you'
           : candidate.actionSource === 'suggested'
-            ? 'Suggested from the current project evidence'
-            : 'Recorded in the current project evidence',
+            ? 'Suggested by StateCarry'
+            : 'Found in project sources',
       evidenceExplanation: explanation,
       evidenceSources,
       originals: inspectableIds.map((id, index) => ({
@@ -299,21 +303,21 @@ export function presentProject(entry: ProjectWorkspaceEntry, online = true): Pro
     };
   };
   const stateDescription = disconnected
-    ? 'Collection is stopped. Reconnect to return to the same saved work.'
+    ? 'This project is disconnected. Reconnect it to check for new information.'
     : !online
-      ? 'The local server is unavailable. The last loaded overview is available for reading; actions wait for a current check.'
+      ? 'StateCarry is offline. You can read the saved overview, but actions are paused until it reconnects.'
       : work?.busy
-        ? 'Preparing an updated overview of this project. You can keep reading the saved context.'
+        ? 'Updating the overview. You can keep reading the previous version.'
         : work?.error
-          ? 'The latest overview could not be prepared. Your saved context and input are kept. Check the connection or try preparing it again.'
+          ? 'StateCarry could not prepare the latest overview. Your saved project information and input are still here. Try again.'
           : work?.workspaceChanged
-            ? 'The project changed after this overview was prepared. Check the latest state before continuing.'
+            ? 'The project changed since this overview was updated. Update it before continuing.'
             : work?.updatesAvailable
-              ? 'New records arrived after this overview was prepared. Review an update before continuing.'
+              ? 'New project information is available. Update the overview before continuing.'
               : work?.stale || ready?.state === 'limited' || ready?.state === 'unavailable'
-                ? 'Some current information could not be confirmed. The saved overview may be read, but continuing needs a fresh check.'
+                ? 'Some project information could not be confirmed. Review the limits before continuing.'
                 : !current?.candidates.length
-                  ? 'There is no current next-step overview. Confirm the goal or prepare an overview from the project.'
+                  ? 'No next step is available yet. Confirm the goal or update the overview.'
                   : 'Read the current situation and choose what to do next.';
   const firstCandidate = current?.candidates[0];
   const firstCandidateReferences = firstCandidate
@@ -347,13 +351,13 @@ export function presentProject(entry: ProjectWorkspaceEntry, online = true): Pro
             : 'The saved overview has no current task to continue.'
           : korean
             ? '아직 프로젝트 Overview가 준비되지 않았습니다.'
-            : 'No project overview has been prepared yet.')),
+            : 'No project overview has been created yet.')),
     recentWork:
       generatedRecentWork !== undefined
         ? (generatedRecentWork ??
           (korean
             ? '최근 의미 있는 작업 변화는 현재 Overview 근거에서 확인되지 않았습니다.'
-            : 'No recent meaningful work is established by the current overview evidence.'))
+            : 'No recent work was confirmed from the sources in this overview.'))
         : workspace?.status === 'checked'
           ? recentCommit
             ? korean
@@ -369,22 +373,22 @@ export function presentProject(entry: ProjectWorkspaceEntry, online = true): Pro
                   : `Git is at ${commit.slice(0, 10)}${branch ? ` on ${branch}` : ''}${workspace.dirty === false ? ' with a clean working tree' : ''}.`
                 : korean
                   ? '프로젝트 폴더와 Git 상태를 확인했습니다.'
-                  : 'The project folder and Git state were checked.'
+                  : 'Project files and Git were checked.'
           : korean
-            ? '최근 코드와 Git 상태는 아직 확인되지 않았습니다.'
-            : 'Recent code and Git state have not been confirmed yet.',
+            ? '최근 프로젝트 파일과 Git 상태는 아직 확인되지 않았습니다.'
+            : 'Recent project files and Git state have not been confirmed yet.',
     openOrUncertain: firstCandidate?.prerequisites[0]
       ? firstCandidate.prerequisites[0]
       : firstCandidate?.actionSource === 'suggested' &&
           firstCandidateHasCodex &&
           !firstCandidateHasCodebase
         ? korean
-          ? '제안된 다음 단계는 Codex 맥락에는 근거가 있지만, 인용된 코드베이스 근거로 확인되지는 않았습니다.'
-          : 'The proposed next step is supported by Codex context but is not confirmed by cited codebase evidence.'
+          ? '제안된 다음 단계는 Codex 대화에는 근거가 있지만, 인용된 프로젝트 파일로 확인되지는 않았습니다.'
+          : 'The suggested next step is supported by Codex conversations but is not confirmed by the project files cited in this overview.'
         : work?.workspaceChanged
           ? korean
             ? '저장된 Overview가 준비된 뒤 프로젝트가 변경되었습니다.'
-            : 'The project changed after the saved overview was prepared.'
+            : 'The project changed after the saved overview was updated.'
           : work?.stale || ready?.state === 'limited' || ready?.state === 'unavailable'
             ? korean
               ? '일부 현재 프로젝트 정보는 다시 확인해야 합니다.'
@@ -392,19 +396,19 @@ export function presentProject(entry: ProjectWorkspaceEntry, online = true): Pro
             : firstCandidate
               ? korean
                 ? '선택한 프로젝트 상태에 추가로 기록된 차단 요소는 없습니다.'
-                : 'No additional blocker is recorded for the selected project state.'
+                : 'No additional blockers are recorded.'
               : korean
                 ? '첫 Overview에서 아직 열려 있는 항목을 확인해야 합니다.'
-                : 'The first overview still needs to establish what remains open.',
+                : 'Create the first overview to see what remains open.',
     next:
       firstCandidate?.nextAction ??
       (work?.generatedAt
         ? korean
           ? 'StateCarry가 프로젝트를 다시 확인해야 할 때 업데이트된 Overview를 준비하세요.'
-          : 'Prepare an updated overview when you want StateCarry to re-check the project.'
+          : 'Update the overview when you want StateCarry to check the project again.'
         : korean
-          ? '코드베이스와 Git 상태를 바탕으로 첫 Overview를 준비하세요. 필요하면 Codex 맥락을 추가할 수 있습니다.'
-          : 'Prepare the first overview from the codebase and Git state. Codex context can be added if it helps.'),
+          ? '프로젝트 파일과 Git 상태를 바탕으로 첫 Overview를 준비하세요. 필요하면 Codex 대화를 추가할 수 있습니다.'
+          : 'Create the first overview from project files and Git. Add Codex conversations if they help.'),
   };
   return {
     id: entry.workId,
@@ -420,12 +424,12 @@ export function presentProject(entry: ProjectWorkspaceEntry, online = true): Pro
     stateLabel: disconnected
       ? 'Disconnected'
       : !online
-        ? 'Offline · saved view'
+        ? 'Offline'
         : work?.busy
-          ? 'Preparing an update'
+          ? 'Updating overview'
           : ready?.canAct
-            ? 'Current overview'
-            : 'Review the available context',
+            ? 'Up to date'
+            : 'Needs review',
     stateDescription,
     canEdit: online && !disconnected && !work?.busy,
     canDecide: online && !disconnected && !!ready?.canAct,

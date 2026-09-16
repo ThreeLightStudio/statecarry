@@ -109,7 +109,7 @@ it('keeps inherited first and last boundaries when a real connection is saved wi
     ]);
     expect(f.projectGateway.sources).not.toHaveBeenCalled();
 
-    await press(mounted.host, 'Save Codex context');
+    await press(mounted.host, 'Save conversations');
     const selected = {
       threadIds: ['thread-a'],
       startTurnIds: { 'thread-a': f.inherited.startTurnIds['thread-a'] },
@@ -145,7 +145,7 @@ it('seeds a newly selected discovered conversation while preserving explicit and
   window.history.replaceState(null, '', `#/project/${f.id}/settings`);
   const mounted = await mountProjectRoot(f.projectGateway, f.resumeGateway);
   try {
-    await press(mounted.host, 'Find conversations in this folder');
+    await press(mounted.host, 'Find related conversations');
     const first = conversation(mounted.host, 'Conversation a');
     expect(bounds(first)).toEqual([
       'explicit-a-first-turn',
@@ -163,7 +163,7 @@ it('seeds a newly selected discovered conversation while preserving explicit and
     ]);
     await choose(conversation(mounted.host, 'Conversation c'));
     await choose(conversation(mounted.host, 'Conversation c'));
-    await press(mounted.host, 'Save Codex context');
+    await press(mounted.host, 'Save conversations');
 
     const selected = {
       threadIds: ['thread-a', 'thread-b'],
@@ -195,13 +195,13 @@ it('does not restore deliberately cleared boundaries on another selected convers
   window.history.replaceState(null, '', `#/project/${f.id}/settings`);
   const mounted = await mountProjectRoot(f.projectGateway, f.resumeGateway);
   try {
-    await press(mounted.host, 'Find conversations in this folder');
+    await press(mounted.host, 'Find related conversations');
     const first = conversation(mounted.host, 'Conversation a');
-    await press(first, 'Use the starting point and later records');
+    await press(first, 'Use starting point onward');
     await press(first, 'Choose a starting point');
     await typeField(first, 'select', '');
     await choose(conversation(mounted.host, 'Conversation b'));
-    await press(mounted.host, 'Save Codex context');
+    await press(mounted.host, 'Save conversations');
 
     const saved = f.connection();
     expect(saved.threadIds).toEqual(['thread-a', 'thread-b']);
@@ -218,10 +218,10 @@ it('selects all discovered Codex conversations while preserving inherited bounda
   window.history.replaceState(null, '', `#/project/${f.id}/settings`);
   const mounted = await mountProjectRoot(f.projectGateway, f.resumeGateway);
   try {
-    await press(mounted.host, 'Find conversations in this folder');
-    await press(mounted.host, 'Select all conversations');
+    await press(mounted.host, 'Find related conversations');
+    await press(mounted.host, 'Select all');
     expect(mounted.host.textContent).toContain('3 selected');
-    await press(mounted.host, 'Save Codex context');
+    await press(mounted.host, 'Save conversations');
     expect(f.connection()).toMatchObject({
       threadIds: ['thread-a', 'thread-b', 'thread-c'],
       startTurnIds: f.inherited.startTurnIds,

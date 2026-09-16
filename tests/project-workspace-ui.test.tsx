@@ -50,7 +50,7 @@ it('shows the StateCarry brand mark and beta preview popover before the workspac
   }
 });
 
-it('compares all registered work with explicit focus, searchable projects and exact task navigation', async () => {
+it('compares projects with explicit focus, search and exact task navigation', async () => {
   const alpha = projectEntry('alpha');
   const beta = projectEntry('beta');
   beta.focused = true;
@@ -68,10 +68,10 @@ it('compares all registered work with explicit focus, searchable projects and ex
     const pending = mounted.host.querySelector('section[aria-labelledby="pending-heading"]')!;
     expect(pending.querySelector('a')?.getAttribute('href')).toBe('#/project/beta?task=first');
     expect(pending.textContent).not.toContain('Project disconnected');
-    expect(pending.textContent).toContain('fresh check');
+    expect(pending.textContent).toContain('Some project information could not be confirmed');
     expect(
       mounted.host.querySelector('section[aria-labelledby="all-projects-heading"]')?.textContent,
-    ).toContain('4 shown · 4 registered');
+    ).toContain('4 shown · 4 projects');
     const disconnectedFocus = mounted.host.querySelector<HTMLButtonElement>(
       'button[aria-label="Make Project disconnected my Home focus"]',
     );
@@ -80,7 +80,7 @@ it('compares all registered work with explicit focus, searchable projects and ex
     expect(pending.querySelectorAll('a')).toHaveLength(2);
     expect(
       mounted.host.querySelector('section[aria-labelledby="all-projects-heading"]')?.textContent,
-    ).toContain('1 shown · 4 registered');
+    ).toContain('1 shown · 4 projects');
     await follow(mounted.host, '#/project/beta?task=second');
     expect(mounted.host.querySelector('h1')?.textContent).toBe('Project beta');
     expect(mounted.host.querySelector('[aria-label="Selected task"] h2')?.textContent).toBe(
@@ -89,14 +89,14 @@ it('compares all registered work with explicit focus, searchable projects and ex
     expect(
       mounted.host.querySelector('[aria-label="Your next choice"] .pw-button--primary')
         ?.textContent,
-    ).toMatch(/Open working conversation|Copy task/);
+    ).toMatch(/Open Codex conversation|Copy task context/);
     expect(h.resumeGateway.refresh).not.toHaveBeenCalled();
   } finally {
     await mounted.unmount();
   }
 });
 
-it('keeps ordinary failure, explanation and source-scope expansions free of original text and raw diagnostics', async () => {
+it('keeps ordinary failure, explanation and source controls free of original text and raw diagnostics', async () => {
   const entry = projectEntry();
   Object.assign(entry.resume!, {
     error: RAW_ERROR,
@@ -124,7 +124,7 @@ it('keeps ordinary failure, explanation and source-scope expansions free of orig
   try {
     clean();
     await toggleDetails(mounted.host, 'What is this based on?');
-    await toggleDetails(mounted.host, 'This is the wrong work');
+    await toggleDetails(mounted.host, "This task isn't relevant");
     await toggleDetails(mounted.host, 'Inspect original records');
     clean();
     expect(h.projectGateway.evidence).not.toHaveBeenCalled();
@@ -134,8 +134,8 @@ it('keeps ordinary failure, explanation and source-scope expansions free of orig
     await follow(mounted.host, '#/project/alpha?task=first');
     clean();
     await follow(mounted.host, '#/project/alpha/settings');
-    await press(mounted.host, 'Find conversations in this folder');
-    expect(mounted.host.textContent).toContain('Only part of the available conversations');
+    await press(mounted.host, 'Find related conversations');
+    expect(mounted.host.textContent).toContain('StateCarry could only check some conversations');
     clean();
     expect(h.projectGateway.settings).not.toHaveBeenCalled();
     expect(h.projectGateway.sources).not.toHaveBeenCalled();
@@ -147,10 +147,10 @@ it('keeps ordinary failure, explanation and source-scope expansions free of orig
 
 it.each([
   ['waiting', 'Waiting for input', 'Wait for the required input'],
-  ['done', 'Result to review', 'Review the result against the finish condition'],
-  ['paused', 'Paused', 'Keep this work paused'],
-  ['accepted', 'Accepted', 'This task is accepted'],
-  ['unclear', 'Decision needed', 'Clarify the current situation'],
+  ['done', 'Result to review', 'Review the result, then accept it or describe what needs changing'],
+  ['paused', 'Paused', 'This task is paused'],
+  ['accepted', 'Accepted', 'This task is complete'],
+  ['unclear', 'Needs a decision', 'Clarify the current situation'],
 ] as const)(
   'keeps %s distinct and does not turn it into an executable continuation',
   async (status, label, decision) => {
@@ -172,14 +172,14 @@ it.each([
       expect(
         [...task.querySelectorAll('button,a')].some(
           (item) =>
-            item.textContent === 'Copy task for my working tool' ||
-            item.textContent === 'Open working conversation',
+            item.textContent === 'Copy task context' ||
+            item.textContent === 'Open Codex conversation',
         ),
       ).toBe(false);
       if (status === 'done') {
-        expect(
-          button(mounted.host, 'Accept as complete').classList.contains('pw-button--primary'),
-        ).toBe(true);
+        expect(button(mounted.host, 'Accept result').classList.contains('pw-button--primary')).toBe(
+          true,
+        );
         expect(task.textContent).toContain('acceptance has not been recorded');
       }
       if (status === 'accepted')
@@ -227,9 +227,9 @@ it('registers a no-session project, opens it, and requests its project-first ove
     expect(window.location.hash).toBe(`#/project/${entry.workId}`);
     expect(mounted.host.textContent).toContain('Keep research decisions understandable over time.');
     expect(mounted.host.textContent).toContain('Record the first experiment question.');
-    expect(mounted.host.textContent).toContain('checks the codebase and Git state automatically');
-    expect(mounted.host.textContent).toContain('No Codex conversation is connected');
-    expect(button(mounted.host, 'Prepare the first overview').disabled).toBe(false);
+    expect(mounted.host.textContent).toContain('checks project files and Git automatically');
+    expect(mounted.host.textContent).toContain('No Codex conversations added');
+    expect(button(mounted.host, 'Create overview').disabled).toBe(false);
     expect(h.projectGateway.create).toHaveBeenCalledWith(
       expect.objectContaining({ threadIds: [], discover: false }),
     );
@@ -271,14 +271,14 @@ it('preserves exact source boundaries and submits source/profile changes with th
   const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
   try {
     expect(h.projectGateway.sources).not.toHaveBeenCalled();
-    await press(mounted.host, 'Find conversations in this folder');
+    await press(mounted.host, 'Find related conversations');
     const extra = [...mounted.host.querySelectorAll('label')]
       .find((label) => label.textContent === 'Other discussion')!
       .querySelector<HTMLInputElement>('input')!;
     await act(async () => {
       extra.click();
     });
-    await press(mounted.host, 'Save Codex context');
+    await press(mounted.host, 'Save conversations');
     expect(h.projectGateway.sources).toHaveBeenCalledWith('alpha', 7, {
       threadIds: ['thread-alpha', 'thread-extra'],
       startTurnIds: { 'thread-alpha': 'turn-start' },
@@ -292,7 +292,7 @@ it('preserves exact source boundaries and submits source/profile changes with th
     await act(async () => {
       focus.click();
     });
-    await press(mounted.host, 'Save project settings');
+    await press(mounted.host, 'Save details');
     expect(h.projectGateway.settings).toHaveBeenCalledWith('alpha', 7, {
       title: 'Project alpha',
       purpose: 'A clearer project purpose.',
@@ -331,25 +331,30 @@ it('shows a scoped removal preview and requires confirmation before removing onl
   window.history.replaceState(null, '', '#/project/alpha/settings');
   const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway, drafts.memory());
   try {
-    await press(mounted.host, 'Review saved-data removal');
+    await press(mounted.host, 'Review what will be deleted');
     expect(mounted.host.textContent).toContain(
+      'Project data cannot be deleted while StateCarry is still checking work or the latest outcome is unresolved.',
+    );
+    expect(mounted.host.textContent).not.toContain(
       'Work is still running. No data can be removed yet.',
     );
     expect(
       [...mounted.host.querySelectorAll('button')].some(
-        (item) => item.textContent?.trim() === "Remove this project's saved data",
+        (item) => item.textContent?.trim() === 'Delete project data',
       ),
     ).toBe(false);
     expect(h.projectGateway.delete).not.toHaveBeenCalled();
-    await press(mounted.host, 'Review saved-data removal');
-    const preview = mounted.host.querySelector('[aria-label="Removal preview"]')!;
-    expect(preview.textContent).toContain('Shared source copies that will be kept');
-    expect(preview.textContent).toContain('separate diagnostic files, and backups are retained');
-    expect(button(mounted.host, "Remove this project's saved data").disabled).toBe(true);
+    await press(mounted.host, 'Review what will be deleted');
+    const preview = mounted.host.querySelector('[aria-label="Deletion preview"]')!;
+    expect(preview.textContent).toContain('Shared sources kept');
+    expect(preview.textContent).not.toContain(
+      'separate diagnostic files, and backups are retained',
+    );
+    expect(button(mounted.host, 'Delete project data').disabled).toBe(true);
     await act(async () => {
       preview.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click();
     });
-    await press(mounted.host, "Remove this project's saved data");
+    await press(mounted.host, 'Delete project data');
     expect(h.projectGateway.delete).toHaveBeenCalledWith('alpha', 7, 'preview-token');
     expect(h.rows.projects.map((entry) => entry.workId)).toEqual(['beta']);
     expect(window.location.hash).toBe('#/home');
@@ -441,9 +446,9 @@ it('does not attach an old source read to a new project revision', async () => {
     });
     await settle();
     expect(mounted.host.textContent).toContain(
-      'The project changed after this source selection was opened',
+      'The project changed while these Codex conversations were open',
     );
-    expect(button(mounted.host, 'Save Codex context').disabled).toBe(true);
+    expect(button(mounted.host, 'Save conversations').disabled).toBe(true);
     expect(h.projectGateway.sources).not.toHaveBeenCalled();
   } finally {
     await mounted.unmount();

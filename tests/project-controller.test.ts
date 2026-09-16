@@ -162,13 +162,17 @@ describe('project-oriented presentation and return memory', () => {
     });
     const view = presentProjects(rows).find((entry) => entry.id === 'a')!;
     expect(view.goal).toBe('Review the export');
-    expect(view.stateDescription).toContain('current information');
+    expect(view.stateDescription).toContain('project information');
     expect(view.canRefresh).toBe(true);
-    expect(view.sourceSummary.map((source) => source.label)).toEqual(['Codebase', 'Git', 'Codex']);
+    expect(view.sourceSummary.map((source) => source.label)).toEqual([
+      'Project files',
+      'Git',
+      'Codex',
+    ]);
     expect(view.sourceSummary.find((source) => source.kind === 'codex')?.detail).toContain(
-      'optional',
+      'project files and Git alone',
     );
-    expect(view.projectState.next).toContain('Prepare the first overview');
+    expect(view.projectState.next).toContain('Create the first overview');
     expect(view.tasks).toEqual([]);
   });
   it('projects codebase, Git and Codex as human-readable evidence kinds', () => {
@@ -205,8 +209,8 @@ describe('project-oriented presentation and return memory', () => {
     expect(view.sourceSummary).toEqual([
       expect.objectContaining({
         kind: 'codebase',
-        label: 'Codebase',
-        detail: expect.stringContaining('2 project files'),
+        label: 'Project files',
+        detail: expect.stringContaining('2 selected project files'),
       }),
       expect.objectContaining({
         kind: 'git',
@@ -223,7 +227,7 @@ describe('project-oriented presentation and return memory', () => {
       'Refined the project overview flow and kept the in-progress workspace changes visible.',
     );
     expect(view.tasks[0].evidenceSources.map((source) => source.label)).toEqual([
-      'Codebase',
+      'Project files',
       'Git',
       'Codex',
     ]);
@@ -341,7 +345,7 @@ describe('project-oriented presentation and return memory', () => {
     expect(h.resume.setGoal).not.toHaveBeenCalled();
     expect(h.gateway.list).toHaveBeenCalledTimes(reads);
     expect(controller.getSnapshot().edits.a.goalDraft).toBeNull();
-    expect(controller.getSnapshot().notice).toContain('already saved');
+    expect(controller.getSnapshot().notice).toBe('No changes to save.');
     controller.stop();
   });
   it('does not clear restarted-controller input when an old save finishes', async () => {

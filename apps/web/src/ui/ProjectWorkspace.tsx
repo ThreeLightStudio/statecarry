@@ -125,16 +125,21 @@ function OverviewDate({ value }: { value: string | null }) {
     <span className="pw-small">
       {date && Number.isFinite(date.getTime()) ? (
         <>
-          Overview prepared{' '}
+          Overview updated{' '}
           <time dateTime={value!}>
             {date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
           </time>
         </>
       ) : (
-        'The preparation time is not available.'
+        'The overview time is not available.'
       )}
     </span>
   );
+}
+
+function attentionCount(project: ProjectView): number {
+  return project.tasks.filter((task) => task.status !== 'accepted' && task.status !== 'paused')
+    .length;
 }
 
 export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
@@ -212,7 +217,7 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
         </nav>
         <div>
           <span className="pw-nav-label">Your projects</span>
-          <nav className="pw-nav" aria-label="Registered projects">
+          <nav className="pw-nav" aria-label="Projects">
             {state.projects
               .filter((item) => !item.disconnected)
               .map((item) => (
@@ -236,7 +241,7 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
           >
             Settings
           </RouteLink>
-          <p>A place to return, understand your work, and choose what comes next.</p>
+          <p>Return to a project, understand where it stands, and choose what comes next.</p>
         </div>
       </aside>
       <main ref={mainRef} className="pw-main" id="workspace-main" tabIndex={-1}>
@@ -247,7 +252,7 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
               <span className="pw-beta-popover" id="beta-preview-detail" role="tooltip">
                 <strong>Beta preview</strong>
                 <span>
-                  StateCarry is still being stabilized. Features and saved state may change.
+                  StateCarry is still being stabilized. Features and saved project data may change.
                 </span>
               </span>
             </span>
@@ -284,19 +289,19 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
           <div className="pw-actions">
             <span className="pw-small" role="status">
               {state.loading
-                ? 'Reading saved state…'
+                ? 'Loading projects…'
                 : state.online
-                  ? 'Local service connected'
-                  : 'Local service unavailable'}
+                  ? 'StateCarry is ready'
+                  : "StateCarry can't connect to its local service."}
             </span>
             <Button
               type="button"
               className="pw-button pw-button--quiet"
-              title="Re-read the latest saved project state. StateCarry also refreshes when you return to the app."
+              title="Check saved projects for changes. StateCarry also checks when you return to the app."
               disabled={state.loading || (state.online && state.checkingCurrent)}
               onClick={() => void controller.checkForChanges()}
             >
-              Refresh now
+              Check for changes
             </Button>
           </div>
         </div>
@@ -304,7 +309,7 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
           <section className="pw-notice" role="alert">
             <p>{state.error}</p>
             <Button className="pw-button" onClick={() => void controller.refresh()}>
-              Read latest state
+              Try again
             </Button>
           </section>
         )}
@@ -318,7 +323,7 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
             <Alert className="pw-toast" role="status">
               <p>{state.notice}</p>
               <Button className="pw-button" onClick={() => controller.clearNotice()}>
-                Dismiss message
+                Dismiss
               </Button>
             </Alert>
           </div>
@@ -358,7 +363,7 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
         ) : (
           <section className="pw-empty">
             <h1 tabIndex={-1}>Project not available</h1>
-            <p>This registration is not in the current workspace. It may have been removed.</p>
+            <p>This project is no longer in StateCarry. It may have been removed.</p>
             <RouteLink className="pw-button" href="#/home" onNavigate={onNavigate}>
               Return Home
             </RouteLink>
@@ -453,22 +458,20 @@ function GlobalSettings({
           <span className="pw-eyebrow">Settings</span>
           <h1 tabIndex={-1}>StateCarry settings</h1>
           <p className="pw-lead">
-            Check the local integrations StateCarry can read and choose the language used for newly
-            prepared project overviews.
+            Choose the language for overview text and check whether Codex is available.
           </p>
         </div>
       </header>
 
       <div className="pw-stack">
         <Card className={cardSurface} aria-labelledby="response-language-heading">
-          <h2 id="response-language-heading">Response language</h2>
+          <h2 id="response-language-heading">Overview language</h2>
           <p className="pw-small">
-            This changes overview explanation text without changing the StateCarry interface or
-            rewriting quoted source evidence. Existing prepared overviews are translated without
-            re-analyzing the project.
+            This changes overview text only. Existing overviews are translated without re-checking
+            project files, Git, or Codex conversations. Quoted source text stays unchanged.
           </p>
           <label className="pw-field">
-            Overview responses
+            Language
             <select
               name="response-language"
               value={language}
@@ -481,7 +484,7 @@ function GlobalSettings({
           </label>
           {localizing && (
             <p className="pw-small" role="status">
-              Updating existing overview text without re-analyzing project evidence…
+              Updating existing overview text…
             </p>
           )}
         </Card>
@@ -500,10 +503,10 @@ function GlobalSettings({
             >
               {capabilities
                 ? capabilities.summary.state === 'ready'
-                  ? 'Ready on this machine'
+                  ? 'Ready'
                   : capabilities.summary.state === 'unverified'
-                    ? 'Available · not checked'
-                    : 'Not ready'
+                    ? 'Detected · not verified'
+                    : 'Needs attention'
                 : 'Checking'}
             </Badge>
           </div>
@@ -511,14 +514,11 @@ function GlobalSettings({
             <>
               <p>
                 {capabilities.summary.state === 'ready'
-                  ? 'StateCarry can use the Codex installation available on this machine.'
-                  : capabilities.summary.detail}
+                  ? 'StateCarry can use Codex when creating or updating overviews.'
+                  : capabilities.summary.state === 'unverified'
+                    ? "Codex was found, but StateCarry hasn't verified analysis yet."
+                    : "StateCarry can't use Codex to prepare overviews right now."}
               </p>
-              {capabilities.summary.state === 'failed' && (
-                <p className="pw-small">
-                  Confirm Codex can start normally on this machine, then recheck its status here.
-                </p>
-              )}
             </>
           ) : capabilityError ? (
             <p className="pw-notice" role="alert">
@@ -526,11 +526,11 @@ function GlobalSettings({
             </p>
           ) : (
             <p className="pw-small" role="status">
-              Reading Codex capability status…
+              Checking Codex…
             </p>
           )}
           <p className="pw-small">
-            Codex conversations are optional project context. Choose them separately for each
+            Codex conversations are optional. Choose the conversations that belong with each
             project.
           </p>
           <div>
@@ -539,16 +539,16 @@ function GlobalSettings({
               disabled={checking}
               onClick={() => void checkIntegrations()}
             >
-              {checking ? 'Checking Codex…' : 'Recheck Codex'}
+              {checking ? 'Checking…' : 'Check again'}
             </Button>
           </div>
         </Card>
 
         <Card className={cardSurface} aria-labelledby="project-integrations-heading">
-          <h2 id="project-integrations-heading">Project integrations</h2>
+          <h2 id="project-integrations-heading">Project sources</h2>
           <p className="pw-small">
-            Codebase and Git checks are automatic for each registered project folder. They do not
-            need a separate account connection.
+            Project files and Git are checked automatically from each project folder. Codex
+            conversations are optional.
           </p>
           {state.projects.length ? (
             <div className="pw-stack">
@@ -568,7 +568,7 @@ function GlobalSettings({
                       href={`${projectHref(project.id)}/settings`}
                       onNavigate={onNavigate}
                     >
-                      Manage Codex context
+                      Edit Codex conversations
                     </RouteLink>
                   </div>
                   <div
@@ -586,7 +586,7 @@ function GlobalSettings({
               ))}
             </div>
           ) : (
-            <p className="pw-small">Add a project to see its codebase and Git check status.</p>
+            <p className="pw-small">Add a project to see its project files and Git status.</p>
           )}
         </Card>
       </div>
@@ -632,15 +632,14 @@ function Home({ state, controller, onNavigate }: WorkspaceProps & { state: Works
           <span className="pw-eyebrow">Your workspace</span>
           <h1 tabIndex={-1}>Where will you pick up?</h1>
           <p className="pw-lead">
-            See the work that needs a choice. Open a task to understand what changed, why it
-            matters, and what will count as finished.
+            See what needs your attention, why it matters, and what would finish it.
           </p>
         </div>
         <RouteLink className="pw-button pw-button--primary" href="#/new" onNavigate={onNavigate}>
           Add a project
         </RouteLink>
       </header>
-      <div className="pw-grid" role="search" aria-label="Find registered work">
+      <div className="pw-grid" role="search" aria-label="Find projects">
         <label className="pw-field">
           Find a project or task
           <Input
@@ -658,17 +657,17 @@ function Home({ state, controller, onNavigate }: WorkspaceProps & { state: Works
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
           >
-            <option value="all">All registered projects</option>
-            <option value="focused">My focused projects</option>
+            <option value="all">All projects</option>
+            <option value="focused">Focused projects</option>
             <option value="disconnected">Disconnected projects</option>
           </select>
         </label>
       </div>
       <section className="pw-section" aria-labelledby="pending-heading">
         <div className="pw-section-head">
-          <h2 id="pending-heading">Work to consider</h2>
+          <h2 id="pending-heading">Needs your attention</h2>
           <span className="pw-small">
-            Your focus comes first. Recent activity is not a priority ranking.
+            Your focused project appears first. Recent activity does not change your priority.
           </span>
         </div>
         {pending.length ? (
@@ -696,7 +695,7 @@ function Home({ state, controller, onNavigate }: WorkspaceProps & { state: Works
                 <p>{task.reason}</p>
                 {!project.canDecide && <p className="pw-small">{project.stateDescription}</p>}
                 <span className="pw-link-label">
-                  Understand this task <span aria-hidden="true">→</span>
+                  Open task <span aria-hidden="true">→</span>
                 </span>
               </RouteLink>
             ))}
@@ -707,17 +706,17 @@ function Home({ state, controller, onNavigate }: WorkspaceProps & { state: Works
               {state.loading
                 ? 'Reading your projects…'
                 : query || filter !== 'all'
-                  ? 'No pending tasks match these filters.'
+                  ? 'No tasks match these filters.'
                   : awaitingContext
-                    ? 'No work recommendations have been prepared yet.'
-                    : 'Nothing needs a new task just to clear this view.'}
+                    ? "The first overview isn't ready yet."
+                    : 'No next step needs attention right now.'}
             </h3>
             <p>
               {awaitingContext
-                ? 'Open a project to record its purpose and current goal, connect relevant conversations, then explicitly prepare its first overview.'
+                ? 'Open the project to see its status and retry if needed.'
                 : state.projects.length
                   ? 'Open a project below, or change the filters to see more work.'
-                  : 'Register a project with its purpose and a goal. You can connect conversations later.'}
+                  : 'Add a project to check its project files and Git. StateCarry also looks for related Codex conversations.'}
             </p>
           </div>
         )}
@@ -726,7 +725,7 @@ function Home({ state, controller, onNavigate }: WorkspaceProps & { state: Works
         <div className="pw-section-head">
           <h2 id="all-projects-heading">All projects</h2>
           <span className="pw-small" role="status">
-            {projects.length} shown · {state.projects.length} registered
+            {projects.length} shown · {state.projects.length} projects
           </span>
         </div>
         <div className="pw-grid">
@@ -762,13 +761,11 @@ function Home({ state, controller, onNavigate }: WorkspaceProps & { state: Works
                   {project.title}
                 </RouteLink>
               </h3>
-              <p className="pw-small">
-                {project.purpose || 'No project purpose has been recorded yet.'}
-              </p>
+              <p className="pw-small">{project.purpose || 'No purpose set.'}</p>
               <p className="pw-small">
                 {project.disconnected
-                  ? 'Collection is stopped. Saved work remains available after restoration.'
-                  : `${project.tasks.filter((task) => task.status !== 'accepted' && task.status !== 'paused').length} tasks to consider`}
+                  ? 'Disconnected. Saved project data is still available.'
+                  : `${attentionCount(project)} task${attentionCount(project) === 1 ? '' : 's'} need attention`}
               </p>
               {project.disconnected && (
                 <Button
@@ -776,7 +773,7 @@ function Home({ state, controller, onNavigate }: WorkspaceProps & { state: Works
                   disabled={!state.online || state.busyWorkId === project.id}
                   onClick={() => void controller.restore(project.id)}
                 >
-                  Restore project
+                  Reconnect project
                 </Button>
               )}
             </article>
@@ -809,10 +806,7 @@ function ProjectPage({ project, state, controller, onNavigate }: ProjectProps) {
             {project.focused && <Badge>Your focus</Badge>}
           </div>
           <h1 tabIndex={-1}>{project.title}</h1>
-          <p className="pw-lead">
-            {project.purpose ||
-              'No project purpose has been recorded yet. Add it in project settings.'}
-          </p>
+          <p className="pw-lead">{project.purpose || 'No purpose set.'}</p>
         </div>
         <RouteLink
           className="pw-button"
@@ -831,7 +825,7 @@ function ProjectPage({ project, state, controller, onNavigate }: ProjectProps) {
             disabled={!state.online || busy}
             onClick={() => void controller.restore(project.id)}
           >
-            Restore project
+            Reconnect project
           </Button>
         </section>
       ) : !missing && !project.tasks.length && !project.dismissed.length && !project.generatedAt ? (
@@ -849,7 +843,7 @@ function ProjectPage({ project, state, controller, onNavigate }: ProjectProps) {
           >
             <div className="pw-section-head">
               <h2>Project state</h2>
-              <span className="pw-small">Codebase, Git, and optional Codex context</span>
+              <span className="pw-small">Project files, Git, and optional Codex conversations</span>
             </div>
             <dl className="pw-state-grid">
               <div>
@@ -861,11 +855,11 @@ function ProjectPage({ project, state, controller, onNavigate }: ProjectProps) {
                 <dd>{project.projectState.recentWork}</dd>
               </div>
               <div>
-                <dt>Open or uncertain</dt>
+                <dt>Still open</dt>
                 <dd>{project.projectState.openOrUncertain}</dd>
               </div>
               <div>
-                <dt>Next</dt>
+                <dt>Next step</dt>
                 <dd>{project.projectState.next}</dd>
               </div>
             </dl>
@@ -875,7 +869,7 @@ function ProjectPage({ project, state, controller, onNavigate }: ProjectProps) {
             aria-label="Current goal"
           >
             <span className="pw-eyebrow">
-              {!project.goal && selected ? 'Suggested outcome' : 'Current goal'}
+              {!project.goal && selected ? 'Suggested goal' : 'Goal'}
             </span>
             {edits.goalDraft ? (
               <GoalEditor project={project} edits={edits} controller={controller} busy={busy} />
@@ -884,8 +878,8 @@ function ProjectPage({ project, state, controller, onNavigate }: ProjectProps) {
                 <p>{project.goal || selected?.title || 'No goal has been chosen yet.'}</p>
                 {!project.goalConfirmed && (project.goal || selected) && (
                   <span className="pw-small">
-                    This outcome comes from the connected work. You can use it as context or record
-                    your own goal.
+                    StateCarry inferred this goal from the available project information. Confirm it
+                    or set your own.
                   </span>
                 )}
                 <div>
@@ -907,7 +901,7 @@ function ProjectPage({ project, state, controller, onNavigate }: ProjectProps) {
               >
                 {project.updating ? (
                   <p className="pw-small" role="status">
-                    Checking changed records. Your saved overview stays in place.
+                    Checking for changes. Your saved overview stays in place.
                   </p>
                 ) : !project.canDecide ? (
                   <p>{project.stateDescription}</p>
@@ -919,12 +913,12 @@ function ProjectPage({ project, state, controller, onNavigate }: ProjectProps) {
                     disabled={!project.canRefresh || busy}
                     onClick={() => void controller.prepare(project.id)}
                   >
-                    Prepare an updated overview
+                    Update overview
                   </Button>
                 </div>
                 {!project.sourceCount && (
                   <RouteLink href={`${projectHref(project.id)}/settings`} onNavigate={onNavigate}>
-                    Add optional Codex context
+                    Add Codex conversations
                   </RouteLink>
                 )}
               </section>
@@ -948,10 +942,10 @@ function ProjectPage({ project, state, controller, onNavigate }: ProjectProps) {
                 />
               ) : (
                 <section className="pw-empty">
-                  <h2>No next task has been chosen</h2>
+                  <h2>No next step is available</h2>
                   <p>
-                    Your purpose and goal are the starting point. Add the missing context or leave
-                    the project here for now.
+                    The goal is the starting point. Add missing project information or leave the
+                    project here for now.
                   </p>
                 </section>
               )}
@@ -970,7 +964,7 @@ function ProjectPage({ project, state, controller, onNavigate }: ProjectProps) {
                 )}
             </div>
             <aside className="pw-stack" aria-label="Project tasks">
-              <h2>Tasks in this project</h2>
+              <h2>Tasks</h2>
               <nav className="pw-task-nav" aria-label="Choose a task">
                 {project.tasks.map((task) => (
                   <RouteLink
@@ -997,7 +991,7 @@ function ProjectPage({ project, state, controller, onNavigate }: ProjectProps) {
                           disabled={!project.canDecide || busy}
                           onClick={() => void controller.correct(project.id, task.key, 'restore')}
                         >
-                          Restore this task
+                          Resume task
                         </Button>
                       </Card>
                     ))}
@@ -1018,34 +1012,33 @@ function ProjectSetup({ project, state, controller, onNavigate }: ProjectProps) 
   return (
     <div className="pw-stack">
       <section className="pw-goal" aria-label="Current goal">
-        <span className="pw-eyebrow">Current goal</span>
+        <span className="pw-eyebrow">Goal</span>
         {edits.goalDraft ? (
           <GoalEditor project={project} edits={edits} controller={controller} busy={busy} />
         ) : (
           <>
-            <p>{project.goal || 'No current goal has been recorded.'}</p>
+            <p>{project.goal || 'No goal has been recorded.'}</p>
             <Button
               className="pw-button pw-button--quiet"
               onClick={() => controller.editGoal(project.id)}
             >
-              {project.goal ? 'Edit goal' : 'Set a goal'}
+              {project.goal ? 'Edit goal' : 'Set goal'}
             </Button>
           </>
         )}
       </section>
       <section className={cn(cardSurface, 'pw-card')} aria-labelledby="first-overview-heading">
-        <h2 id="first-overview-heading">Prepare this project's first overview</h2>
+        <h2 id="first-overview-heading">Create your first overview</h2>
         <p>
-          StateCarry starts from the project itself. It checks the codebase and Git state
-          automatically; Codex conversations are optional supporting context.
+          StateCarry checks project files and Git automatically. Codex conversations are optional.
         </p>
         <p
           className={
-            project.stateDescription.startsWith('The latest overview could not be prepared')
+            project.stateDescription.startsWith('StateCarry could not prepare the latest overview')
               ? 'pw-notice'
               : 'pw-small'
           }
-          role={project.stateLabel === 'Preparing an update' ? 'status' : undefined}
+          role={project.stateLabel === 'Updating overview' ? 'status' : undefined}
         >
           {project.stateDescription}
         </p>
@@ -1072,16 +1065,16 @@ function ProjectSetup({ project, state, controller, onNavigate }: ProjectProps) 
             disabled={!project.canRefresh || busy}
             onClick={() => void controller.prepare(project.id)}
           >
-            {busy || project.stateLabel === 'Preparing an update'
-              ? 'Preparing overview…'
-              : 'Prepare the first overview'}
+            {busy || project.stateLabel === 'Updating overview'
+              ? 'Creating overview…'
+              : 'Create overview'}
           </Button>
           <RouteLink
             className="pw-button pw-button--quiet"
             href={`${projectHref(project.id)}/settings`}
             onNavigate={onNavigate}
           >
-            {project.sourceCount ? 'Review Codex context' : 'Add Codex context'}
+            {project.sourceCount ? 'Review Codex conversations' : 'Add Codex conversations'}
           </RouteLink>
         </div>
       </section>
@@ -1112,7 +1105,7 @@ function GoalEditor({
       }}
     >
       <label>
-        Your intended result
+        Goal
         <Textarea
           name="goal"
           maxLength={400}
@@ -1123,7 +1116,7 @@ function GoalEditor({
       {stale && (
         <div className="pw-notice">
           <p>
-            This draft was written against an earlier overview. Compare it with the current work
+            This draft was written against an earlier overview. Compare it with the current project
             before saving.
           </p>
           <Button
@@ -1132,7 +1125,7 @@ function GoalEditor({
             disabled={!project.canEdit || busy}
             onClick={() => controller.rebaseGoal(project.id)}
           >
-            I reviewed this goal against the current overview
+            I reviewed the latest goal
           </Button>
         </div>
       )}
@@ -1148,9 +1141,9 @@ function GoalEditor({
           className="pw-button pw-button--quiet"
           onClick={() => controller.discardGoal(project.id)}
         >
-          Discard goal draft
+          Discard draft
         </Button>
-        <span className="pw-small">Draft kept on this device.</span>
+        <span className="pw-small">Draft saved in this browser.</span>
         {unchanged && <span className="pw-small">No goal changes to save.</span>}
       </div>
     </form>
@@ -1184,13 +1177,13 @@ function TaskDetail({
   const detailsOpen = edits.expanded.includes(detailKey);
   const decision =
     task.status === 'accepted'
-      ? 'This task is accepted. Leave it here, or choose another goal.'
+      ? 'This task is complete. Leave it here, or choose another goal.'
       : task.status === 'paused'
-        ? 'Keep this work paused, or restore it when you are ready.'
+        ? 'This task is paused. Resume it when you are ready.'
         : task.status === 'waiting'
           ? 'Wait for the required input, or clarify what is missing.'
           : task.status === 'review'
-            ? 'Review the result against the finish condition, then accept it or describe what needs changing.'
+            ? 'Review the result, then accept it or describe what needs changing.'
             : (task.canAct || task.rechecking) && task.nextAction
               ? task.nextAction
               : 'Clarify the current situation before choosing an action.';
@@ -1199,12 +1192,9 @@ function TaskDetail({
       const text = await controller.handoff(project.id, task.key);
       if (!text || !mounted.current) return;
       await navigator.clipboard.writeText(text);
-      if (mounted.current) setCopyStatus('Task context copied. Nothing was sent or started.');
+      if (mounted.current) setCopyStatus('Task context copied. No work was started.');
     } catch {
-      if (mounted.current)
-        setCopyStatus(
-          'The clipboard could not be written. Your task is kept; try again in a browser with clipboard access.',
-        );
+      if (mounted.current) setCopyStatus('Could not copy this task. Your task is still here.');
     }
   };
   return (
@@ -1226,10 +1216,9 @@ function TaskDetail({
             <dd>{task.reason}</dd>
           </div>
           <div>
-            <dt>{task.status === 'accepted' ? 'What this acceptance covers' : 'Finished when'}</dt>
+            <dt>{task.status === 'accepted' ? 'What this acceptance covers' : 'Done when'}</dt>
             <dd>
-              {task.doneWhen ||
-                'No finish condition has been recorded. Define one before continuing.'}
+              {task.doneWhen || 'No completion condition is set yet. Add one before continuing.'}
             </dd>
           </div>
         </dl>
@@ -1248,7 +1237,7 @@ function TaskDetail({
               disabled={!canDecide}
               onClick={() => void controller.correct(project.id, task.key, 'restore')}
             >
-              {task.status === 'accepted' ? 'Reopen this task' : 'Restore this task'}
+              {task.status === 'accepted' ? 'Reopen task' : 'Resume task'}
             </Button>
           </div>
         ) : (
@@ -1261,7 +1250,7 @@ function TaskDetail({
                 )}
                 href={task.destinationUrl}
               >
-                Open working conversation
+                Open Codex conversation
               </a>
             )}
             {task.canAct && (
@@ -1270,7 +1259,7 @@ function TaskDetail({
                 disabled={busy}
                 onClick={() => void copyTask()}
               >
-                Copy task for my working tool
+                Copy task context
               </Button>
             )}
             {(task.status === 'review' || task.canAct) && (
@@ -1279,7 +1268,7 @@ function TaskDetail({
                 disabled={!canDecide}
                 onClick={() => void controller.correct(project.id, task.key, 'done')}
               >
-                Accept as complete
+                {task.status === 'review' ? 'Accept result' : 'Mark complete'}
               </Button>
             )}
             <Button
@@ -1293,14 +1282,14 @@ function TaskDetail({
               disabled={!canDecide}
               onClick={() => void controller.correct(project.id, task.key, 'paused')}
             >
-              Pause this task
+              Pause task
             </Button>
           </div>
         )}
         {task.canAct && (
           <p className="pw-small">
-            Opening the working conversation does not send a message or start work. Copied
-            instructions include supporting source excerpts for your working tool.
+            Opening Codex does not send a message or start work. Copying includes supporting source
+            excerpts.
           </p>
         )}
         {copyStatus && (
@@ -1317,7 +1306,7 @@ function TaskDetail({
             void controller.saveAction(project.id, task.key);
           }}
         >
-          <h3>Correct the next step</h3>
+          <h3>Edit next step</h3>
           <label>
             Next step
             <Textarea
@@ -1330,7 +1319,7 @@ function TaskDetail({
             />
           </label>
           <label>
-            Finish condition
+            Done when
             <Textarea
               name="done-when"
               maxLength={1200}
@@ -1349,7 +1338,7 @@ function TaskDetail({
                 disabled={!project.canEdit || busy}
                 onClick={() => controller.rebaseAction(project.id, task.key)}
               >
-                I reviewed this step against the current overview
+                I reviewed the latest task
               </Button>
             </div>
           )}
@@ -1371,7 +1360,7 @@ function TaskDetail({
               type="button"
               onClick={() => controller.discardAction(project.id, task.key)}
             >
-              Discard step draft
+              Discard draft
             </Button>
           </div>
         </form>
@@ -1385,7 +1374,7 @@ function TaskDetail({
         }}
       >
         <summary>What is this based on?</summary>
-        <div className="pw-source-summary" aria-label="Evidence sources">
+        <div className="pw-source-summary" aria-label="Sources">
           {task.evidenceSources.map((source) => (
             <div key={source.kind} className="pw-source-summary-item">
               <strong>{source.label}</strong>
@@ -1397,25 +1386,25 @@ function TaskDetail({
           <p key={index}>{text}</p>
         ))}
         <p className="pw-small">
-          The preparation time describes this overview, not when its sources were observed.
+          The overview time shows when this overview was created, not when its sources were
+          observed.
         </p>
       </details>
       <details className="pw-details">
-        <summary>This is the wrong work</summary>
-        <p>Set this suggestion aside while keeping the project and your other tasks.</p>
+        <summary>This task isn&apos;t relevant</summary>
+        <p>Set this task aside. You can restore it later.</p>
         <Button
           className="pw-button"
           disabled={!canDecide}
           onClick={() => void controller.correct(project.id, task.key, 'wrong-work')}
         >
-          Set this task aside
+          Set aside
         </Button>
       </details>
       <details className="pw-details">
         <summary>Inspect original records</summary>
         <p className="pw-small">
-          Open an original to check exact wording. Your task selection and unfinished writing stay
-          here.
+          Open an original to check exact wording. Your task and unfinished writing stay here.
         </p>
         <div className="pw-actions">
           {task.originals.map((source) => (
@@ -1438,12 +1427,12 @@ function TaskDetail({
               className={cn(buttonVariants({ variant: 'outline' }), 'pw-button')}
               href={task.destinationUrl}
             >
-              Open original conversation
+              Open original Codex conversation
             </a>
           )}
         </div>
         {!task.originals.length && !task.destinationUrl && (
-          <p className="pw-small">An original destination is not available for this task.</p>
+          <p className="pw-small">No original record is available for this task.</p>
         )}
       </details>
     </article>
@@ -1459,8 +1448,8 @@ function OriginalInspection({ project, state, onNavigate }: ProjectProps) {
           <span className="pw-eyebrow">Original inspection</span>
           <h1 tabIndex={-1}>Original record</h1>
           <p className="pw-lead">
-            This is source material, shown because you explicitly opened it. Reading it does not
-            accept the result or change your task.
+            This is an original source record. Reading it does not accept the result or change your
+            task.
           </p>
         </div>
         <RouteLink
@@ -1490,8 +1479,8 @@ function OriginalInspection({ project, state, onNavigate }: ProjectProps) {
         <section className="pw-empty">
           <h2>This original is not available</h2>
           <p>
-            It may have been removed or fall outside the connected source range. Your task and input
-            are kept.
+            It may have been removed or excluded from this project's Codex conversations. Your task
+            and input are kept.
           </p>
         </section>
       )}
@@ -1619,11 +1608,11 @@ function CreateProject({ controller, onNavigate }: WorkspaceProps) {
     <>
       <header className="pw-hero">
         <div className="pw-hero-copy">
-          <span className="pw-eyebrow">Start with the project</span>
+          <span className="pw-eyebrow">Project</span>
           <h1 tabIndex={-1}>Add a project</h1>
           <p className="pw-lead">
-            Register the folder you work in. StateCarry will inspect its codebase and Git state;
-            related Codex conversations are added as optional context when they can be found.
+            Choose the folder you work in. StateCarry checks its project files and Git, looks for
+            related Codex conversations, and requests the first overview automatically.
           </p>
         </div>
       </header>
@@ -1662,20 +1651,19 @@ function CreateProject({ controller, onNavigate }: WorkspaceProps) {
             </Button>
           </div>
           <span className="pw-field-help">
-            Choose a local folder or enter its absolute path. Registering it does not change the
-            folder.
+            Choose a local folder or enter its absolute path. StateCarry does not change its files.
           </span>
         </div>
         {existing ? (
-          <section className="pw-notice" aria-label="Registered folder">
-            <h2>This folder is already registered</h2>
+          <section className="pw-notice" aria-label="Existing project folder">
+            <h2>This folder is already a project</h2>
             <p>
-              Open {existing.title} to continue. Its saved purpose, goal, task choices, and Codex
-              context are kept.
+              Open {existing.title} to continue. Its saved purpose, goal, overview, task choices,
+              and Codex conversations are kept.
             </p>
             <p className="pw-small">
-              The values entered here do not replace the existing context. Opening the project also
-              keeps its connection status; use its settings to adjust Codex context.
+              The values entered here do not replace the existing project. Use project settings to
+              change its Codex conversations.
             </p>
             <RouteLink
               className="pw-button pw-button--primary"
@@ -1687,10 +1675,10 @@ function CreateProject({ controller, onNavigate }: WorkspaceProps) {
           </section>
         ) : matches.length > 1 ? (
           <section className="pw-notice" role="alert">
-            <h2>This folder has multiple registrations</h2>
-            <p>Review the registered projects before adding this folder again.</p>
+            <h2>This folder is used by more than one project</h2>
+            <p>Review your projects before adding this folder again.</p>
             <RouteLink className="pw-button" href="#/home" onNavigate={onNavigate}>
-              Review registered projects
+              Review projects
             </RouteLink>
           </section>
         ) : (
@@ -1720,7 +1708,7 @@ function CreateProject({ controller, onNavigate }: WorkspaceProps) {
               />
             </label>
             <label>
-              First goal <span className="pw-field-help">Optional</span>
+              Current goal <span className="pw-field-help">Optional</span>
               <Textarea
                 name="initial-goal"
                 disabled={busy}
@@ -1754,9 +1742,7 @@ function CreateProject({ controller, onNavigate }: WorkspaceProps) {
         </div>
         {!duplicate && (
           <p className="pw-small">
-            After registration, StateCarry requests the first project overview from the codebase and
-            Git state and includes related Codex context when it is available. You can adjust that
-            context later in project settings.
+            You can change the goal and Codex conversations later in project settings.
           </p>
         )}
       </form>
@@ -1877,8 +1863,8 @@ function SourcePicker({
   return (
     <div className="pw-form">
       <p className="pw-small">
-        Choose only the conversations and ranges that belong to this work. Opening these controls
-        only reads available sources.
+        Choose the Codex conversations that belong with this project. You can also choose where a
+        conversation starts.
       </p>
       <div>
         <Button
@@ -1887,17 +1873,17 @@ function SourcePicker({
           disabled={disabled || searching || turnBusy !== null || !cwd.trim().startsWith('/')}
           onClick={() => void find()}
         >
-          {searching ? 'Finding conversations…' : 'Find conversations in this folder'}
+          {searching ? 'Finding conversations…' : 'Find related conversations'}
         </Button>
       </div>
       {partial && (
         <p className="pw-notice">
-          Only part of the available conversations could be checked. Your current selection is kept.
+          StateCarry could only check some conversations. Your current choices are kept.
         </p>
       )}
       {searched && !threads.length && (
         <p className="pw-small">
-          No conversations were found in this folder. You can save the project without one.
+          No related Codex conversations were found. You can use the project without one.
         </p>
       )}
       {error && (
@@ -1913,7 +1899,7 @@ function SourcePicker({
             disabled={disabled || searching || turnBusy !== null || value.threadIds.length >= 30}
             onClick={selectAll}
           >
-            Select all conversations
+            Select all
           </Button>
           <Button
             type="button"
@@ -1921,7 +1907,7 @@ function SourcePicker({
             disabled={disabled || !value.threadIds.length}
             onClick={clearSelection}
           >
-            Clear selection
+            Clear
           </Button>
           <span className="pw-small" role="status">
             {value.threadIds.length} selected
@@ -1972,13 +1958,13 @@ function SourcePicker({
                           onChange({ ...value, startTurnIds: starts });
                         }}
                       >
-                        <option value="">Beginning of the conversation</option>
+                        <option value="">Start of conversation</option>
                         {value.startTurnIds[thread.id] &&
                           !turns[thread.id].some(
                             (turn) => turn.id === value.startTurnIds[thread.id],
                           ) && (
                             <option value={value.startTurnIds[thread.id]}>
-                              Saved starting point · not currently listed
+                              Saved starting point · unavailable now
                             </option>
                           )}
                         {turns[thread.id].map((turn, index) => (
@@ -1992,17 +1978,16 @@ function SourcePicker({
                       </select>
                       {exact && (
                         <span className="pw-field-help">
-                          An exact record range is saved below. Remove it to use a starting point
-                          instead.
+                          An advanced conversation range is set below. Remove it to use a starting
+                          point instead.
                         </span>
                       )}
                     </label>
                   )}
                   <details className="pw-details">
-                    <summary>Set exact record boundaries</summary>
+                    <summary>Advanced conversation range</summary>
                     <p className="pw-small">
-                      Use the turn and item positions from the original source. A last record stops
-                      the range; later records remain excluded.
+                      Limit the exact part of this Codex conversation StateCarry can read.
                     </p>
                     {(['start', 'end'] as const).map((edge) => (
                       <fieldset key={edge}>
@@ -2015,7 +2000,7 @@ function SourcePicker({
                           {(['turnId', 'itemId'] as const).map((field) => (
                             <label key={field}>
                               {edge === 'start' ? 'First' : 'Last'}{' '}
-                              {field === 'turnId' ? 'turn position' : 'item position'}
+                              {field === 'turnId' ? 'turn ID' : 'item ID'}
                               <Input
                                 disabled={disabled}
                                 value={exact?.[edge]?.[field] ?? ''}
@@ -2044,7 +2029,7 @@ function SourcePicker({
                         disabled={disabled || !exact}
                         onClick={() => range(thread.id)}
                       >
-                        Use the starting point and later records
+                        Use starting point onward
                       </Button>
                       {exact?.end && (
                         <Button
@@ -2053,7 +2038,7 @@ function SourcePicker({
                           disabled={disabled}
                           onClick={() => range(thread.id, { start: exact.start })}
                         >
-                          Include later records
+                          Remove end point
                         </Button>
                       )}
                     </div>
@@ -2071,7 +2056,7 @@ function SourcePicker({
           disabled={disabled}
           onChange={(event) => onChange({ ...value, discover: event.target.checked })}
         />
-        Look for related conversations in this folder during future collection
+        Keep looking for related Codex conversations
       </label>
     </div>
   );
@@ -2120,7 +2105,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
       const connection = connections.find((item) => item.workId === project.id);
       if (!connection) {
         setSourceError(
-          'The current connection could not be found. Read the latest project state before changing its sources.',
+          'Codex conversation settings could not be found. Check for changes before editing them.',
         );
         return;
       }
@@ -2177,7 +2162,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
     const input = selectedSources(submitted.input);
     if (!validSourceRanges(input)) {
       setSourceError(
-        'Complete the first record positions and any last record positions, or remove the exact range.',
+        'Complete the required IDs for the advanced conversation range, or remove it.',
       );
       return;
     }
@@ -2217,8 +2202,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
           <span className="pw-eyebrow">Project settings</span>
           <h1 tabIndex={-1}>{project.title}</h1>
           <p className="pw-lead">
-            Define the project, adjust optional Codex context, and manage the data StateCarry keeps
-            for it.
+            Edit this project and choose which Codex conversations StateCarry can use.
           </p>
         </div>
         <RouteLink className="pw-button" href={projectHref(project.id)} onNavigate={onNavigate}>
@@ -2227,7 +2211,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
       </header>
       <div className="pw-stack">
         <section className={cn(cardSurface, 'pw-card')} aria-labelledby="project-profile-heading">
-          <h2 id="project-profile-heading">Purpose and focus</h2>
+          <h2 id="project-profile-heading">Project details</h2>
           <form
             className="pw-form"
             onSubmit={(event) => {
@@ -2258,7 +2242,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
               <div className="pw-setting-copy">
                 <strong>Home focus</strong>
                 <span className="pw-small">
-                  Put this project first on Home. Choosing it moves Home focus from another project.
+                  Show this project first on Home. Only one project can be focused at a time.
                 </span>
               </div>
               <label className="pw-checkbox">
@@ -2267,15 +2251,15 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
                   checked={profile.focused}
                   onChange={(event) => setProfile({ ...profile, focused: event.target.checked })}
                 />
-                My Home focus
+                Set as Home focus
               </label>
             </div>
-            <p className="pw-small">Working folder: {project.cwd}</p>
+            <p className="pw-small">Project folder: {project.cwd}</p>
             {profile.revision !== project.revision && (
               <div className="pw-notice">
                 <p>
-                  The project changed after these settings were opened. Compare your input with the
-                  latest saved project before saving.
+                  The project changed while these settings were open. Review your changes before
+                  saving.
                 </p>
                 <Button
                   type="button"
@@ -2283,7 +2267,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
                   disabled={!state.online || busy}
                   onClick={() => setProfile({ ...profile, revision: project.revision })}
                 >
-                  I reviewed these settings against the current project
+                  I reviewed the latest project
                 </Button>
               </div>
             )}
@@ -2297,25 +2281,25 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
                   profile.revision !== project.revision
                 }
               >
-                Save project settings
+                Save details
               </Button>
             </div>
           </form>
         </section>
         <section className={cn(cardSurface, 'pw-card')} aria-labelledby="project-sources-heading">
           <h2 id="project-sources-heading">
-            Codex context <span className="pw-small">Optional</span>
+            Codex conversations <span className="pw-small">Optional</span>
           </h2>
           <p className="pw-small">
-            StateCarry checks the project codebase and Git state automatically. Add Codex
-            conversations when their decisions, progress reports, or history would help explain the
-            current work. Changing this context does not prepare a new overview by itself.
+            StateCarry checks project files and Git automatically. Add conversations when their
+            decisions, progress, or history help explain the work. Saving this list does not update
+            the overview.
           </p>
           {project.disconnected ? (
-            <p>Restore the project before changing its Codex context.</p>
+            <p>Reconnect the project before editing Codex conversations.</p>
           ) : (
             <>
-              {loadingSources && <p role="status">Reading the current source scope…</p>}
+              {loadingSources && <p role="status">Loading Codex conversations…</p>}
               {sourceError && (
                 <div className="pw-notice" role="alert">
                   <p>{sourceError}</p>
@@ -2324,7 +2308,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
                     disabled={loadingSources}
                     onClick={() => void readSources()}
                   >
-                    Read source settings again
+                    Try again
                   </Button>
                 </div>
               )}
@@ -2347,8 +2331,8 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
                   {sourceDraft.revision !== project.revision && (
                     <div className="pw-notice">
                       <p>
-                        The project changed after this source selection was opened. Read the latest
-                        scope before saving.
+                        The project changed while these Codex conversations were open. Reload them
+                        before saving.
                       </p>
                       <Button
                         type="button"
@@ -2356,7 +2340,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
                         disabled={!state.online || busy || loadingSources}
                         onClick={() => void readSources()}
                       >
-                        Reload the current source selection
+                        Reload conversations
                       </Button>
                     </div>
                   )}
@@ -2370,7 +2354,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
                         sourceDraft.revision !== project.revision
                       }
                     >
-                      Save Codex context
+                      Save conversations
                     </Button>
                   </div>
                 </form>
@@ -2380,17 +2364,15 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
         </section>
         <section
           className={cn(cardSurface, 'pw-card')}
-          aria-labelledby="project-collection-heading"
+          aria-labelledby="project-connection-heading"
         >
-          <h2 id="project-collection-heading">Collection</h2>
+          <h2 id="project-connection-heading">Connection</h2>
           <p>
             {project.disconnected
-              ? 'This project is disconnected. Restore the same registration and saved work when you return.'
-              : 'Disconnecting stops collection for this registration. Your saved project, goals, and task choices remain available to restore.'}
+              ? 'This project is disconnected. Reconnect it so StateCarry can check for changes again. Updating the overview remains a separate action.'
+              : 'Disconnect this project to stop StateCarry from checking for new project information. Its saved goal, overview, tasks, and choices remain.'}
           </p>
-          <p className="pw-small">
-            Your project folder and original conversations stay in their source tools.
-          </p>
+          <p className="pw-small">Project files and original Codex conversations stay unchanged.</p>
           <Button
             className="pw-button"
             disabled={!state.online || busy}
@@ -2398,51 +2380,51 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
               project.disconnected ? void controller.restore(project.id) : void disconnect()
             }
           >
-            {project.disconnected ? 'Restore project' : 'Disconnect project'}
+            {project.disconnected ? 'Reconnect project' : 'Disconnect project'}
           </Button>
         </section>
         <section className={cn(cardSurface, 'pw-card')} aria-labelledby="project-removal-heading">
-          <h2 id="project-removal-heading">Remove saved application data</h2>
+          <h2 id="project-removal-heading">Delete StateCarry data</h2>
           <p>
-            Remove this registration and the saved StateCarry records that belong to it. Source
-            copies still needed by another project are retained.
+            Delete this project&apos;s saved StateCarry records and source copies used only by this
+            project. Shared source copies stay available to other projects.
           </p>
           <p className="pw-small">
-            This does not remove your project folder or original conversations. Review the current
-            scope before confirming.
+            Project files and original Codex conversations are not deleted. Minimal action receipts,
+            activity logs, analysis diagnostics, and backups are outside this deletion.
           </p>
           <Button
             className="pw-button pw-button--danger"
             disabled={!state.online || busy || previewing}
             onClick={() => void previewRemoval()}
           >
-            {previewing ? 'Reading removal scope…' : 'Review saved-data removal'}
+            {previewing ? 'Checking…' : 'Review what will be deleted'}
           </Button>
           {preview && (
-            <div className="pw-stack" aria-label="Removal preview">
-              <p>{preview.explanation}</p>
+            <div className="pw-stack" aria-label="Deletion preview">
+              <p>This permanently deletes the project data listed below. This cannot be undone.</p>
               <dl className="pw-facts">
                 <div>
-                  <dt>Saved records belonging to this project</dt>
+                  <dt>Saved project data</dt>
                   <dd>{preview.ownedRecords}</dd>
                 </div>
                 <div>
-                  <dt>Source copies used only by this project</dt>
+                  <dt>Sources used only by this project</dt>
                   <dd>{preview.exclusiveSources}</dd>
                 </div>
                 <div>
-                  <dt>Shared source copies that will be kept</dt>
+                  <dt>Shared sources kept</dt>
                   <dd>{preview.sharedSources}</dd>
                 </div>
               </dl>
               {preview.blocked ? (
                 <p className="pw-notice">
-                  Saved data cannot be removed while relevant work is running or its outcome is
-                  unresolved.
+                  Project data cannot be deleted while StateCarry is still checking work or the
+                  latest outcome is unresolved.
                 </p>
               ) : preview.revision !== project.revision ? (
                 <p className="pw-notice">
-                  The project changed after this preview. Read the removal scope again before
+                  The project changed after this preview. Review what will be deleted again before
                   confirming.
                 </p>
               ) : (
@@ -2453,7 +2435,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
                       checked={confirmRemoval}
                       onChange={(event) => setConfirmRemoval(event.target.checked)}
                     />
-                    Remove the saved StateCarry data for {project.title}
+                    Delete StateCarry data for {project.title}
                   </label>
                   <div>
                     <Button
@@ -2461,7 +2443,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
                       disabled={!state.online || busy || !confirmRemoval}
                       onClick={() => void remove()}
                     >
-                      Remove this project's saved data
+                      Delete project data
                     </Button>
                   </div>
                 </>

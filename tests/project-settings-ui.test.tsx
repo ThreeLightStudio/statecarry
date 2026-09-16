@@ -47,11 +47,11 @@ it('renders mutation notices in a fixed toast layer without replacing inline err
   window.history.replaceState(null, '', '#/project/alpha');
   const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
   try {
-    await press(mounted.host, 'Prepare an updated overview');
+    await press(mounted.host, 'Update overview');
     const toastLayer = mounted.host.querySelector('.pw-toast-layer');
     expect(toastLayer).toBeTruthy();
     expect(toastLayer?.querySelector('[role="status"]')?.textContent).toContain(
-      'Overview preparation started',
+      'Overview update started',
     );
     expect(mounted.host.querySelector('main > .pw-notice[role="status"]')).toBeNull();
   } finally {
@@ -89,13 +89,13 @@ it('shows global integration settings, persists Korean responses, and uses them 
         ?.getAttribute('aria-current'),
     ).toBe('page');
     expect(mounted.host.textContent).toContain(
-      'StateCarry can use the Codex installation available on this machine.',
+      'StateCarry can use Codex when creating or updating overviews.',
     );
     expect(mounted.host.textContent).toContain('Branch main');
-    expect(mounted.host.textContent).toContain('The project folder is checked automatically');
+    expect(mounted.host.textContent).toContain('Project files were checked for this overview.');
     expect(h.projectGateway.capabilities).toHaveBeenCalledTimes(1);
 
-    await press(mounted.host, 'Recheck Codex');
+    await press(mounted.host, 'Check again');
     expect(h.projectGateway.capabilities).toHaveBeenCalledTimes(2);
     expect(h.projectGateway.list).toHaveBeenCalledTimes(1);
 
@@ -110,7 +110,7 @@ it('shows global integration settings, persists Korean responses, and uses them 
     ).toBe('ko');
 
     await follow(mounted.host, '#/project/alpha');
-    await press(mounted.host, 'Prepare an updated overview');
+    await press(mounted.host, 'Update overview');
     expect(h.resumeGateway.refresh).toHaveBeenLastCalledWith('alpha', 'ko');
   } finally {
     await mounted.unmount();
@@ -135,9 +135,9 @@ it('shows readable non-Git projects as codebase-ready while Git stays unavailabl
     const integration = mounted.host.querySelector(
       '[aria-label="Integration status for Project alpha"]',
     );
-    expect(integration?.textContent).toContain('1 project file checked in the current codebase.');
+    expect(integration?.textContent).toContain('StateCarry inspected 1 selected project file');
     expect(integration?.textContent).toContain(
-      'Git is unavailable for this folder. Codebase checks remain available.',
+      'Git is unavailable for this folder. Project files can still be checked.',
     );
   } finally {
     await mounted.unmount();
@@ -172,13 +172,12 @@ it('shows discovered Codex tooling as available before the analysis isolation ch
   window.history.replaceState(null, '', '#/settings');
   const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
   try {
-    expect(mounted.host.textContent).toContain('Available · not checked');
+    expect(mounted.host.textContent).toContain('Detected · not verified');
     expect(mounted.host.textContent).toContain(
-      'RTK and Codex CLI are available. Analysis isolation has not been checked yet.',
+      "Codex was found, but StateCarry hasn't verified analysis yet.",
     );
-    expect(mounted.host.textContent).not.toContain(
-      'Confirm Codex can start normally on this machine, then recheck its status here.',
-    );
+    expect(mounted.host.textContent).not.toContain('RTK and Codex CLI');
+    expect(mounted.host.textContent).not.toContain('Analysis isolation');
   } finally {
     await mounted.unmount();
   }

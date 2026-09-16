@@ -97,11 +97,11 @@ it('preserves the exact task and original edit versions through real Root Home/o
     list.mockRejectedValue(new Error(RAW_ERROR));
     await go('#/project/alpha?task=second');
     expectDraft();
-    expect(mounted.host.textContent).toContain('server is unavailable');
+    expect(mounted.host.textContent).toContain("StateCarry can't connect to its local service.");
     expect(mounted.host.textContent).not.toContain(RAW_ERROR);
     expect(button(mounted.host, 'Save next step').disabled).toBe(true);
     list.mockImplementation(async () => structuredClone(h.rows));
-    await press(mounted.host, 'Read latest state');
+    await press(mounted.host, 'Try again');
     expectDraft();
 
     await follow(mounted.host, '#/home');

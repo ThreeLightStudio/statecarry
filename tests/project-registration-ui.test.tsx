@@ -89,9 +89,9 @@ it.each([
       await typeField(mounted.host, 'textarea[name="purpose"]', 'Do not replace the purpose');
       await typeField(mounted.host, 'textarea[name="initial-goal"]', 'Do not replace the goal');
       await typeField(mounted.host, 'input[name="cwd"]', enteredFolder);
-      const notice = mounted.host.querySelector('[aria-label="Registered folder"]')!;
-      expect(notice.textContent).toContain('This folder is already registered');
-      expect(notice.textContent).toContain('do not replace the existing context');
+      const notice = mounted.host.querySelector('[aria-label="Existing project folder"]')!;
+      expect(notice.textContent).toContain('This folder is already a project');
+      expect(notice.textContent).toContain('do not replace the existing project');
       expect(mounted.host.querySelector('input[name="title"]')).toBeNull();
       expect(
         [...mounted.host.querySelectorAll('button')].some(
@@ -126,7 +126,7 @@ it('keeps the same basename in a different absolute folder available for registr
   try {
     await typeField(mounted.host, 'input[name="cwd"]', '/another/alpha');
     await typeField(mounted.host, 'input[name="title"]', 'Another alpha');
-    expect(mounted.host.querySelector('[aria-label="Registered folder"]')).toBeNull();
+    expect(mounted.host.querySelector('[aria-label="Existing project folder"]')).toBeNull();
     expect(button(mounted.host, 'Add project').disabled).toBe(false);
     await press(mounted.host, 'Add project');
     expect(h.projectGateway.create).toHaveBeenCalledExactlyOnceWith({
@@ -206,7 +206,7 @@ it('opens a disconnected registration without restoring it or creating another r
   const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
   try {
     await typeField(mounted.host, 'input[name="cwd"]', '/synthetic/alpha/');
-    expect(mounted.host.textContent).toContain('keeps its connection status');
+    expect(mounted.host.textContent).toContain('This folder is already a project');
     await follow(mounted.host, '#/project/alpha');
     expect(mounted.host.textContent).toContain('This project is disconnected');
     expect(h.projectGateway.create).not.toHaveBeenCalled();
@@ -226,8 +226,8 @@ it('requires review instead of arbitrarily choosing among legacy duplicate folde
   const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
   try {
     await typeField(mounted.host, 'input[name="cwd"]', a.cwd);
-    expect(mounted.host.textContent).toContain('This folder has multiple registrations');
-    expect(mounted.host.querySelector('[aria-label="Registered folder"]')).toBeNull();
+    expect(mounted.host.textContent).toContain('This folder is used by more than one project');
+    expect(mounted.host.querySelector('[aria-label="Existing project folder"]')).toBeNull();
     expect(
       [...mounted.host.querySelectorAll('button')].some(
         (item) => item.textContent?.trim() === 'Add project',
@@ -279,8 +279,8 @@ it('uses the real server reuse receipt when another registration was absent from
       workId: original.workId,
     });
     expect(window.location.hash).toBe('#/new');
-    expect(mounted.host.textContent).toContain('This folder is already registered');
-    expect(mounted.host.textContent).toContain('do not replace the existing context');
+    expect(mounted.host.textContent).toContain('This folder is already a project');
+    expect(mounted.host.textContent).toContain('do not replace the existing project');
     expect(core.core.work(original.workId)).toEqual(beforeWork);
     expect(core.core.connection(original.resultId)).toEqual(beforeConnection);
     await follow(mounted.host, `#/project/${original.workId}`);
@@ -320,10 +320,10 @@ it('prunes old browser IDs on the successful full list and starts the new projec
     expect(mounted.host.textContent).not.toContain('obsolete');
     expect(mounted.host.querySelector('[aria-label="Selected task"]')).toBeNull();
     expect(mounted.host.textContent).not.toContain('No next task has been chosen');
-    expect(mounted.host.textContent).toContain('checks the codebase and Git state automatically');
-    expect(mounted.host.textContent).toContain('No Codex conversation is connected');
-    expect(button(mounted.host, 'Prepare the first overview').disabled).toBe(false);
-    await press(mounted.host, 'Set a goal');
+    expect(mounted.host.textContent).toContain('checks project files and Git automatically');
+    expect(mounted.host.textContent).toContain('No Codex conversations added');
+    expect(button(mounted.host, 'Create overview').disabled).toBe(false);
+    await press(mounted.host, 'Set goal');
     expect(mounted.host.querySelector<HTMLTextAreaElement>('textarea[name="goal"]')?.value).toBe(
       '',
     );
@@ -346,7 +346,7 @@ it('does not recreate a pruned old key when the displayed project disappears dur
       'An obsolete draft goal',
     );
     h.rows.projects = [freshProject()];
-    await press(mounted.host, 'Refresh now');
+    await press(mounted.host, 'Check for changes');
     expect(mounted.host.textContent).toContain('Project not available');
     expect(data.memory().read('alpha')).toBeNull();
     expect(data.storage.getItem('statecarry.work.v1.alpha')).toBeNull();
@@ -373,7 +373,7 @@ it('preserves old keys when the full-list read fails and reports a subsequent st
   try {
     expect(data.storage.removeItem).not.toHaveBeenCalled();
     expect(data.memory().read('old-registration')).toEqual(draft());
-    await press(mounted.host, 'Read latest state');
+    await press(mounted.host, 'Try again');
     expect(mounted.host.textContent).toContain('Old browser drafts could not be cleared');
     expect(mounted.host.textContent).not.toContain('RAW_PRUNE_FAILURE');
     expect(mounted.host.textContent).not.toContain('RAW_LIST_FAILURE');
@@ -415,25 +415,25 @@ it('keeps Codex context optional before an explicit first analysis, with no infe
   window.history.replaceState(null, '', '#/project/new-statecarry');
   const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
   try {
-    expect(mounted.host.textContent).toContain('No current goal has been recorded');
-    expect(button(mounted.host, 'Prepare the first overview').disabled).toBe(false);
-    expect(mounted.host.textContent).toContain('No Codex conversation is connected');
+    expect(mounted.host.textContent).toContain('No goal has been recorded');
+    expect(button(mounted.host, 'Create overview').disabled).toBe(false);
+    expect(mounted.host.textContent).toContain('No Codex conversations added');
     await follow(mounted.host, '#/project/new-statecarry/settings');
-    expect(mounted.host.textContent).toContain('Codex context');
-    await press(mounted.host, 'Find conversations in this folder');
+    expect(mounted.host.textContent).toContain('Codex conversations');
+    await press(mounted.host, 'Find related conversations');
     const checkbox = [...mounted.host.querySelectorAll('label')]
       .find((label) => label.textContent?.trim() === 'Current project discussion')!
       .querySelector<HTMLInputElement>('input')!;
     await act(async () => checkbox.click());
-    await press(mounted.host, 'Save Codex context');
+    await press(mounted.host, 'Save conversations');
     expect(h.resumeGateway.refresh).not.toHaveBeenCalled();
     await follow(mounted.host, '#/project/new-statecarry');
     expect(mounted.host.querySelector('[aria-label="Selected task"]')).toBeNull();
-    expect(button(mounted.host, 'Prepare the first overview').disabled).toBe(false);
-    await press(mounted.host, 'Prepare the first overview');
+    expect(button(mounted.host, 'Create overview').disabled).toBe(false);
+    await press(mounted.host, 'Create overview');
     expect(h.resumeGateway.refresh).toHaveBeenCalledExactlyOnceWith('new-statecarry');
     expect(mounted.host.textContent).toContain(
-      'Overview preparation started. This page will update when the project check finishes.',
+      'Overview update started. You can keep reading while StateCarry checks the project.',
     );
     expect(h.resumeGateway.setGoal).not.toHaveBeenCalled();
     expect(entry.resume!.goalText).toBeNull();

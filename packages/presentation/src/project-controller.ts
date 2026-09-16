@@ -344,7 +344,7 @@ export class ProjectController {
     } catch {
       this.set({
         memoryError:
-          'Saved browser input could not be cleared. The removed project will not be restored by that input.',
+          'Old browser input could not be cleared. It will not recreate the removed project.',
       });
     }
     const edits = { ...this.value.edits };
@@ -472,8 +472,7 @@ export class ProjectController {
       draft.text.trim() === (work.goalText ?? '').trim()
     ) {
       this.discardGoal(id);
-      if (this.value.route.workId === id)
-        this.set({ notice: 'This goal is already saved. No project check was started.' });
+      if (this.value.route.workId === id) this.set({ notice: 'No changes to save.' });
       return;
     }
     await this.mutate(
@@ -487,7 +486,7 @@ export class ProjectController {
         )
           this.discardGoal(id);
       },
-      'The goal was saved. Prepare an updated overview when you are ready.',
+      'Goal saved. Update the overview when you want StateCarry to check the project again.',
     );
   }
   async saveAction(id: string, key: string) {
@@ -511,27 +510,35 @@ export class ProjectController {
         )
           this.discardAction(id, key);
       },
-      'The next action and finish condition were saved.',
+      'Next step saved.',
     );
   }
   async correct(id: string, key: string, kind: ResumeCorrection['kind']) {
     const work = this.entry(id).resume;
     if (!work) return;
+    const candidate = work.candidates.find((item) => item.key === key);
+    const acceptingResult =
+      !!candidate &&
+      (candidate.status === 'done' ||
+        !!candidate.completion?.reported?.length ||
+        !!candidate.completion?.verified?.length);
     await this.mutate(
       id,
       () => this.resume.correct(id, { candidateKey: key, version: work.version, kind }),
       kind === 'done'
-        ? 'You accepted this task. No successor task was created.'
+        ? acceptingResult
+          ? "Result accepted. StateCarry won't create a new task automatically."
+          : "Task marked complete. StateCarry won't create a new task automatically."
         : kind === 'paused'
           ? 'This task is paused.'
-          : 'Your choice was saved.',
+          : 'Choice saved.',
     );
   }
   async prepare(id: string) {
     await this.mutate(
       id,
       () => this.refreshOverview(id),
-      'Overview preparation started. This page will update when the project check finishes.',
+      'Overview update started. You can keep reading while StateCarry checks the project.',
     );
   }
   async create(input: ProjectCreateInput): Promise<{ workId: string; reused: boolean } | null> {
@@ -593,7 +600,7 @@ export class ProjectController {
     return this.mutate(
       id,
       () => this.gateway.sources(id, revision, input),
-      'The source scope was saved. Prepare an overview when you are ready.',
+      'Codex conversations saved. Update the overview when you want them included.',
     );
   }
   disconnect(id: string) {
@@ -601,7 +608,7 @@ export class ProjectController {
     return this.mutate(
       id,
       () => this.gateway.disconnect(id, revision),
-      'Collection was stopped. Your saved work remains available to reconnect.',
+      'Project disconnected. Your saved work is still available.',
     );
   }
   restore(id: string) {
@@ -609,7 +616,7 @@ export class ProjectController {
     return this.mutate(
       id,
       () => this.gateway.restore(id, revision),
-      'The same project was reconnected. No new analysis was started.',
+      "Project reconnected. The overview wasn't updated.",
     );
   }
   async previewDeletion(id: string): Promise<boolean> {
@@ -636,7 +643,7 @@ export class ProjectController {
         this.inspectionGeneration++;
         this.set({ deletion: null, inspection: null, inspectionLoading: false });
       },
-      'The selected saved project data was removed. Original files and conversations were kept.',
+      'Project data deleted from StateCarry. Original files and Codex conversations were kept.',
     );
   }
   async handoff(id: string, key: string): Promise<string | null> {
@@ -652,8 +659,7 @@ export class ProjectController {
       before?.version !== work.version
     ) {
       this.set({
-        error:
-          'The current work needs another review before continuation instructions can be copied.',
+        error: 'This task changed and needs another review before its context can be copied.',
       });
       return null;
     }
@@ -671,7 +677,7 @@ export class ProjectController {
       this.set({
         inspection: null,
         inspectionLoading: false,
-        error: 'This original is no longer part of the available project overview.',
+        error: 'This original is no longer available from the current overview.',
       });
       return;
     }
@@ -740,8 +746,8 @@ export class ProjectController {
       this.set({
         notice:
           language === 'ko'
-            ? 'Existing project overviews were updated to Korean.'
-            : 'Existing project overviews were updated to English.',
+            ? 'Overview language changed to Korean.'
+            : 'Overview language changed to English.',
       });
       return true;
     } catch (error) {

@@ -98,7 +98,7 @@ it('checks once on app return or explicit request, with no periodic read or anal
     });
     expect(h.projectGateway.list).toHaveBeenCalledTimes(2);
     await act(async () => {
-      button(mounted.host, 'Refresh now').click();
+      button(mounted.host, 'Check for changes').click();
     });
     expect(h.projectGateway.list).toHaveBeenCalledTimes(3);
     expect(h.resumeGateway.refresh).not.toHaveBeenCalled();
