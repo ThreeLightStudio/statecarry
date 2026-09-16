@@ -172,6 +172,9 @@ export function presentProject(entry: ProjectWorkspaceEntry, online = true): Pro
   const files = workspace?.files ?? workspace?.fileObservations ?? [];
   const branch = workspace?.branch?.trim();
   const commit = workspace?.commit?.trim();
+  const gitAvailable =
+    workspace?.status === 'checked' &&
+    (Boolean(branch) || Boolean(commit) || workspace.dirty !== null);
   const sourceSummary: ProjectSourceSummary[] = [
     {
       kind: 'codebase',
@@ -186,16 +189,17 @@ export function presentProject(entry: ProjectWorkspaceEntry, online = true): Pro
     {
       kind: 'git',
       label: 'Git',
-      detail:
-        workspace?.status === 'checked'
-          ? `${branch ? `Branch ${branch}` : 'Branch unavailable'}${commit ? ` · commit ${commit.slice(0, 10)}` : ''}${
-              workspace.dirty === true
-                ? ' · local changes present'
-                : workspace.dirty === false
-                  ? ' · working tree clean'
-                  : ' · change status unavailable'
-            }.`
-          : 'Git branch, revision, and local changes will be checked with the project.',
+      detail: gitAvailable
+        ? `${branch ? `Branch ${branch}` : 'Branch unavailable'}${commit ? ` · commit ${commit.slice(0, 10)}` : ''}${
+            workspace.dirty === true
+              ? ' · local changes present'
+              : workspace.dirty === false
+                ? ' · working tree clean'
+                : ' · change status unavailable'
+          }.`
+        : workspace?.status === 'checked'
+          ? 'Git is unavailable for this folder. Codebase checks remain available.'
+          : 'Git branch, revision, and local changes could not be checked with this project.',
     },
     {
       kind: 'codex',

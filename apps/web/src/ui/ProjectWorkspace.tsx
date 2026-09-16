@@ -489,11 +489,21 @@ function GlobalSettings({
         <Card className={cardSurface} aria-labelledby="codex-integration-heading">
           <div className="pw-section-head">
             <h2 id="codex-integration-heading">Codex</h2>
-            <Badge kind={capabilities?.summary.state === 'ready' ? 'continue' : 'limited'}>
+            <Badge
+              kind={
+                capabilities?.summary.state === 'ready'
+                  ? 'continue'
+                  : capabilities?.summary.state === 'unverified'
+                    ? 'checking'
+                    : 'limited'
+              }
+            >
               {capabilities
                 ? capabilities.summary.state === 'ready'
                   ? 'Ready on this machine'
-                  : 'Not ready'
+                  : capabilities.summary.state === 'unverified'
+                    ? 'Available · not checked'
+                    : 'Not ready'
                 : 'Checking'}
             </Badge>
           </div>
@@ -504,7 +514,7 @@ function GlobalSettings({
                   ? 'StateCarry can use the Codex installation available on this machine.'
                   : capabilities.summary.detail}
               </p>
-              {capabilities.summary.state !== 'ready' && (
+              {capabilities.summary.state === 'failed' && (
                 <p className="pw-small">
                   Confirm Codex can start normally on this machine, then recheck its status here.
                 </p>

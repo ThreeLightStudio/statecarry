@@ -125,7 +125,10 @@ export class Resumes {
       limitations: string[];
     }[] = [];
     let remaining = 12000;
-    if (workspace.status === 'checked') {
+    const hasGitState =
+      workspace.status === 'checked' &&
+      (workspace.branch !== null || workspace.commit !== null || workspace.dirty !== null);
+    if (hasGitState) {
       const gitText = [
         `Git workspace: branch ${workspace.branch ?? 'detached or unknown'}, commit ${workspace.commit ?? 'unknown'}, working tree ${workspace.dirty ? 'has changes' : 'is clean'}.`,
         workspace.changedPaths?.length

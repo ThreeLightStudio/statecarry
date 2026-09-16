@@ -117,6 +117,73 @@ it('shows global integration settings, persists Korean responses, and uses them 
   }
 });
 
+it('shows readable non-Git projects as codebase-ready while Git stays unavailable', async () => {
+  const entry = projectEntry();
+  Object.assign(entry.resume!.workspace!, {
+    status: 'checked',
+    root: entry.cwd,
+    branch: null,
+    commit: null,
+    dirty: null,
+    files: [{ path: 'src/main.ts', hash: 'file-hash', status: 'checked', selection: 'sampled' }],
+    limitations: ['Git state unavailable: not a Git repository'],
+  });
+  const h = projectUiFixture([entry]);
+  window.history.replaceState(null, '', '#/settings');
+  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  try {
+    const integration = mounted.host.querySelector(
+      '[aria-label="Integration status for Project alpha"]',
+    );
+    expect(integration?.textContent).toContain('1 project file checked in the current codebase.');
+    expect(integration?.textContent).toContain(
+      'Git is unavailable for this folder. Codebase checks remain available.',
+    );
+  } finally {
+    await mounted.unmount();
+  }
+});
+
+it('shows discovered Codex tooling as available before the analysis isolation check runs', async () => {
+  const h = projectUiFixture();
+  vi.mocked(h.projectGateway.capabilities!).mockResolvedValue({
+    apiVersion: 1,
+    source: 'codex-local',
+    summary: {
+      state: 'unverified',
+      detail: 'RTK and Codex CLI are available. Analysis isolation has not been checked yet.',
+      model: null,
+    },
+    navigation: {
+      precision: 'thread',
+      verifiedAt: null,
+      detail: 'Synthetic navigation is available.',
+      state: 'verified-route',
+    },
+    session: {
+      create: 'unsupported',
+      send: 'unsupported',
+      detail: 'Synthetic session actions are unavailable.',
+      verifiedAt: null,
+    },
+    collectionIntervalMs: 15000,
+    discoveryIntervalMs: 60000,
+  });
+  window.history.replaceState(null, '', '#/settings');
+  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  try {
+    expect(mounted.host.textContent).toContain('Available · not checked');
+    expect(mounted.host.textContent).toContain(
+      'RTK and Codex CLI are available. Analysis isolation has not been checked yet.',
+    );
+    expect(mounted.host.textContent).not.toContain(
+      'Confirm Codex can start normally on this machine, then recheck its status here.',
+    );
+  } finally {
+    await mounted.unmount();
+  }
+});
+
 it('repairs a saved language mismatch when settings opens after an earlier Korean preference', async () => {
   window.localStorage.setItem('statecarry.response-language.v1', 'ko');
   const entry = projectEntry();

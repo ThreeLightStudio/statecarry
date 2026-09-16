@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
+import { resolveExecutable } from './executable-resolver';
 import type { ProjectInspector } from '@statecarry/core';
 import type {
   WorkspaceFileObservation,
@@ -349,57 +350,71 @@ export class GitProjectInspector implements ProjectInspector {
     let recentCommits: NonNullable<WorkspaceSnapshot['recentCommits']> = [];
     const limitations: string[] = [];
     let status: WorkspaceSnapshot['status'] = 'checked';
+    let folderReadable = true;
     try {
-      const runRaw = (args: string[]) =>
-        execFileSync('git', ['-C', cwd, ...args], {
-          encoding: 'utf8',
-          stdio: ['ignore', 'pipe', 'pipe'],
-          timeout: 5000,
-          windowsHide: true,
-        });
-      const run = (args: string[]) => runRaw(args).trim();
-      root = run(['rev-parse', '--show-toplevel']) || root;
-      branch = run(['branch', '--show-current']) || null;
-      commit = run(['rev-parse', 'HEAD']) || null;
-      const statusOutput = runRaw(['status', '--porcelain=v1', '--untracked-files=all']);
-      dirty = statusOutput.trim().length > 0;
-      changedPaths = statusOutput
-        .replace(/\n$/, '')
-        .split('\n')
-        .filter(Boolean)
-        .map((line) => line.slice(3).trim())
-        .map((path) => (path.includes(' -> ') ? path.split(' -> ').at(-1)! : path))
-        .filter(Boolean)
-        .slice(0, MAX_GIT_PATHS);
-      const recentHashes = run(['log', `-${MAX_RECENT_COMMITS}`, '--pretty=format:%H'])
-        .split('\n')
-        .map((hash) => hash.trim())
-        .filter(Boolean);
-      recentCommits = recentHashes.map((hash) => {
-        const detail = run([
-          'show',
-          '--no-renames',
-          '--date=iso-strict',
-          '--pretty=format:%H%x1f%cI%x1f%s',
-          '--name-only',
-          hash,
-        ]);
-        const [header = '', ...pathLines] = detail.split('\n');
-        const [resolvedHash = hash, committedAt = '', subject = ''] = header.split('\x1f');
-        return {
-          hash: resolvedHash,
-          committedAt,
-          subject,
-          changedPaths: pathLines
-            .map((path) => path.trim())
-            .filter(Boolean)
-            .slice(0, MAX_GIT_PATHS),
-        };
-      });
+      const info = statSync(root);
+      if (!info.isDirectory()) throw new Error('Project path is not a directory');
+      readdirSync(root, { withFileTypes: true, encoding: 'utf8' });
     } catch (error) {
+      folderReadable = false;
       status = 'unknown';
       const detail = error instanceof Error ? error.message : String(error);
-      limitations.push(`Workspace state could not be checked: ${detail.slice(0, 500)}`);
+      limitations.push(`Project folder could not be read: ${detail.slice(0, 500)}`);
+    }
+    if (folderReadable) {
+      try {
+        const git = resolveExecutable('git');
+        if (!git) throw new Error('Git executable was not found on this machine');
+        const runRaw = (args: string[]) =>
+          execFileSync(git, ['-C', cwd, ...args], {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'pipe'],
+            timeout: 5000,
+            windowsHide: true,
+          });
+        const run = (args: string[]) => runRaw(args).trim();
+        root = run(['rev-parse', '--show-toplevel']) || root;
+        branch = run(['branch', '--show-current']) || null;
+        commit = run(['rev-parse', 'HEAD']) || null;
+        const statusOutput = runRaw(['status', '--porcelain=v1', '--untracked-files=all']);
+        dirty = statusOutput.trim().length > 0;
+        changedPaths = statusOutput
+          .replace(/\n$/, '')
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => line.slice(3).trim())
+          .map((path) => (path.includes(' -> ') ? path.split(' -> ').at(-1)! : path))
+          .filter(Boolean)
+          .slice(0, MAX_GIT_PATHS);
+        const recentHashes = run(['log', `-${MAX_RECENT_COMMITS}`, '--pretty=format:%H'])
+          .split('\n')
+          .map((hash) => hash.trim())
+          .filter(Boolean);
+        recentCommits = recentHashes.map((hash) => {
+          const detail = run([
+            'show',
+            '--no-renames',
+            '--date=iso-strict',
+            '--pretty=format:%H%x1f%cI%x1f%s',
+            '--name-only',
+            hash,
+          ]);
+          const [header = '', ...pathLines] = detail.split('\n');
+          const [resolvedHash = hash, committedAt = '', subject = ''] = header.split('\x1f');
+          return {
+            hash: resolvedHash,
+            committedAt,
+            subject,
+            changedPaths: pathLines
+              .map((path) => path.trim())
+              .filter(Boolean)
+              .slice(0, MAX_GIT_PATHS),
+          };
+        });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        limitations.push(`Git state unavailable: ${detail.slice(0, 500)}`);
+      }
     }
     const sampled = sampleFiles(cwd, root, hints);
     limitations.push(...sampled.limitations);

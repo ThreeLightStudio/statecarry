@@ -156,6 +156,53 @@ describe('resume workspace evidence', () => {
     });
   });
 
+  it('keeps readable non-Git codebase evidence usable without inventing Git evidence', async () => {
+    const h = withInspector();
+    const records = [source()];
+    h.records(records);
+    h.setWorkspace({
+      root: '/tmp/example',
+      branch: null,
+      commit: null,
+      dirty: null,
+      limitations: ['Git state unavailable: not a Git repository'],
+      files: [
+        {
+          revisionId: 'workspace-file:main',
+          path: 'src/main.ts',
+          hash: 'main-hash',
+          size: 24,
+          preview: 'export const ready = true;',
+          status: 'checked',
+          selection: 'sampled',
+          limitation: null,
+        },
+      ],
+    });
+    let input: any;
+    h.summary.generateResume = async (value) => {
+      input = value;
+      return { candidates: [candidate(records)] };
+    };
+
+    await h.core.resumes.refresh(h.id);
+
+    expect(h.core.resumes.view(h.id)).toMatchObject({
+      state: 'ready',
+      stale: false,
+      workspaceChanged: false,
+      workspace: { status: 'checked', branch: null, commit: null, dirty: null },
+    });
+    expect(input.records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ revisionId: 'workspace-file:main', kind: 'fileObservation' }),
+      ]),
+    );
+    expect(input.records.some((record: { kind: string }) => record.kind === 'gitObservation')).toBe(
+      false,
+    );
+  });
+
   it('invalidates a brief when a workspace limitation changes', async () => {
     const h = withInspector();
     const records = [source()];

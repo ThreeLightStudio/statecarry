@@ -34,6 +34,48 @@ describe('related project inspection', () => {
     }
   });
 
+  it('keeps a readable non-Git folder checked while reporting Git as unavailable', () => {
+    const root = mkdtempSync(join(tmpdir(), 'statecarry-non-git-inspector-'));
+    try {
+      writeFileSync(join(root, 'main.ts'), 'export const ready = true;\n');
+
+      const snapshot = new GitProjectInspector().inspect(root);
+
+      expect(snapshot).toMatchObject({
+        status: 'checked',
+        root,
+        branch: null,
+        commit: null,
+        dirty: null,
+      });
+      expect(snapshot.files).toEqual([
+        expect.objectContaining({ path: 'main.ts', status: 'checked' }),
+      ]);
+      expect(snapshot.limitations.some((item) => item.startsWith('Git state unavailable:'))).toBe(
+        true,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps a missing project folder unavailable and blocking', () => {
+    const root = join(tmpdir(), `statecarry-missing-inspector-${Date.now()}`);
+    const snapshot = new GitProjectInspector().inspect(root);
+
+    expect(snapshot).toMatchObject({
+      status: 'unknown',
+      root: null,
+      branch: null,
+      commit: null,
+      dirty: null,
+      files: [],
+    });
+    expect(
+      snapshot.limitations.some((item) => item.startsWith('Project folder could not be read:')),
+    ).toBe(true);
+  });
+
   it('selects a connected file beyond the first directory sample and reads its implementation excerpt', () => {
     const root = mkdtempSync(join(tmpdir(), 'statecarry-inspector-'));
     try {

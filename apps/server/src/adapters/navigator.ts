@@ -3,6 +3,7 @@ import { inspectNavigationEvidence } from './navigation-verification';
 import type { Navigator } from '@statecarry/core';
 import { DomainError, type Capabilities } from '@statecarry/contracts';
 import { safeId } from './codex-reader';
+import { executableEnvironment, resolveExecutable } from './executable-resolver';
 
 export class CodexNavigator implements Navigator {
   constructor(private dataDir: string) {}
@@ -19,11 +20,15 @@ export class CodexNavigator implements Navigator {
 export function dispatchCodex(threadId: string): Promise<void> {
   safeId(threadId);
   return new Promise((resolve, reject) => {
-    const child = spawn(
-      'rtk',
-      ['proxy', 'open', `codex://threads/${encodeURIComponent(threadId)}`],
-      { stdio: 'ignore' },
-    );
+    const rtk = resolveExecutable('rtk');
+    if (!rtk) {
+      reject(new Error('RTK was not found on this machine.'));
+      return;
+    }
+    const child = spawn(rtk, ['proxy', 'open', `codex://threads/${encodeURIComponent(threadId)}`], {
+      stdio: 'ignore',
+      env: executableEnvironment(['rtk', 'codex']),
+    });
     child.on('error', reject);
     child.on('exit', (code, signal) => {
       if (code === 0) resolve();

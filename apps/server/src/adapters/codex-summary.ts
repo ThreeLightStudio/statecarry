@@ -63,6 +63,7 @@ import {
   referencedCandidateSchema,
   type AnalysisMetric,
 } from './analysis-support';
+import { resolveExecutable } from './executable-resolver';
 
 const goalInstructions = (goal?: import('@statecarry/contracts').GoalIntent) =>
   goal
@@ -359,6 +360,23 @@ export class CodexSummary implements SummaryProvider {
     return { ...this.settings };
   }
   capability() {
+    const rtk = resolveExecutable('rtk');
+    const codex = resolveExecutable('codex');
+    if (!rtk || !codex)
+      return {
+        state: 'failed' as const,
+        detail: !rtk
+          ? 'RTK was not found in the locations StateCarry can use from a desktop app.'
+          : 'Codex CLI was not found in the locations StateCarry can use from a desktop app.',
+        model: null,
+        settings: this.configuration(),
+      };
+    if (this.state.state === 'unverified')
+      return {
+        ...this.state,
+        detail: 'RTK and Codex CLI are available. Analysis isolation has not been checked yet.',
+        settings: this.configuration(),
+      };
     return { ...this.state, settings: this.configuration() };
   }
   private async metric(value: AnalysisMetric) {

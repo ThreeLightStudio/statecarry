@@ -89,9 +89,12 @@ describe('safe OS dispatch', () => {
     child.emit('exit', 0, null);
     await pending;
     expect(spawn).toHaveBeenCalledWith(
-      'rtk',
+      expect.stringMatching(/\/rtk$/),
       ['proxy', 'open', 'codex://threads/00000000-0000-4000-8000-000000000001'],
-      { stdio: 'ignore' },
+      expect.objectContaining({
+        stdio: 'ignore',
+        env: expect.objectContaining({ PATH: expect.stringContaining('.headroom/bin') }),
+      }),
     );
   });
   it.each(['../escape', 'id;touch /tmp/no', '$(echo test)', 'x?message=send'])(

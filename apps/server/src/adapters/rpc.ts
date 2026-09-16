@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { StringDecoder } from 'node:string_decoder';
+import { executableEnvironment, resolveExecutable } from './executable-resolver';
 
 // Small transport boundary inspired by Switchyard codex.ts; no business sessions or store dependencies.
 export class CodexRpc extends EventEmitter {
@@ -31,10 +32,20 @@ export class CodexRpc extends EventEmitter {
       // Scoped to this analysis process group; no global power setting is changed.
       // User-initiated sleep/lid closure is not overridden by an idle-sleep assertion.
       const preventIdleSleep = this.keepAwake && process.platform === 'darwin';
+      const rtk = resolveExecutable('rtk');
+      if (!rtk)
+        throw new Error(
+          'RTK was not found. Install RTK or make it available in a standard user executable location.',
+        );
       const child = spawn(
-        preventIdleSleep ? '/usr/bin/caffeinate' : 'rtk',
-        preventIdleSleep ? ['-i', 'rtk', ...args] : args,
-        { cwd: this.cwd, stdio: 'pipe', detached: process.platform !== 'win32' },
+        preventIdleSleep ? '/usr/bin/caffeinate' : rtk,
+        preventIdleSleep ? ['-i', rtk, ...args] : args,
+        {
+          cwd: this.cwd,
+          stdio: 'pipe',
+          detached: process.platform !== 'win32',
+          env: executableEnvironment(['rtk', 'codex']),
+        },
       );
       this.child = child;
       const decoder = new StringDecoder('utf8');
