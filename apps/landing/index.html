@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#f7f8f3" />
+    <meta
+      name="description"
+      content="StateCarry helps you return to interrupted development work by checking codebase state, Git history, and optional connected Codex context."
+    />
+    <meta property="og:title" content="StateCarry — Return to your work" />
+    <meta
+      property="og:description"
+      content="See where your project stands, what changed, and what to do next."
+    />
+    <meta property="og:type" content="website" />
+    <link rel="icon" type="image/svg+xml" href="./statecarry-mark.svg" />
+    <link rel="stylesheet" href="./src/styles.css" />
+    <title>StateCarry — Return to your work</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="nav-shell">
+        <a class="brand" href="#top" aria-label="StateCarry home">
+          <img src="./statecarry-mark.svg" alt="" width="38" height="38" />
+          <span>StateCarry</span>
+          <span class="beta-pill">Beta</span>
+        </a>
+
+        <nav class="top-nav" aria-label="Primary navigation">
+          <a href="#how-it-works">How it works</a>
+          <a href="#download">Download</a>
+          <a
+            href="https://github.com/ThreeLightStudio/statecarry#first-use"
+            target="_blank"
+            rel="noreferrer"
+            >Docs</a
+          >
+          <a href="https://github.com/ThreeLightStudio/statecarry" target="_blank" rel="noreferrer"
+            >GitHub</a
+          >
+        </nav>
+
+        <a class="button button-small" href="#download">Download Beta</a>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top">
+        <div class="hero-copy">
+          <div class="eyebrow">For interrupted development work</div>
+          <h1>Pick up where you left off.</h1>
+          <p class="hero-lead">
+            StateCarry checks your codebase and Git state, then uses connected Codex conversations
+            as optional context so you can return to a project and choose the next useful action.
+          </p>
+          <div class="hero-actions">
+            <a class="button" href="#download">Download Beta</a>
+            <a
+              class="button button-secondary"
+              href="https://github.com/ThreeLightStudio/statecarry"
+              target="_blank"
+              rel="noreferrer"
+              >View on GitHub</a
+            >
+          </div>
+          <p class="hero-note">Local Mac app · Open source · macOS beta in preparation</p>
+        </div>
+
+        <div
+          class="product-visual"
+          role="img"
+          aria-label="StateCarry combines codebase, Git, and optional Codex context"
+        >
+          <div class="source-strip" aria-hidden="true">
+            <span>Codebase</span>
+            <span>Git</span>
+            <span>Codex</span>
+          </div>
+          <article class="resume-card">
+            <div class="resume-kicker">Project return</div>
+            <div class="resume-title-row">
+              <div>
+                <div class="resume-project">StateCarry</div>
+                <div class="resume-status">Context checked</div>
+              </div>
+              <span class="status-dot">Ready</span>
+            </div>
+            <div class="resume-block">
+              <span>Current state</span>
+              <strong>The requested implementation is present and ready for review.</strong>
+            </div>
+            <div class="resume-block resume-block-accent">
+              <span>Next useful action</span>
+              <strong
+                >Review the returned result and decide whether to continue or correct it.</strong
+              >
+              <small>Done when the result is accepted or the next correction is recorded.</small>
+            </div>
+            <div class="evidence-row">
+              <span>3 sources checked</span>
+              <span>Evidence stays reviewable</span>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="problem-band" aria-label="The problem StateCarry addresses">
+        <p>
+          AI can help write the code. Returning to yesterday's work still means reconstructing the
+          context yourself.
+        </p>
+      </section>
+
+      <section class="section" id="how-it-works">
+        <div class="section-heading">
+          <div class="eyebrow">How it works</div>
+          <h2>Less reconstruction. More continuation.</h2>
+          <p>
+            StateCarry checks the evidence you already have and turns it into a compact return
+            point.
+          </p>
+        </div>
+
+        <div class="steps-grid">
+          <article class="step-card">
+            <span class="step-number">01</span>
+            <h3>Observe</h3>
+            <p>
+              Read bounded observations from the registered project folder, Git state, and the Codex
+              conversations you explicitly connect.
+            </p>
+            <div class="step-tags" aria-label="Observed sources">
+              <span>Codebase</span><span>Git</span><span>Optional Codex</span>
+            </div>
+          </article>
+          <article class="step-card">
+            <span class="step-number">02</span>
+            <h3>Reconstruct</h3>
+            <p>
+              Separate reported progress from checked project state and keep the supporting evidence
+              available for review.
+            </p>
+            <div class="mini-lines" aria-hidden="true"><i></i><i></i><i></i></div>
+          </article>
+          <article class="step-card">
+            <span class="step-number">03</span>
+            <h3>Continue</h3>
+            <p>
+              See the current situation, the next useful action, why it matters, and what would
+              finish it.
+            </p>
+            <div class="next-chip">One next choice</div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section signal-section">
+        <div class="signal-copy">
+          <div class="eyebrow">Built for real project state</div>
+          <h2>Your conversation is context. Your codebase is evidence.</h2>
+          <p>
+            StateCarry treats connected Codex history as useful context while checking the codebase
+            and Git state that can show what actually exists now.
+          </p>
+        </div>
+        <div class="signal-list">
+          <div>
+            <strong>Codebase</strong><span>Bounded file observations and project structure</span>
+          </div>
+          <div><strong>Git</strong><span>Branch, commit, changes, and recent history</span></div>
+          <div>
+            <strong>Codex</strong><span>Selected conversations and their recorded decisions</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="section download-section" id="download">
+        <div class="download-copy">
+          <div class="eyebrow">Download</div>
+          <h2>StateCarry for macOS is getting ready for public beta.</h2>
+          <p>
+            The desktop app now owns its local runtime and project data. Signing, notarization, and
+            the final installed-app checks are still being completed before the download opens. You
+            can
+            <a
+              href="https://github.com/ThreeLightStudio/statecarry#run-from-source"
+              target="_blank"
+              rel="noreferrer"
+              >run the development preview from source</a
+            >
+            today.
+          </p>
+          <div class="download-meta">
+            <span>Apple Silicon macOS</span>
+            <span>Local project data</span>
+            <span>Open source</span>
+          </div>
+        </div>
+        <div class="download-card">
+          <img src="./statecarry-mark.svg" alt="" width="64" height="64" />
+          <div>
+            <strong>Public beta coming soon</strong>
+            <p>Source and development progress are available today.</p>
+          </div>
+          <a
+            class="button"
+            href="https://github.com/ThreeLightStudio/statecarry"
+            target="_blank"
+            rel="noreferrer"
+            >Follow on GitHub</a
+          >
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-brand">
+        <img src="./statecarry-mark.svg" alt="" width="28" height="28" />
+        <span>StateCarry</span>
+      </div>
+      <p>Built by ThreeLight Studio · MIT License</p>
+      <div class="footer-links">
+        <a href="https://github.com/ThreeLightStudio/statecarry" target="_blank" rel="noreferrer"
+          >GitHub</a
+        >
+        <a
+          href="https://github.com/ThreeLightStudio/statecarry#readme"
+          target="_blank"
+          rel="noreferrer"
+          >Docs</a
+        >
+      </div>
+    </footer>
+  </body>
+</html>

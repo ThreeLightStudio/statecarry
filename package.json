@@ -32,6 +32,8 @@
     "desktop:config": "electrobun config --env=dev",
     "desktop:dev": "electrobun dev --env=dev --watch",
     "desktop:build": "electrobun build --env=dev",
+    "landing:dev": "vite --config apps/landing/vite.config.ts",
+    "landing:build": "vite build --config apps/landing/vite.config.ts",
     "start": "node dist/server.mjs",
     "verify:connection": "node dist/verify-connection.mjs",
     "package:local": "tsx scripts/package-local.ts"

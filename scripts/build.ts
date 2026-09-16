@@ -21,6 +21,7 @@ await bundle({
 // Keep the single documented production entry point independent of source paths.
 await rename('dist/index.mjs', 'dist/server.mjs');
 await web({ configFile: 'apps/web/vite.config.ts' });
+await web({ configFile: 'apps/landing/vite.config.ts' });
 const require = createRequire(import.meta.url);
 const versions = Object.fromEntries(
   ['typescript', 'tsx', 'esbuild', 'vite', 'vitest', 'react', 'react-dom', 'zod'].map((name) => {
@@ -42,7 +43,7 @@ await writeFile(
     {
       builtAt: new Date().toISOString(),
       node: process.version,
-      method: 'pnpm build: esbuild server + Vite web',
+      method: 'pnpm build: esbuild server + Vite app and landing pages',
       versions,
       lockfileHash,
     },
