@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
+  act,
   follow,
   installBrowser,
   mountProjectRoot,
   press,
   projectEntry,
   projectUiFixture,
+  settle,
   typeField,
 } from './project-ui-fixtures';
 
@@ -113,6 +115,70 @@ it('shows global integration settings, persists Korean responses, and uses them 
     await press(mounted.host, 'Update overview');
     expect(h.resumeGateway.refresh).toHaveBeenLastCalledWith('alpha', 'ko');
   } finally {
+    await mounted.unmount();
+  }
+});
+
+it('toggles the update UI preview from Advanced settings in development', async () => {
+  const h = projectUiFixture();
+  window.history.replaceState(null, '', '#/settings');
+  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  try {
+    expect(mounted.host.textContent).toContain('Advanced');
+    expect(mounted.host.textContent).toContain('Developer mode');
+    const toggle = mounted.host.querySelector<HTMLInputElement>('input[name="preview-update-ui"]');
+    expect(toggle).toBeTruthy();
+    expect(toggle?.checked).toBe(false);
+    expect(mounted.host.querySelector('[aria-label="Download update"]')).toBeNull();
+
+    await act(async () => {
+      toggle!.click();
+    });
+    await settle();
+
+    expect(toggle?.checked).toBe(true);
+    expect(window.localStorage.getItem('statecarry.developer.update-ui-preview.v1')).toBe('1');
+    const download = mounted.host.querySelector<HTMLButtonElement>(
+      '[aria-label="Download update"]',
+    );
+    expect(download).toBeTruthy();
+
+    vi.useFakeTimers();
+    await act(async () => {
+      download!.click();
+    });
+    expect(mounted.host.textContent).toContain('42%');
+    expect(mounted.host.querySelector('[aria-label="Restart to update"]')).toBeNull();
+
+    await act(async () => {
+      vi.advanceTimersByTime(1200);
+    });
+    const restart = mounted.host.querySelector<HTMLButtonElement>(
+      '[aria-label="Restart to update"]',
+    );
+    expect(restart).toBeTruthy();
+
+    await act(async () => {
+      restart!.click();
+    });
+    expect(mounted.host.textContent).toContain('Restarting…');
+
+    await act(async () => {
+      vi.advanceTimersByTime(1200);
+    });
+    expect(mounted.host.querySelector('[aria-label="Download update"]')).toBeTruthy();
+    vi.useRealTimers();
+
+    await act(async () => {
+      toggle!.click();
+    });
+    await settle();
+
+    expect(toggle?.checked).toBe(false);
+    expect(window.localStorage.getItem('statecarry.developer.update-ui-preview.v1')).toBeNull();
+    expect(mounted.host.querySelector('[aria-label="Download update"]')).toBeNull();
+  } finally {
+    vi.useRealTimers();
     await mounted.unmount();
   }
 });

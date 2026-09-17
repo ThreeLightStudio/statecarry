@@ -33,9 +33,48 @@ type WorkspaceState = ReturnType<ProjectController['getSnapshot']>;
 type Navigate = (href: string) => void;
 type WorkspaceProps = { controller: ProjectController; onNavigate: Navigate };
 type ProjectProps = WorkspaceProps & { project: ProjectView; state: WorkspaceState };
+type UpdateUiPreviewPhase = 'available' | 'downloading' | 'ready' | 'restarting';
 const emptyEdits: SavedResumeEdits = { goalDraft: null, actionDrafts: [], expanded: [], scroll: 0 };
 const responseLanguageKey = 'statecarry.response-language.v1';
+const updateUiPreviewKey = 'statecarry.developer.update-ui-preview.v1';
 const feedbackUrl = 'https://forms.gle/U8RcHwGe1dJxLdvq5';
+const isDevelopmentBuild =
+  (typeof __STATECARRY_DEVELOPER_CONTROLS__ !== 'undefined' && __STATECARRY_DEVELOPER_CONTROLS__) ||
+  (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV === true;
+
+function readUpdateUiPreview(): boolean {
+  if (!isDevelopmentBuild) return false;
+  try {
+    return window.localStorage.getItem(updateUiPreviewKey) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeUpdateUiPreview(enabled: boolean) {
+  if (!isDevelopmentBuild) return;
+  try {
+    if (enabled) window.localStorage.setItem(updateUiPreviewKey, '1');
+    else window.localStorage.removeItem(updateUiPreviewKey);
+  } catch {
+    // Developer preview remains active for this tab when browser storage is unavailable.
+  }
+}
+
+function previewAppUpdate(
+  enabled: boolean,
+  phase: UpdateUiPreviewPhase,
+): WorkspaceState['appUpdate'] {
+  if (!isDevelopmentBuild || !enabled) return null;
+  return {
+    supported: true,
+    currentVersion: __STATECARRY_VERSION__,
+    latestVersion: 'preview',
+    phase,
+    progress: phase === 'downloading' ? 42 : null,
+    error: null,
+  };
+}
 
 function readResponseLanguage(): 'en' | 'ko' {
   try {
@@ -145,9 +184,48 @@ function attentionCount(project: ProjectView): number {
 
 export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+  const [updateUiPreview, setUpdateUiPreview] = useState(readUpdateUiPreview);
+  const [updateUiPreviewPhase, setUpdateUiPreviewPhase] =
+    useState<UpdateUiPreviewPhase>('available');
+  const updateUiPreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewUpdate = previewAppUpdate(updateUiPreview, updateUiPreviewPhase);
+  const appUpdate = previewUpdate ?? state.appUpdate;
   const { route } = state;
   const project = state.projects.find((item) => item.id === route.workId);
   const mainRef = useRef<HTMLElement>(null);
+  const clearUpdateUiPreviewTimer = () => {
+    if (updateUiPreviewTimer.current === null) return;
+    clearTimeout(updateUiPreviewTimer.current);
+    updateUiPreviewTimer.current = null;
+  };
+  const changeUpdateUiPreview = (enabled: boolean) => {
+    clearUpdateUiPreviewTimer();
+    setUpdateUiPreviewPhase('available');
+    setUpdateUiPreview(enabled);
+    writeUpdateUiPreview(enabled);
+  };
+  const previewDownloadAppUpdate = () => {
+    clearUpdateUiPreviewTimer();
+    setUpdateUiPreviewPhase('downloading');
+    updateUiPreviewTimer.current = setTimeout(() => {
+      updateUiPreviewTimer.current = null;
+      setUpdateUiPreviewPhase('ready');
+    }, 1200);
+  };
+  const previewRestartForAppUpdate = () => {
+    clearUpdateUiPreviewTimer();
+    setUpdateUiPreviewPhase('restarting');
+    updateUiPreviewTimer.current = setTimeout(() => {
+      updateUiPreviewTimer.current = null;
+      setUpdateUiPreviewPhase('available');
+    }, 1200);
+  };
+  useEffect(
+    () => () => {
+      clearUpdateUiPreviewTimer();
+    },
+    [],
+  );
   useEffect(() => {
     controller.setOutputLanguage(readResponseLanguage());
   }, [controller]);
@@ -244,50 +322,80 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
               <SettingsIcon aria-hidden="true" />
               <span>Settings</span>
             </RouteLink>
-            {(state.appUpdate?.phase === 'available' ||
-              (state.appUpdate?.phase === 'error' &&
-                !!state.appUpdate.latestVersion &&
-                state.appUpdate.latestVersion !== state.appUpdate.currentVersion)) && (
+            {(appUpdate?.phase === 'available' ||
+              (appUpdate?.phase === 'error' &&
+                !!appUpdate.latestVersion &&
+                appUpdate.latestVersion !== appUpdate.currentVersion)) && (
               <Button
                 type="button"
                 className="pw-update-action"
-                onClick={() => void controller.downloadAppUpdate()}
+                onClick={() => {
+                  if (previewUpdate) {
+                    previewDownloadAppUpdate();
+                    return;
+                  }
+                  void controller.downloadAppUpdate();
+                }}
                 aria-label="Download update"
                 title="Download update"
               >
                 <Download aria-hidden="true" />
-                <span className="pw-update-action-label">Download</span>
+                <span className="sr-only">Download</span>
               </Button>
             )}
-            {state.appUpdate?.phase === 'downloading' && (
-              <span className="pw-update-status" role="status">
+            {appUpdate?.phase === 'downloading' && (
+              <span
+                className="pw-update-status"
+                role="status"
+                aria-label={
+                  appUpdate.progress === null
+                    ? 'Downloading update'
+                    : `Downloading update ${appUpdate.progress}%`
+                }
+                title={
+                  appUpdate.progress === null
+                    ? 'Downloading update'
+                    : `Downloading update · ${appUpdate.progress}%`
+                }
+              >
                 <LoaderCircle aria-hidden="true" />
-                <span>
-                  {state.appUpdate.progress === null
+                <span className="sr-only">
+                  {appUpdate.progress === null
                     ? 'Downloading…'
-                    : `${state.appUpdate.progress}%`}
+                    : `Downloading… ${appUpdate.progress}%`}
                 </span>
               </span>
             )}
-            {state.appUpdate?.phase === 'ready' && (
+            {appUpdate?.phase === 'ready' && (
               <Button
                 type="button"
                 className="pw-update-action"
-                onClick={() => void controller.restartForAppUpdate()}
+                onClick={() => {
+                  if (previewUpdate) {
+                    previewRestartForAppUpdate();
+                    return;
+                  }
+                  void controller.restartForAppUpdate();
+                }}
                 aria-label="Restart to update"
                 title="Restart to update"
               >
                 <RotateCw aria-hidden="true" />
-                <span className="pw-update-action-label">Restart</span>
+                <span className="sr-only">Restart</span>
               </Button>
             )}
-            {state.appUpdate?.phase === 'restarting' && (
-              <span className="pw-update-status" role="status">
-                Restarting…
+            {appUpdate?.phase === 'restarting' && (
+              <span
+                className="pw-update-status"
+                role="status"
+                aria-label="Restarting to update"
+                title="Restarting to update"
+              >
+                <LoaderCircle aria-hidden="true" />
+                <span className="sr-only">Restarting…</span>
               </span>
             )}
           </div>
-          <p>Return to a project, understand where it stands, and choose what comes next.</p>
         </div>
       </aside>
       <main ref={mainRef} className="pw-main" id="workspace-main" tabIndex={-1}>
@@ -382,7 +490,13 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
         ) : route.page === 'new' ? (
           <CreateProject controller={controller} onNavigate={onNavigate} />
         ) : route.page === 'global-settings' ? (
-          <GlobalSettings state={state} controller={controller} onNavigate={onNavigate} />
+          <GlobalSettings
+            state={state}
+            controller={controller}
+            onNavigate={onNavigate}
+            updateUiPreview={updateUiPreview}
+            onUpdateUiPreviewChange={changeUpdateUiPreview}
+          />
         ) : project ? (
           route.page === 'settings' ? (
             <ProjectSettings
@@ -427,7 +541,13 @@ function GlobalSettings({
   state,
   controller,
   onNavigate,
-}: WorkspaceProps & { state: WorkspaceState }) {
+  updateUiPreview,
+  onUpdateUiPreviewChange,
+}: WorkspaceProps & {
+  state: WorkspaceState;
+  updateUiPreview: boolean;
+  onUpdateUiPreviewChange: (enabled: boolean) => void;
+}) {
   const [language, setLanguage] = useState<'en' | 'ko'>(() => readResponseLanguage());
   const [capabilities, setCapabilities] = useState<Awaited<
     ReturnType<ProjectController['capabilities']>
@@ -638,6 +758,32 @@ function GlobalSettings({
             <p className="pw-small">Add a project to see its project files and Git status.</p>
           )}
         </Card>
+
+        {isDevelopmentBuild && (
+          <Card className={cardSurface} aria-labelledby="advanced-settings-heading">
+            <h2 id="advanced-settings-heading">Advanced</h2>
+            <p className="pw-small">
+              Development controls for checking interface states in this build.
+            </p>
+            <div className="pw-setting-row">
+              <div className="pw-setting-copy">
+                <strong>Developer mode</strong>
+                <span className="pw-small">
+                  Preview the update flow beside Settings without downloading or restarting.
+                </span>
+              </div>
+              <label className="pw-checkbox">
+                <input
+                  type="checkbox"
+                  name="preview-update-ui"
+                  checked={updateUiPreview}
+                  onChange={(event) => onUpdateUiPreviewChange(event.target.checked)}
+                />
+                Preview update UI
+              </label>
+            </div>
+          </Card>
+        )}
       </div>
       <footer className="pw-settings-footer">StateCarry · Version {__STATECARRY_VERSION__}</footer>
     </>

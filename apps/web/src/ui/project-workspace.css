@@ -182,7 +182,7 @@
 }
 
 .pw-rail-foot {
-  @apply mt-auto grid gap-3 px-3 text-xs text-muted-foreground;
+  @apply mt-auto grid gap-3 text-xs text-muted-foreground;
 }
 
 .pw-settings-link {
@@ -194,43 +194,24 @@
 }
 
 .pw-settings-row {
-  @apply flex items-center gap-2;
+  @apply grid items-center gap-2;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .pw-settings-link {
-  @apply min-w-0 flex-1;
+  @apply min-w-0;
 }
 
 .pw-update-action {
-  @apply h-8 w-8 shrink-0 justify-start gap-0 overflow-hidden rounded-full p-0 text-xs transition-[width,padding,gap] duration-150;
-}
-
-.pw-update-action:hover,
-.pw-update-action:focus-visible {
-  @apply w-[102px] gap-1.5 px-2.5;
+  @apply size-10 shrink-0 justify-center rounded-full p-0;
 }
 
 .pw-update-action svg {
   @apply size-3.5 shrink-0;
-  margin-inline: 8px;
-}
-
-.pw-update-action:hover svg,
-.pw-update-action:focus-visible svg {
-  margin-inline: 0;
-}
-
-.pw-update-action-label {
-  @apply whitespace-nowrap opacity-0 transition-opacity duration-100;
-}
-
-.pw-update-action:hover .pw-update-action-label,
-.pw-update-action:focus-visible .pw-update-action-label {
-  @apply opacity-100;
 }
 
 .pw-update-status {
-  @apply inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border px-2.5 text-[11px] font-medium text-foreground;
+  @apply inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-border text-foreground;
 }
 
 .pw-update-status svg {
