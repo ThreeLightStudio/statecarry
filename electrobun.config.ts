@@ -5,9 +5,14 @@ export default {
   build: {
     mainProcess: 'cottontail',
     cottontail: { entrypoint: 'apps/desktop/src/main.ts' },
+    mac: { codesign: true, notarize: true, createDmg: true },
     copy: { 'dist/web': 'views/statecarry' },
     buildFolder: '.cache/electrobun/build',
     artifactFolder: '.cache/electrobun/artifacts',
+  },
+  release: {
+    baseUrl: 'https://github.com/ThreeLightStudio/statecarry/releases/latest/download',
+    generatePatch: false,
   },
   runtime: { exitOnLastWindowClosed: true },
   scripts: { preBuild: 'apps/desktop/scripts/build-web.mjs' },
