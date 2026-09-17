@@ -183,6 +183,58 @@ it('toggles the update UI preview from Advanced settings in development', async 
   }
 });
 
+it('previews hard-coded uncommitted work scenarios from Advanced settings in development', async () => {
+  const h = projectUiFixture();
+  window.history.replaceState(null, '', '#/settings');
+  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  try {
+    const scenario = mounted.host.querySelector<HTMLSelectElement>(
+      'select[name="preview-dirty-work"]',
+    );
+    expect(scenario).toBeTruthy();
+    expect(scenario?.value).toBe('off');
+    expect([...scenario!.options].map((option) => option.value)).toEqual([
+      'off',
+      'clean',
+      'normal',
+      'mixed',
+      'large',
+      'no-git',
+    ]);
+
+    await typeField(mounted.host, 'select[name="preview-dirty-work"]', 'mixed');
+    expect(window.localStorage.getItem('statecarry.developer.dirty-work-preview.v1')).toBe('mixed');
+    await follow(mounted.host, '#/project/alpha');
+
+    const preview = mounted.host.querySelector('[aria-label="Uncommitted work developer preview"]');
+    expect(preview).toBeTruthy();
+    expect(preview?.textContent).toContain('7 files changed');
+    expect(preview?.textContent).toContain('Updater status flow');
+    expect(preview?.textContent).toContain('Release presentation');
+    expect(preview?.textContent).toContain('Current state');
+    expect(preview?.textContent).toContain('Suggested next step');
+    expect(preview?.textContent).toContain('Why');
+    expect(preview?.textContent).toContain('Done when');
+    expect(preview?.textContent).toContain('Open or review next');
+    expect(preview?.textContent).toContain('Copy handoff for new Codex session');
+    expect(preview?.textContent).not.toContain('Codex conversation');
+    expect(
+      [...preview!.querySelectorAll<HTMLButtonElement>('button')].every((item) => item.disabled),
+    ).toBe(true);
+    expect(h.resumeGateway.refresh).not.toHaveBeenCalled();
+
+    await follow(mounted.host, '#/settings');
+    await typeField(mounted.host, 'select[name="preview-dirty-work"]', 'off');
+    expect(window.localStorage.getItem('statecarry.developer.dirty-work-preview.v1')).toBeNull();
+    await follow(mounted.host, '#/project/alpha');
+    expect(
+      mounted.host.querySelector('[aria-label="Uncommitted work developer preview"]'),
+    ).toBeNull();
+  } finally {
+    await mounted.unmount();
+  }
+});
+
 it('shows readable non-Git projects as codebase-ready while Git stays unavailable', async () => {
   const entry = projectEntry();
   Object.assign(entry.resume!.workspace!, {

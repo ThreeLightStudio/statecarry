@@ -20,15 +20,51 @@ describe('related project inspection', () => {
       execFileSync('git', ['-C', root, 'add', 'second.ts']);
       execFileSync('git', ['-C', root, 'commit', '-m', 'add second']);
       writeFileSync(join(root, 'first.ts'), 'export const first = 3;\n');
+      writeFileSync(join(root, 'untracked.ts'), 'export const untracked = true;\n');
 
       const snapshot = new GitProjectInspector().inspect(root);
       expect(() => workspaceSnapshotSchema.parse(snapshot)).not.toThrow();
       expect(snapshot.changedPaths).toContain('first.ts');
+      expect(snapshot.changedPaths).toContain('untracked.ts');
+      expect(snapshot.changedFileCount).toBe(2);
+      expect(snapshot.changedFiles).toEqual(
+        expect.arrayContaining([
+          { path: 'first.ts', status: 'modified' },
+          { path: 'untracked.ts', status: 'untracked' },
+        ]),
+      );
+      expect(snapshot.additions).toBe(1);
+      expect(snapshot.deletions).toBe(1);
+      expect(snapshot.untrackedCount).toBe(1);
+      expect(snapshot.diffPreview).toContain('export const first = 3;');
+      expect(snapshot.files?.some((file) => file.path === 'first.ts')).toBe(true);
+      expect(snapshot.files?.some((file) => file.path === 'untracked.ts')).toBe(true);
       expect(snapshot.recentCommits?.slice(0, 2).map((commit) => commit.subject)).toEqual([
         'add second',
         'add first',
       ]);
       expect(snapshot.recentCommits?.[0].changedPaths).toContain('second.ts');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps an initialized repository without commits Git-aware', () => {
+    const root = mkdtempSync(join(tmpdir(), 'statecarry-empty-git-inspector-'));
+    try {
+      execFileSync('git', ['init', root]);
+      writeFileSync(join(root, 'first.ts'), 'export const first = 1;\n');
+
+      const snapshot = new GitProjectInspector().inspect(root);
+
+      expect(snapshot).toMatchObject({
+        status: 'checked',
+        commit: null,
+        dirty: true,
+        changedFileCount: 1,
+        untrackedCount: 1,
+      });
+      expect(snapshot.changedFiles).toContainEqual({ path: 'first.ts', status: 'untracked' });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

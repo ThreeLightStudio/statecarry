@@ -334,6 +334,89 @@ describe('project-oriented presentation and return memory', () => {
     expect(controller.getSnapshot().notice).toBeNull();
     controller.stop();
   });
+  it('reads the current Git working tree for a project and builds a repository-only handoff', async () => {
+    const h = setup();
+    h.gateway.workspace = vi.fn(async () => ({
+      cwd: '/project/a',
+      root: '/project/a',
+      branch: 'main',
+      commit: 'abcdef123456',
+      dirty: true,
+      changedPaths: ['apps/web/src/App.tsx', 'docs/readme.md'],
+      changedFiles: [
+        { path: 'apps/web/src/App.tsx', status: 'modified' as const },
+        { path: 'docs/readme.md', status: 'untracked' as const },
+      ],
+      changedFileCount: 2,
+      additions: 12,
+      deletions: 3,
+      untrackedCount: 1,
+      workingTreeAnalysis: {
+        summary: 'The current diff contains two pieces of work.',
+        groups: [
+          {
+            title: 'Workspace interaction update',
+            summary: 'Adjust the workspace interaction.',
+            currentState: 'The app contains the new workspace interaction change.',
+            suggestedNextStep: 'Review the interaction in the running app.',
+            reason: 'The current diff shows the implementation but not user-facing validation.',
+            doneWhen: 'The interaction behaves clearly in the running app.',
+            openItems: ['Review the interaction before continuing.'],
+            files: ['apps/web/src/App.tsx'],
+          },
+          {
+            title: 'Release documentation',
+            summary: 'Update the project documentation.',
+            currentState: 'The README contains an uncommitted documentation update.',
+            suggestedNextStep: 'Review the documentation against the current behavior.',
+            reason: 'The documentation should match the changed workspace behavior.',
+            doneWhen: 'The documentation accurately describes the current behavior.',
+            openItems: [],
+            files: ['docs/readme.md'],
+          },
+        ],
+      },
+      recentCommits: [
+        {
+          hash: 'abcdef123456',
+          subject: 'previous work',
+          committedAt: '2026-09-17T00:00:00.000Z',
+          changedPaths: ['apps/web/src/App.tsx'],
+        },
+      ],
+      status: 'checked' as const,
+      checkedAt: '2026-09-18T00:00:00.000Z',
+      limitations: [],
+    }));
+    const controller = h.controller();
+    await controller.start({ page: 'project', workId: 'a' });
+    await vi.waitFor(() => expect(controller.getSnapshot().workingTrees.a?.kind).toBe('mixed'));
+    expect(h.gateway.workspace).toHaveBeenCalledWith('a', 'en');
+
+    const handoff = await controller.workingTreeHandoff('a');
+
+    expect(handoff).toContain('Project folder: /project/a');
+    expect(handoff).toContain('Branch: main');
+    expect(handoff).toContain('Tracked diff: +12 / -3 · 1 untracked');
+    expect(handoff).toContain('already analyzed by StateCarry');
+    expect(handoff).toContain('Workspace interaction update');
+    expect(handoff).toContain('Release documentation');
+    expect(handoff).toContain('Suggested next step: Review the interaction in the running app.');
+    expect(handoff).toContain(
+      'Why: The current diff shows the implementation but not user-facing validation.',
+    );
+    expect(handoff).toContain('Done when: The interaction behaves clearly in the running app.');
+    expect(handoff).toContain('Review the interaction before continuing.');
+    expect(handoff).toContain('apps/web/src/App.tsx');
+    expect(handoff).toContain('docs/readme.md');
+    expect(handoff).not.toContain('Inspect git status and the current diff.');
+    expect(handoff).toContain('Do not assume prior conversation context.');
+    expect(handoff).not.toContain('thread-');
+
+    controller.setOutputLanguage('ko');
+    await vi.waitFor(() => expect(h.gateway.workspace).toHaveBeenCalledWith('a', 'ko'));
+    controller.stop();
+  });
   it('does not write or reread when the saved goal text is unchanged', async () => {
     const h = setup();
     const controller = h.controller();

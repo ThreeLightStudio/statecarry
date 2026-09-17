@@ -1,9 +1,80 @@
 import { describe, expect, it, vi } from 'vitest';
-import { StateCarry } from '@statecarry/core';
+import { StateCarry, type ProjectInspector } from '@statecarry/core';
 import { harness, MemoryRepository, source } from './helpers';
 import { projectCandidate, registerProject } from './project-fixtures';
 
 describe('project workspace registration and decisions', () => {
+  it('adds semantic working-tree reconstruction from current repository evidence only', async () => {
+    const h = harness();
+    const { receipt } = registerProject(h);
+    const inspector: ProjectInspector = {
+      inspect: () => ({
+        cwd: '/tmp/export-project',
+        root: '/tmp/export-project',
+        branch: 'main',
+        commit: 'abcdef',
+        dirty: true,
+        changedPaths: ['src/recovery.ts', 'tests/recovery.test.ts'],
+        changedFiles: [
+          { path: 'src/recovery.ts', status: 'modified' },
+          { path: 'tests/recovery.test.ts', status: 'modified' },
+        ],
+        changedFileCount: 2,
+        additions: 24,
+        deletions: 3,
+        untrackedCount: 0,
+        diffPreview: 'diff --git a/src/recovery.ts b/src/recovery.ts',
+        recentCommits: [],
+        status: 'checked',
+        checkedAt: '2026-09-18T00:00:00.000Z',
+        limitations: [],
+        files: [],
+      }),
+    };
+    h.summary.analyzeWorkingTree = vi.fn(async () => ({
+      summary: 'Working-tree recovery is being implemented and covered by tests.',
+      groups: [
+        {
+          title: 'Working-tree recovery',
+          summary: 'Add repository-state recovery and its test coverage.',
+          currentState: 'The implementation and related test both have uncommitted changes.',
+          openItems: ['Review the continuation handoff.'],
+          suggestedNextStep: 'Review the working-tree handoff in the running app.',
+          reason:
+            'The current diff contains the implementation and test changes but not live UI evidence.',
+          doneWhen: 'The handoff is understandable in a real dirty project.',
+          files: ['src/recovery.ts', 'tests/recovery.test.ts'],
+        },
+      ],
+    }));
+    const core = new StateCarry(
+      h.repo,
+      h.reader,
+      h.summary,
+      h.navigator,
+      h.core.clock,
+      h.core.ids,
+      h.core.events,
+      inspector,
+    );
+
+    const snapshot = await core.projects.workspace(receipt.workId, 'ko');
+
+    expect(h.summary.analyzeWorkingTree).toHaveBeenCalledWith(
+      expect.objectContaining({ projectTitle: 'Export project', outputLanguage: 'ko' }),
+    );
+    expect(snapshot.workingTreeAnalysis?.groups[0]).toMatchObject({
+      title: 'Working-tree recovery',
+      files: ['src/recovery.ts', 'tests/recovery.test.ts'],
+    });
+
+    await core.projects.workspace(receipt.workId, 'ko');
+    expect(h.summary.analyzeWorkingTree).toHaveBeenCalledTimes(1);
+
+    await core.projects.workspace(receipt.workId, 'en');
+    expect(h.summary.analyzeWorkingTree).toHaveBeenCalledTimes(2);
+  });
+
   it('preserves independent folders and manual context without sessions, reads or model calls', async () => {
     const h = harness();
     const read = vi.spyOn(h.reader, 'read');
