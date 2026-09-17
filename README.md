@@ -1,14 +1,73 @@
-# StateCarry — development preview
+<p align="center">
+  <a href="https://statecarry.threelight-studio.com">
+    <img src="docs/images/readme/0.1.2/statecarry-banner.png" alt="StateCarry — Pick up where you left off" width="100%" />
+  </a>
+</p>
 
-Return to a project and understand what to do next. Home helps you choose across registered projects; each project explains the selected work, why it matters, and what would finish the next step. Connected Codex records support that explanation and provide a place to continue.
+<p align="center"><strong>Return to a project, understand where it stands, and choose what to do next.</strong></p>
 
-**Development preview:** the owner-approved Home/Project replacement is tracked in the [implementation milestones](docs/project-ui-implementation.md). Automated regression checks and browser inspection are separate from acceptance through real work returns. See the [roadmap](docs/roadmap.md).
+<p align="center">
+  <a href="https://statecarry.threelight-studio.com">Website</a> ·
+  <a href="https://github.com/ThreeLightStudio/statecarry/releases/latest/download/macos-arm64-StateCarry.dmg">Download Beta</a> ·
+  <a href="#first-use">Docs</a> ·
+  <a href="LICENSE">MIT License</a>
+</p>
 
-**Choose a project → understand the work → choose the next step.** Prepared explanations remain readable without opening transcripts. Original inspection is an explicitly selected activity. Reported completion, a recorded check, and your acceptance remain distinct.
+<p align="center"><sub>Public beta · Apple Silicon macOS · Open source</sub></p>
 
-This is a local Mac application with a browser UI. It does not execute the next action or send a message to Codex. Records and corrections are stored on your Mac. **Relevant conversation excerpts and scoped project observations, including limited file previews, are sent through your signed-in Codex account for model analysis; this is not offline AI.**
+StateCarry helps you return to interrupted development work without reconstructing the whole project from memory. Home helps you choose across projects; each project explains the current state, the work that needs a decision, why it matters, and what would finish the next step.
+
+**Choose a project → understand the work → choose the next step.** Prepared explanations stay readable without opening transcripts. Original records remain available when you want to inspect the basis. Reported completion, a recorded check, and your acceptance remain distinct.
+
+> [!NOTE]
+> StateCarry is in public beta. The current release is for Apple Silicon macOS. Real-work validation and the remaining beta work are tracked in the [implementation milestones](docs/project-ui-implementation.md) and [roadmap](docs/roadmap.md).
+
+StateCarry runs locally on your Mac. It does not execute the next action or send a message to Codex. Records and corrections are stored on your Mac. **Relevant conversation excerpts and scoped project observations, including limited file previews, are sent through your signed-in Codex account for model analysis; this is not offline AI.**
+
+## Product preview
+
+<sub>Screenshots from StateCarry 0.1.2.</sub>
+
+### Find what needs your attention
+
+![StateCarry Home showing projects and work that needs attention](docs/images/readme/0.1.2/statecarry-home.png)
+
+### Return to the project
+
+![StateCarry project overview showing current project state and goal](docs/images/readme/0.1.2/statecarry-project-overview.png)
+
+### Choose the next step
+
+![StateCarry task detail showing the suggested next choice](docs/images/readme/0.1.2/statecarry-task-detail.png)
+
+### Inspect the basis when you need it
+
+![StateCarry evidence view showing project files, Git, and original records](docs/images/readme/0.1.2/statecarry-evidence.png)
+
+<details>
+<summary>More screens</summary>
+
+### Add a project
+
+![StateCarry Add a project screen](docs/images/readme/0.1.2/statecarry-add-project.png)
+
+### Settings
+
+![StateCarry settings showing overview language, updates, and Codex status](docs/images/readme/0.1.2/statecarry-settings.png)
+
+</details>
+
+## Download
+
+Download the latest signed and notarized public beta for Apple Silicon macOS:
+
+**[Download StateCarry Public Beta](https://github.com/ThreeLightStudio/statecarry/releases/latest/download/macos-arm64-StateCarry.dmg)**
+
+Install the app from the DMG into Applications and launch StateCarry from Finder. Stable desktop builds check for newer releases automatically; downloading an available update and restarting to apply it remain explicit actions. See [desktop automatic updates](docs/auto-update.md) for the update flow and [desktop release](docs/desktop-release.md) for release verification details.
 
 ## Run from source
+
+Read [the architecture overview](docs/architecture.md) for the current runtime structure and [the Electrobun technology decision](docs/decisions/0001-electrobun.md) for the desktop-host choice.
 
 Requirements: Apple Silicon macOS, Node **24.14.1+**, pnpm **10.33.2**, RTK on PATH, Codex CLI and desktop installed and signed in. Development used RTK 0.28.2 and Codex CLI 0.152.0. Other OS/CLI combinations are unverified.
 
@@ -31,11 +90,11 @@ An agent can install dependencies, build, and diagnose startup. Sign in yourself
 
 ## First use
 
-1. Choose **Add a project**. Select the absolute working-folder path, then enter a recognizable name, its purpose, and an optional current goal. A conversation is not required to save this context. A folder already registered opens the existing project; a new session does not create another project or replace its saved context.
-2. Connect relevant conversations now or through **Project settings** later. Choose the allowed conversations and starting point; exact record boundaries remain available as an advanced source-setting action. Existing ranges are retained until explicitly changed.
-3. Request an updated overview when you want StateCarry to analyze the selected records. Adding a registration, revisiting a screen, changing source settings, and reconnecting do not silently run a model. Editing a goal saves the goal and invalidates an incompatible previous overview; preparation remains explicit.
-4. On **Home**, compare work that needs a choice, or find a project in the full list. Your explicitly selected focus can lead the list. Recent activity does not automatically establish priority. Selecting a task opens that same task in its project.
-5. In the project, read the current situation, **Your next choice**, its reason, and finish condition. Continue in the working conversation when the recorded route is supported, or copy the task context to your working tool. Neither action performs the work. Review returned results before accepting them; pause or correct a suggestion when appropriate.
+1. Choose **Add a project** and select the local folder you work in. Add a recognizable name and optional purpose or goal. StateCarry checks project files and Git, looks for related Codex conversations, and requests the first overview automatically. Codex conversations are optional; a project can still be added when none are found or discovery fails.
+2. Review or change the conversations StateCarry found through **Project settings** when needed. Exact record boundaries remain an advanced source-setting action, and existing ranges remain until you change them.
+3. On **Home**, compare work that needs a choice, or find a project in the full list. Your explicitly selected focus can lead the list. Recent activity does not automatically establish priority. Selecting a task opens that same task in its project.
+4. In the project, read the current situation, **Your next choice**, its reason, and finish condition. Continue in the working conversation when the recorded route is supported, or copy the task context to your working tool. Neither action performs the work. Review returned results before accepting them; pause or correct a suggestion when appropriate.
+5. Choose **Update overview** when you want a fresh model-generated overview after the project changes. **Check for changes** reads current project state without generating a new overview. Editing a goal saves the goal and can make a previous overview out of date.
 
 Returning reads the saved project state. New records or changed project conditions can mark it as needing review. Preparation performs a fresh collection and bounded analysis. A missing or failed overview shows the available context and a recovery choice instead of exposing a raw response. Opening **What is this based on?** explains the available basis and its limits. **Inspect original records** deliberately opens source material separately.
 
@@ -62,7 +121,7 @@ You can edit the next step and finish condition, accept a reviewed task, pause i
 
 Goal and next-step drafts, task selection, explanation-panel choices and reading position are stored in this browser per work. Returning from another screen or restarting keeps these drafts and their original versions. Review a draft against the current work before explicitly adopting a newer version for its save. A missing server task cannot be revived by local input. After a successful full project list, drafts belonging to removed registrations are cleared; disconnected registrations keep theirs. Storage failures are shown; clearing site data removes browser drafts, not saved server records. Unsaved registration and project-settings forms are separate from these work drafts.
 
-**Project settings** separates purpose/focus, source scope, collection and saved-data removal. Disconnecting retains the same registration and its saved work. Restoring reconnects it without creating a replacement or starting analysis. A separate removal preview describes which database records and exclusive source copies will be removed, which shared copies remain, and whether pending work prevents removal. Removal is not reversible through Restore. Original folders/conversations, request receipts, separate diagnostic files and backups are retained; this is not secure physical erasure of every copy.
+**Project settings** separates purpose/focus, source scope, collection and saved-data removal. Disconnecting retains the same registration and its saved work. Reconnecting resumes that same project without creating a replacement or starting analysis. A separate removal preview describes which database records and exclusive source copies will be removed, which shared copies remain, and whether pending work prevents removal. Deleting project data is not reversible through reconnecting. Original folders/conversations, request receipts, separate diagnostic files and backups are retained; this is not secure physical erasure of every copy.
 
 ## Scope and data
 
@@ -74,7 +133,7 @@ The default storage is `~/.statecarry`. It contains private records, analysis ou
 rtk proxy env STATECARRY_DATA_DIR=/absolute/path/to/private-data STATECARRY_PORT=4397 node dist/server.mjs
 ```
 
-Open the matching port. The server binds to `127.0.0.1` and rejects unexpected Host/Origin headers. Do not expose it through public hosting or a tunnel. The supported release form is local source or a prepared local build.
+Open the matching port. The server binds to `127.0.0.1` and rejects unexpected Host/Origin headers. Do not expose it through public hosting or a tunnel. The public desktop release runs the same local service boundary inside the signed Apple Silicon application.
 
 The isolated model reader disables execution tools. Original records remain untrusted evidence. Exact quote validation checks source references; it does not guarantee the model's interpretation is correct. Use correction when the suggested work or action is wrong.
 
