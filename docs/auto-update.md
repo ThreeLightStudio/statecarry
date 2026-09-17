@@ -10,8 +10,8 @@ This document records the product and runtime contract. Release packaging and op
 
 The normal flow is:
 
-1. StateCarry starts and checks the stable update manifest.
-2. If the installed version is current, no rail action is shown. Settings reports the current version and an up-to-date state.
+1. StateCarry starts and checks the stable update manifest, then checks again every six hours while the app remains open.
+2. If the installed version is current, no rail action is shown. Settings shows the current app version at the bottom of the page.
 3. If a newer release exists, the rail beside **Settings** shows **Download update**.
 4. Download progress is shown while Electrobun prepares the update bundle.
 5. When the bundle is ready, the rail shows **Restart**.
@@ -30,8 +30,8 @@ The updater stays behind the same local application boundary used by the rest of
 | `apps/desktop/src/main.ts`                        | Coordinates normal quit versus update restart. It stops the local runtime before calling the native updater.                                 |
 | `apps/server/src/adapters/local-updater.ts`       | Defines the small local updater state and command contract.                                                                                  |
 | `apps/server/src/http.ts`                         | Exposes loopback-only updater state/check/download/restart routes. Existing Host/Origin restrictions apply.                                  |
-| `packages/presentation/src/project-controller.ts` | Starts the automatic check, manages download polling, and owns user-visible transient/error state.                                           |
-| `apps/web/src/ui/ProjectWorkspace.tsx`            | Renders the Settings rail action and the App updates section in Settings.                                                                    |
+| `packages/presentation/src/project-controller.ts` | Starts and schedules automatic checks, manages download polling, and owns user-visible transient/error state.                                |
+| `apps/web/src/ui/ProjectWorkspace.tsx`            | Renders the Settings rail update action and the current app version in Settings.                                                             |
 
 The local HTTP routes are:
 
