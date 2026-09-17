@@ -3,7 +3,7 @@
 .pw-shell {
   @apply grid min-h-dvh text-[15px] leading-[1.6];
   grid-template-columns: 232px minmax(0, 1fr);
-  grid-template-rows: 54px minmax(calc(100dvh - 54px), auto);
+  grid-template-rows: 46px minmax(calc(100dvh - 46px), auto);
   grid-template-areas:
     'header header'
     'rail main';
@@ -54,8 +54,8 @@
 .pw-rail {
   @apply sticky flex flex-col gap-8 overflow-y-auto border-r border-border bg-secondary px-5 pt-8 pb-6;
   grid-area: rail;
-  top: 54px;
-  height: calc(100dvh - 54px);
+  top: 46px;
+  height: calc(100dvh - 46px);
 }
 
 .pw-shell--rail-collapsed .pw-rail {
@@ -82,7 +82,7 @@
 }
 
 .pw-rail-toggle {
-  @apply size-9 shrink-0 p-0 text-muted-foreground;
+  @apply size-8 shrink-0 p-0 text-muted-foreground;
 }
 
 .pw-rail-toggle svg {
@@ -226,6 +226,15 @@
 
 .pw-rail-foot {
   @apply mt-auto grid gap-3 text-xs text-muted-foreground;
+}
+
+.pw-product-hunt-badge {
+  @apply block cursor-pointer overflow-hidden rounded-md leading-none no-underline select-none;
+}
+
+.pw-product-hunt-badge img {
+  @apply block h-auto w-full select-none;
+  -webkit-user-drag: none;
 }
 
 .pw-settings-link {

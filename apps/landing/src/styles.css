@@ -168,13 +168,6 @@ section[id] {
   box-shadow: 0 10px 22px rgb(47 109 80 / 0.18);
 }
 
-.button-small {
-  justify-self: end;
-  min-height: 38px;
-  padding-inline: 14px;
-  font-size: 13px;
-}
-
 .button-secondary {
   border-color: var(--line);
   background: white;
@@ -248,6 +241,18 @@ h1 {
   margin: 18px 0 0;
   color: #7b8981;
   font-size: 13px;
+}
+
+.product-hunt-badge {
+  display: inline-block;
+  margin-top: 18px;
+  line-height: 0;
+}
+
+.product-hunt-badge img {
+  display: block;
+  max-width: 100%;
+  height: auto;
 }
 
 .product-visual {
@@ -699,10 +704,6 @@ h2 {
   .site-footer,
   .problem-band {
     width: min(100% - 28px, 1180px);
-  }
-
-  .button-small {
-    display: none;
   }
 
   .nav-shell {

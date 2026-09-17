@@ -46,6 +46,9 @@ const emptyEdits: SavedResumeEdits = { goalDraft: null, actionDrafts: [], expand
 const responseLanguageKey = 'statecarry.response-language.v1';
 const updateUiPreviewKey = 'statecarry.developer.update-ui-preview.v1';
 const feedbackUrl = 'https://forms.gle/U8RcHwGe1dJxLdvq5';
+const productHuntUrl =
+  'https://www.producthunt.com/products/statecarry?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-statecarry';
+const productHuntBadgeUrl = '/product-hunt-featured.svg';
 const isDevelopmentBuild =
   (typeof __STATECARRY_DEVELOPER_CONTROLS__ !== 'undefined' && __STATECARRY_DEVELOPER_CONTROLS__) ||
   (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV === true;
@@ -363,6 +366,20 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
           </nav>
         </div>
         <div className="pw-rail-foot">
+          <a
+            className="pw-product-hunt-badge"
+            href={productHuntUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <img
+              src={productHuntBadgeUrl}
+              alt="StateCarry - Resume coding where you left off. | Product Hunt"
+              width="250"
+              height="54"
+              draggable={false}
+            />
+          </a>
           <div className="pw-settings-row">
             <RouteLink
               href="#/settings"
