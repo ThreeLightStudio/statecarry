@@ -26,7 +26,15 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-import { Download, LoaderCircle, RotateCw, Settings as SettingsIcon, Star } from 'lucide-react';
+import {
+  Download,
+  LoaderCircle,
+  PanelLeftClose,
+  PanelLeftOpen,
+  RotateCw,
+  Settings as SettingsIcon,
+  Star,
+} from 'lucide-react';
 import './project-workspace.css';
 
 type WorkspaceState = ReturnType<ProjectController['getSnapshot']>;
@@ -184,6 +192,7 @@ function attentionCount(project: ProjectView): number {
 
 export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+  const [railCollapsed, setRailCollapsed] = useState(false);
   const [updateUiPreview, setUpdateUiPreview] = useState(readUpdateUiPreview);
   const [updateUiPreviewPhase, setUpdateUiPreviewPhase] =
     useState<UpdateUiPreviewPhase>('available');
@@ -251,7 +260,7 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
   }, [controller, route.page, project?.id]);
 
   return (
-    <div className="pw-shell">
+    <div className={cn('pw-shell', railCollapsed && 'pw-shell--rail-collapsed')}>
       <a
         href="#workspace-main"
         className="pw-skip"
@@ -262,7 +271,49 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
       >
         Skip to current work
       </a>
-      <aside className="pw-rail" aria-label="Workspace navigation">
+      <header className="pw-app-header">
+        <div className="pw-app-header-leading">
+          <Button
+            type="button"
+            className="pw-rail-toggle"
+            variant="ghost"
+            aria-controls="workspace-navigation"
+            aria-expanded={!railCollapsed}
+            aria-label={railCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+            title={railCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+            onClick={() => setRailCollapsed((collapsed) => !collapsed)}
+          >
+            {railCollapsed ? (
+              <PanelLeftOpen aria-hidden="true" />
+            ) : (
+              <PanelLeftClose aria-hidden="true" />
+            )}
+          </Button>
+          <span className="pw-app-header-title">Workspace</span>
+        </div>
+        <div className="pw-actions">
+          {(state.loading || !state.online) && (
+            <span className="pw-small" role="status">
+              {state.loading
+                ? 'Loading projects…'
+                : "StateCarry can't connect to its local service."}
+            </span>
+          )}
+          <a className="pw-feedback-link" href={feedbackUrl} target="_blank" rel="noreferrer">
+            Send feedback <span aria-hidden="true">↗</span>
+          </a>
+          <Button
+            type="button"
+            className="pw-button pw-button--quiet"
+            title="Check saved projects for changes. StateCarry also checks when you return to the app."
+            disabled={state.loading || (state.online && state.checkingCurrent)}
+            onClick={() => void controller.checkForChanges()}
+          >
+            Check for changes
+          </Button>
+        </div>
+      </header>
+      <aside id="workspace-navigation" className="pw-rail" aria-label="Workspace navigation">
         <RouteLink
           href="#/home"
           onNavigate={onNavigate}
@@ -440,27 +491,6 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
               </>
             )}
           </nav>
-          <div className="pw-actions">
-            {(state.loading || !state.online) && (
-              <span className="pw-small" role="status">
-                {state.loading
-                  ? 'Loading projects…'
-                  : "StateCarry can't connect to its local service."}
-              </span>
-            )}
-            <a className="pw-feedback-link" href={feedbackUrl} target="_blank" rel="noreferrer">
-              Send feedback <span aria-hidden="true">↗</span>
-            </a>
-            <Button
-              type="button"
-              className="pw-button pw-button--quiet"
-              title="Check saved projects for changes. StateCarry also checks when you return to the app."
-              disabled={state.loading || (state.online && state.checkingCurrent)}
-              onClick={() => void controller.checkForChanges()}
-            >
-              Check for changes
-            </Button>
-          </div>
         </div>
         {state.error && (
           <section className="pw-notice" role="alert">
@@ -890,9 +920,6 @@ function Home({ state, controller, onNavigate }: WorkspaceProps & { state: Works
                 <p className="pw-small">{task.currentState}</p>
                 <p>{task.reason}</p>
                 {!project.canDecide && <p className="pw-small">{project.stateDescription}</p>}
-                <span className="pw-link-label">
-                  Open task <span aria-hidden="true">→</span>
-                </span>
               </RouteLink>
             ))}
           </div>
@@ -930,30 +957,34 @@ function Home({ state, controller, onNavigate }: WorkspaceProps & { state: Works
               key={project.id}
               className={cn(cardSurface, 'pw-card pw-card--quiet pw-project-card')}
             >
-              <Button
-                type="button"
-                className="pw-focus-toggle"
-                variant="ghost"
-                aria-label={
-                  project.focused
-                    ? `Remove ${project.title} from Home focus`
-                    : `Make ${project.title} my Home focus`
-                }
-                aria-pressed={project.focused}
-                title={project.focused ? 'Remove from Home focus' : 'Make this my Home focus'}
-                disabled={!state.online || state.checkingCurrent || state.busyWorkId !== null}
-                onClick={() => void controller.setFocused(project.id, !project.focused)}
-              >
-                <Star aria-hidden="true" fill={project.focused ? 'currentColor' : 'none'} />
-              </Button>
               <div className="pw-card-meta">
                 {project.focused && <Badge>Your focus</Badge>}
                 <Badge kind={project.disconnected ? 'disconnected' : ''}>
                   {project.stateLabel}
                 </Badge>
+                <Button
+                  type="button"
+                  className="pw-focus-toggle"
+                  variant="ghost"
+                  aria-label={
+                    project.focused
+                      ? `Remove ${project.title} from Home focus`
+                      : `Make ${project.title} my Home focus`
+                  }
+                  aria-pressed={project.focused}
+                  title={project.focused ? 'Remove from Home focus' : 'Make this my Home focus'}
+                  disabled={!state.online || state.checkingCurrent || state.busyWorkId !== null}
+                  onClick={() => void controller.setFocused(project.id, !project.focused)}
+                >
+                  <Star aria-hidden="true" fill={project.focused ? 'currentColor' : 'none'} />
+                </Button>
               </div>
               <h3>
-                <RouteLink href={projectHref(project.id)} onNavigate={onNavigate}>
+                <RouteLink
+                  className="pw-project-card-link"
+                  href={projectHref(project.id)}
+                  onNavigate={onNavigate}
+                >
                   {project.title}
                 </RouteLink>
               </h3>

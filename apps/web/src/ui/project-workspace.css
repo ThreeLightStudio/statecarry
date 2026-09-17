@@ -3,6 +3,15 @@
 .pw-shell {
   @apply grid min-h-dvh text-[15px] leading-[1.6];
   grid-template-columns: 232px minmax(0, 1fr);
+  grid-template-rows: 54px minmax(calc(100dvh - 54px), auto);
+  grid-template-areas:
+    'header header'
+    'rail main';
+  transition: grid-template-columns 160ms ease;
+}
+
+.pw-shell--rail-collapsed {
+  grid-template-columns: 0 minmax(0, 1fr);
 }
 
 .pw-shell :is(h1, h2, h3, p) {
@@ -43,7 +52,41 @@
 }
 
 .pw-rail {
-  @apply sticky top-0 flex h-dvh flex-col gap-8 overflow-y-auto border-r border-border bg-secondary px-5 pt-8 pb-6;
+  @apply sticky flex flex-col gap-8 overflow-y-auto border-r border-border bg-secondary px-5 pt-8 pb-6;
+  grid-area: rail;
+  top: 54px;
+  height: calc(100dvh - 54px);
+}
+
+.pw-shell--rail-collapsed .pw-rail {
+  @apply pointer-events-none overflow-hidden border-r-0 px-0;
+  visibility: hidden;
+}
+
+.pw-app-header {
+  @apply sticky top-0 z-30 flex min-w-0 items-center justify-between gap-4 border-b border-border bg-background px-3.5;
+  grid-area: header;
+}
+
+.pw-app-header-leading,
+.pw-actions {
+  @apply flex items-center;
+}
+
+.pw-app-header-leading {
+  @apply min-w-0 gap-2;
+}
+
+.pw-app-header-title {
+  @apply truncate text-sm font-medium text-foreground;
+}
+
+.pw-rail-toggle {
+  @apply size-9 shrink-0 p-0 text-muted-foreground;
+}
+
+.pw-rail-toggle svg {
+  @apply size-[18px];
 }
 
 .pw-brand {
@@ -229,6 +272,7 @@
 
 .pw-main {
   @apply mx-auto w-full min-w-0 max-w-[1320px] pb-[72px];
+  grid-area: main;
   padding-top: 28px;
   padding-inline: clamp(24px, 4.5vw, 72px);
 }
@@ -341,12 +385,8 @@
   @apply relative;
 }
 
-.pw-project-card > .pw-card-meta {
-  @apply pr-10;
-}
-
 .pw-focus-toggle {
-  @apply absolute top-4 right-4 size-9 p-0 text-muted-foreground;
+  @apply relative z-10 ml-auto size-9 shrink-0 p-0 text-muted-foreground;
 }
 
 .pw-focus-toggle[aria-pressed='true'] {
@@ -359,15 +399,29 @@
 
 .pw-card-link {
   @apply block h-full no-underline transition-[border-color,box-shadow] duration-150;
-}
-
-.pw-card-link:hover {
   border-color: color-mix(in oklab, var(--primary) 50%, var(--border));
   box-shadow: 0 4px 16px rgb(0 0 0 / 0.04);
 }
 
-.pw-link-label {
-  @apply block text-[13px] font-semibold text-primary;
+.pw-card-link:hover {
+  @apply border-border shadow-sm;
+}
+
+.pw-project-card:hover {
+  background: color-mix(in oklab, var(--muted) 35%, white);
+}
+
+.pw-project-card-link::after {
+  @apply absolute inset-0;
+  content: '';
+}
+
+.pw-project-card .pw-focus-toggle {
+  @apply z-10;
+}
+
+.pw-project-card .pw-button {
+  @apply relative z-10;
 }
 
 .pw-badge {
@@ -610,8 +664,16 @@
     @apply block;
   }
 
+  .pw-app-header {
+    @apply h-[54px];
+  }
+
   .pw-rail {
     @apply static h-auto gap-4 border-r-0 border-b px-5 pt-[18px] pb-3;
+  }
+
+  .pw-shell--rail-collapsed .pw-rail {
+    @apply hidden;
   }
 
   .pw-nav {
