@@ -24,7 +24,8 @@ export function AppSidebar({
   return (
     <aside className="sidebar" aria-label="StateCarry navigation">
       <a className="brand" href="#/resume">
-        <span className="brand-mark">S</span>StateCarry
+        <img className="brand-mark" src="/statecarry-logo.png" alt="" aria-hidden="true" />
+        StateCarry
       </a>
       <p className="sidebar-caption">Return to your work</p>
       <nav aria-label="Projects">

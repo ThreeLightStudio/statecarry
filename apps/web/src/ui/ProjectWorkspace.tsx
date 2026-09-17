@@ -314,13 +314,7 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
           className="pw-brand"
           current={route.page === 'home' ? 'page' : undefined}
         >
-          <span className="pw-brand-mark" aria-hidden="true">
-            <span className="pw-brand-flow pw-brand-flow--lead" />
-            <span className="pw-brand-flow pw-brand-flow--ring" />
-            <span className="pw-brand-flow pw-brand-flow--dot pw-brand-flow--dot-1" />
-            <span className="pw-brand-flow pw-brand-flow--dot pw-brand-flow--dot-2" />
-            <span className="pw-brand-flow pw-brand-flow--dot pw-brand-flow--dot-3" />
-          </span>
+          <img className="pw-brand-mark" src="/statecarry-logo.png" alt="" aria-hidden="true" />
           <span className="pw-brand-name">StateCarry</span>
         </RouteLink>
         <nav className="pw-nav" aria-label="Main">

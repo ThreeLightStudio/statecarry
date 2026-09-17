@@ -155,6 +155,11 @@
   @apply whitespace-nowrap;
 }
 
+.pw-brand-mark {
+  @apply block size-10 shrink-0 rounded-[10px];
+  box-shadow: 0 2px 8px rgb(15 23 42 / 0.12);
+}
+
 .pw-beta-badge {
   @apply inline-flex shrink-0 items-center rounded-full border border-border bg-card px-2 py-1 text-[9px] leading-none tracking-[0.08em] text-muted-foreground uppercase;
   font-weight: 700;

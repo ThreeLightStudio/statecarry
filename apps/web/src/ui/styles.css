@@ -110,6 +110,13 @@ h3 {
   border-radius: 10px 10px 3px 10px;
   font-size: 21px;
 }
+
+.brand-mark {
+  display: block;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
 .sidebar-caption {
   font-size: 12px;
   color: #70817a;
