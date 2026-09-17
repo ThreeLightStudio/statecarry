@@ -26,6 +26,8 @@ The ordinary mental model is:
 6. StateCarry can suggest a next step, but the user decides whether it is correct, complete, or worth doing.
 7. An **original record** is source material opened deliberately for verification. It is not the normal explanation layer.
 
+For the minimum uncommitted-work flow, treat the current repository state as the source of truth. Do not require prior Codex conversations to explain or continue dirty work. StateCarry should inspect the current Git diff and codebase first, reconstruct meaningful work groups, and show that interpretation before continuation. It may also suggest one conservative next step, why that step follows from the current diff, and an observable Done when condition. These are repository-state suggestions, never claims about the user's prior intent. A handoff to a new Codex session should carry that reconstructed state and suggested first action forward; it should not ask the new session to redo broad repository reconstruction unless the current files contradict the handoff.
+
 Do not require the user to understand connections, revisions, candidate keys, checkpoints, source IDs, turn IDs, collection jobs, model settings, or other implementation structures to use the main flow.
 
 ## Canonical terminology
