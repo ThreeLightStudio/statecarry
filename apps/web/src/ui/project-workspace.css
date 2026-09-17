@@ -3,7 +3,7 @@
 .pw-shell {
   @apply grid min-h-dvh text-[15px] leading-[1.6];
   grid-template-columns: 232px minmax(0, 1fr);
-  grid-template-rows: 46px minmax(calc(100dvh - 46px), auto);
+  grid-template-rows: 40px minmax(calc(100dvh - 40px), auto);
   grid-template-areas:
     'header header'
     'rail main';
@@ -54,8 +54,8 @@
 .pw-rail {
   @apply sticky flex flex-col gap-8 overflow-y-auto border-r border-border bg-secondary px-5 pt-8 pb-6;
   grid-area: rail;
-  top: 46px;
-  height: calc(100dvh - 46px);
+  top: 40px;
+  height: calc(100dvh - 40px);
 }
 
 .pw-shell--rail-collapsed .pw-rail {
@@ -82,7 +82,7 @@
 }
 
 .pw-rail-toggle {
-  @apply size-8 shrink-0 p-0 text-muted-foreground;
+  @apply size-[30px] min-h-0 shrink-0 p-0 text-muted-foreground;
 }
 
 .pw-rail-toggle svg {
@@ -314,6 +314,10 @@
 
 .pw-breadcrumb {
   @apply gap-3;
+}
+
+.pw-workspace-status {
+  @apply ml-auto max-w-[48%] text-right text-[13px] leading-5 text-muted-foreground;
 }
 
 .pw-feedback-link {

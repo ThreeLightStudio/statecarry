@@ -98,6 +98,12 @@ it('preserves the exact task and original edit versions through real Root Home/o
     await go('#/project/alpha?task=second');
     expectDraft();
     expect(mounted.host.textContent).toContain("StateCarry can't connect to its local service.");
+    expect(mounted.host.querySelector('.pw-topbar .pw-workspace-status')?.textContent).toBe(
+      "StateCarry can't connect to its local service.",
+    );
+    expect(mounted.host.querySelector('.pw-app-header')?.textContent).not.toContain(
+      "StateCarry can't connect to its local service.",
+    );
     expect(mounted.host.textContent).not.toContain(RAW_ERROR);
     expect(button(mounted.host, 'Save next step').disabled).toBe(true);
     list.mockImplementation(async () => structuredClone(h.rows));

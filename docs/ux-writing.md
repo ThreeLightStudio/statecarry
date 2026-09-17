@@ -149,7 +149,6 @@ Prefer:
 - `Choose folder`
 - `Create overview`
 - `Update overview`
-- `Check for changes`
 - `Check again`
 - `Save goal`
 - `Save next step`
@@ -162,7 +161,7 @@ Prefer:
 - `Delete project data`
 - `Open original conversation`
 
-Use **Check for changes** for a project-state read that looks for newer information. Use **Check again** when retrying or refreshing a narrowly scoped status. If the action creates AI output, use **Create overview** or **Update overview** according to whether an overview already exists.
+Use **Check for changes** only when a situational project-state read is explicitly offered. Do not keep it as a persistent global action. Use **Check again** when retrying or refreshing a narrowly scoped status. If the action creates AI output, use **Create overview** or **Update overview** according to whether an overview already exists.
 
 Use **Review** when the next step is inspection before a separate irreversible or judgment action. Use **Delete** only when data is actually deleted under the stated scope. Use **Disconnect** when collection stops but saved data remains. Use **Reconnect** when resuming the same disconnected project registration.
 
@@ -245,7 +244,7 @@ Copy is part of the behavioral contract. Verify the implementation before naming
 
 In particular:
 
-- `Check for changes` must describe a state read or currentness check. It must not sound like overview generation.
+- If `Check for changes` is surfaced, it must describe a state read or currentness check. It must not sound like overview generation.
 - `Create overview` and `Update overview` may describe analysis/generation because those actions explicitly request overview output.
 - Project files and Git status must reflect what was actually inspected. A bounded file sample must not be described as if every project file was checked.
 - `Detected · not verified` must not imply a verified integration. If executables are found but isolation or operation has not been verified, the supporting explanation must say what remains unchecked.

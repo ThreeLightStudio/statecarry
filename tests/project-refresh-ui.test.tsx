@@ -72,7 +72,7 @@ it('keeps the real project explanation and editor stable while a burst of change
   }
 });
 
-it('checks once on app return or explicit request, with no periodic read or analysis', async () => {
+it('checks once on app return, with no periodic read or analysis', async () => {
   const h = projectUiFixture();
   window.history.replaceState(null, '', '#/project/alpha');
   const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
@@ -88,6 +88,8 @@ it('checks once on app return or explicit request, with no periodic read or anal
       window.dispatchEvent(new Event('focus'));
     });
     expect(h.projectGateway.list).toHaveBeenCalledTimes(1);
+    const returnedRead = deferred<ProjectWorkspace>();
+    vi.mocked(h.projectGateway.list).mockImplementationOnce(() => returnedRead.promise);
     Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
     await act(async () => {
       document.dispatchEvent(new Event('visibilitychange'));
@@ -97,10 +99,17 @@ it('checks once on app return or explicit request, with no periodic read or anal
       document.dispatchEvent(new Event('visibilitychange'));
     });
     expect(h.projectGateway.list).toHaveBeenCalledTimes(2);
+    expect(mounted.host.querySelector('.pw-topbar .pw-workspace-status')?.textContent).toBe(
+      'Checking for changes…',
+    );
+    expect(mounted.host.querySelector('.pw-app-header')?.textContent).toContain('Send feedback');
+    expect(mounted.host.querySelector('.pw-app-header')?.textContent).not.toContain(
+      'Check for changes',
+    );
     await act(async () => {
-      button(mounted.host, 'Check for changes').click();
+      returnedRead.resolve(structuredClone(h.rows));
     });
-    expect(h.projectGateway.list).toHaveBeenCalledTimes(3);
+    expect(mounted.host.querySelector('.pw-workspace-status')).toBeNull();
     expect(h.resumeGateway.refresh).not.toHaveBeenCalled();
     expect(h.resumeGateway.setGoal).not.toHaveBeenCalled();
     expect(h.resumeGateway.correct).not.toHaveBeenCalled();

@@ -204,6 +204,13 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
   const appUpdate = previewUpdate ?? state.appUpdate;
   const { route } = state;
   const project = state.projects.find((item) => item.id === route.workId);
+  const workspaceStatus = state.loading
+    ? 'Loading projects…'
+    : !state.online
+      ? "StateCarry can't connect to its local service."
+      : state.checkingCurrent
+        ? 'Checking for changes…'
+        : null;
   const mainRef = useRef<HTMLElement>(null);
   const clearUpdateUiPreviewTimer = () => {
     if (updateUiPreviewTimer.current === null) return;
@@ -295,25 +302,9 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
           <span className="pw-app-header-title">Workspace</span>
         </div>
         <div className="pw-actions">
-          {(state.loading || !state.online) && (
-            <span className="pw-small" role="status">
-              {state.loading
-                ? 'Loading projects…'
-                : "StateCarry can't connect to its local service."}
-            </span>
-          )}
           <a className="pw-feedback-link" href={feedbackUrl} target="_blank" rel="noreferrer">
             Send feedback <span aria-hidden="true">↗</span>
           </a>
-          <Button
-            type="button"
-            className="pw-button pw-button--quiet"
-            title="Check saved projects for changes. StateCarry also checks when you return to the app."
-            disabled={state.loading || (state.online && state.checkingCurrent)}
-            onClick={() => void controller.checkForChanges()}
-          >
-            Check for changes
-          </Button>
         </div>
       </header>
       <aside id="workspace-navigation" className="pw-rail" aria-label="Workspace navigation">
@@ -508,6 +499,11 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
               </>
             )}
           </nav>
+          {workspaceStatus && (
+            <span className="pw-workspace-status" role="status" aria-live="polite">
+              {workspaceStatus}
+            </span>
+          )}
         </div>
         {state.error && (
           <section className="pw-notice" role="alert">
@@ -2348,9 +2344,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
       if (!mounted.current || generation !== sourceRequest.current) return;
       const connection = connections.find((item) => item.workId === project.id);
       if (!connection) {
-        setSourceError(
-          'Codex conversation settings could not be found. Check for changes before editing them.',
-        );
+        setSourceError('Codex conversation settings could not be found. Try again.');
         return;
       }
       const inherited: SourceScope = {
