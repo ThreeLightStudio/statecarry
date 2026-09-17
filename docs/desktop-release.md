@@ -169,7 +169,9 @@ The landing page uses the stable GitHub `latest/download` DMG URL:
 https://github.com/ThreeLightStudio/statecarry/releases/latest/download/macos-arm64-StateCarry.dmg
 ```
 
-Because the URL tracks the latest normal release, routine patch releases do not require a landing-page link edit. Confirm the GitHub Pages deployment for the release commit when landing content changed.
+The landing page is deployed to Cloudflare Pages from the `main` branch. Cloudflare builds it from the repository root with `pnpm landing:build` and publishes `dist/landing` to `https://statecarry.threelight-studio.com`.
+
+Because the download URL tracks the latest normal GitHub Release, routine patch releases do not require a landing-page link edit. When landing content changes, confirm the Cloudflare Pages deployment for the corresponding `main` commit and verify the custom domain over HTTPS. GitHub Releases remain the distribution source for the DMG and automatic-update assets; landing-page hosting is independent of desktop release delivery.
 
 ## 8. Installed-app checks
 
