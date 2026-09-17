@@ -15,6 +15,30 @@ declare module 'electrobun/main' {
     }): Promise<string[]>;
   };
 
+  export const Updater: {
+    updateInfo(): {
+      version: string;
+      hash: string;
+      updateAvailable: boolean;
+      updateReady: boolean;
+      error: string;
+    };
+    onStatusChange(
+      callback:
+        | ((entry: {
+            status: string;
+            message: string;
+            timestamp: number;
+            details?: { progress?: number };
+          }) => void)
+        | null,
+    ): void;
+    checkForUpdate(): Promise<unknown>;
+    downloadUpdate(): Promise<void>;
+    applyUpdate(): Promise<void>;
+    localInfo: { version(): Promise<string>; channel(): Promise<string> };
+  };
+
   export class BrowserWindow {
     constructor(options: {
       title: string;

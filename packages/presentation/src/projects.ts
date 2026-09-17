@@ -22,9 +22,22 @@ export type {
 } from '@statecarry/contracts';
 export type { RecordRange } from '@statecarry/contracts';
 
+export type AppUpdateState = {
+  supported: boolean;
+  currentVersion: string;
+  latestVersion: string | null;
+  phase: 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'restarting' | 'error';
+  progress: number | null;
+  error: string | null;
+};
+
 export interface ProjectGateway {
   capabilities?(): Promise<Capabilities>;
   chooseFolder?(): Promise<{ path: string | null }>;
+  appUpdate?(): Promise<AppUpdateState>;
+  checkAppUpdate?(): Promise<AppUpdateState>;
+  downloadAppUpdate?(): Promise<AppUpdateState>;
+  restartAppUpdate?(): Promise<AppUpdateState>;
   list(): Promise<ProjectWorkspace>;
   create(input: ProjectCreateInput): Promise<Receipt>;
   settings(id: string, revision: number, input: ProjectProfile): Promise<Receipt>;

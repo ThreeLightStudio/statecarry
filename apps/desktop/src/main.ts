@@ -2,10 +2,14 @@ import { join } from 'node:path';
 import Electrobun, { BrowserWindow, PATHS, Utils } from 'electrobun/main';
 import { createServerRuntime } from '../../server/src/runtime';
 import { ElectrobunFolderPicker } from './folder-picker';
+import { ElectrobunUpdater } from './updater';
+
+const updater = new ElectrobunUpdater(() => Electrobun.app.quit());
 
 const runtime = createServerRuntime({
   webDir: join(PATHS.VIEWS_FOLDER, 'statecarry'),
   folderPicker: new ElectrobunFolderPicker(Utils.openFileDialog),
+  updater,
   onServerError(error) {
     console.error(error);
   },
@@ -22,14 +26,26 @@ Electrobun.events.on('before-quit', (event) => {
   event.response = { allow: false };
   if (stopping) return;
   stopping = true;
+  let stopFailed = false;
 
   void runtime
     .stop()
     .catch((error) => {
+      stopFailed = true;
       console.error(error);
     })
-    .finally(() => {
+    .finally(async () => {
       stopped = true;
+      if (updater.hasRestartRequest() && !stopFailed) {
+        try {
+          const result = await updater.applyPreparedUpdate();
+          if (result.handoffStarted) return;
+          if (result.state.error) console.error(result.state.error);
+        } catch (error) {
+          console.error(error);
+        }
+      }
+      updater.cancelRestart();
       Electrobun.app.quit();
     });
 });

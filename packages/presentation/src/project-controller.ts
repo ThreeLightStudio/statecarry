@@ -13,6 +13,7 @@ import {
   type ProjectCreateInput,
   type ProjectSourcesInput,
   type ProjectDeletionPreview,
+  type AppUpdateState,
 } from './projects';
 
 export type ProjectControllerState = {
@@ -24,6 +25,7 @@ export type ProjectControllerState = {
   error: string | null;
   notice: string | null;
   memoryError: string | null;
+  appUpdate: AppUpdateState | null;
   busyWorkId: string | null;
   edits: Record<string, SavedResumeEdits>;
   inspection: {
@@ -56,6 +58,7 @@ export class ProjectController {
     error: null,
     notice: null,
     memoryError: null,
+    appUpdate: null,
     busyWorkId: null,
     edits: {},
     inspection: null,
@@ -76,6 +79,7 @@ export class ProjectController {
   private changedWorkIds = new Set<string>();
   private settledDuringRead = new Set<string>();
   private changeTimer: ReturnType<typeof setTimeout> | null = null;
+  private updateTimer: ReturnType<typeof setInterval> | null = null;
   private unsubscribe?: () => void;
   private outputLanguage: 'en' | 'ko' = 'en';
   constructor(
@@ -192,6 +196,7 @@ export class ProjectController {
         }
       },
     );
+    void this.checkAppUpdate();
     return this.refresh();
   }
   stop() {
@@ -199,8 +204,87 @@ export class ProjectController {
     this.generation++;
     this.inspectionGeneration++;
     this.cancelScheduledRead();
+    if (this.updateTimer !== null) clearInterval(this.updateTimer);
+    this.updateTimer = null;
     this.unsubscribe?.();
     this.unsubscribe = undefined;
+  }
+
+  private async readAppUpdate() {
+    if (!this.active || !this.gateway.appUpdate) return;
+    try {
+      const appUpdate = await this.gateway.appUpdate();
+      if (this.active) this.set({ appUpdate: appUpdate.supported ? appUpdate : null });
+    } catch {
+      /* Source-run and browser-only environments do not expose desktop updates. */
+    }
+  }
+
+  async checkAppUpdate() {
+    if (!this.active || !this.gateway.checkAppUpdate) return;
+    const previous = this.value.appUpdate;
+    if (previous) this.set({ appUpdate: { ...previous, phase: 'checking', error: null } });
+    try {
+      const appUpdate = await this.gateway.checkAppUpdate();
+      if (this.active) this.set({ appUpdate: appUpdate.supported ? appUpdate : null });
+    } catch {
+      if (this.active && previous)
+        this.set({
+          appUpdate: {
+            ...previous,
+            phase: 'error',
+            error: "StateCarry couldn't check for updates. Try again.",
+          },
+        });
+      /* Initial checks stay quiet when the desktop bridge is unavailable. */
+    }
+  }
+
+  async downloadAppUpdate() {
+    if (!this.active || !this.gateway.downloadAppUpdate) return;
+    const previous = this.value.appUpdate;
+    if (previous)
+      this.set({ appUpdate: { ...previous, phase: 'downloading', progress: null, error: null } });
+    if (this.gateway.appUpdate) {
+      if (this.updateTimer !== null) clearInterval(this.updateTimer);
+      this.updateTimer = setInterval(() => void this.readAppUpdate(), 500);
+    }
+    try {
+      const appUpdate = await this.gateway.downloadAppUpdate();
+      if (this.active) this.set({ appUpdate: appUpdate.supported ? appUpdate : null });
+    } catch {
+      if (this.active && previous)
+        this.set({
+          appUpdate: {
+            ...previous,
+            phase: 'error',
+            progress: null,
+            error: "StateCarry couldn't download the update. Try again.",
+          },
+        });
+    } finally {
+      if (this.updateTimer !== null) clearInterval(this.updateTimer);
+      this.updateTimer = null;
+    }
+  }
+
+  async restartForAppUpdate() {
+    if (!this.active || !this.gateway.restartAppUpdate) return;
+    const previous = this.value.appUpdate;
+    if (previous) this.set({ appUpdate: { ...previous, phase: 'restarting', error: null } });
+    try {
+      const appUpdate = await this.gateway.restartAppUpdate();
+      if (this.active) this.set({ appUpdate: appUpdate.supported ? appUpdate : null });
+    } catch {
+      if (this.active && previous)
+        this.set({
+          appUpdate: {
+            ...previous,
+            phase: 'error',
+            error: "StateCarry couldn't restart for the update. Try again.",
+          },
+        });
+    }
   }
   navigate(route: ProjectRoute) {
     this.inspectionGeneration++;

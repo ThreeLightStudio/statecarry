@@ -233,14 +233,46 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
           </nav>
         </div>
         <div className="pw-rail-foot">
-          <RouteLink
-            href="#/settings"
-            onNavigate={onNavigate}
-            className="pw-settings-link"
-            current={route.page === 'global-settings' ? 'page' : undefined}
-          >
-            Settings
-          </RouteLink>
+          <div className="pw-settings-row">
+            <RouteLink
+              href="#/settings"
+              onNavigate={onNavigate}
+              className="pw-settings-link"
+              current={route.page === 'global-settings' ? 'page' : undefined}
+            >
+              Settings
+            </RouteLink>
+            {state.appUpdate?.phase === 'available' && (
+              <Button
+                type="button"
+                className="pw-update-action"
+                onClick={() => void controller.downloadAppUpdate()}
+              >
+                Download update
+              </Button>
+            )}
+            {state.appUpdate?.phase === 'downloading' && (
+              <span className="pw-update-status" role="status">
+                {state.appUpdate.progress === null
+                  ? 'Downloading…'
+                  : `${state.appUpdate.progress}%`}
+              </span>
+            )}
+            {state.appUpdate?.phase === 'ready' && (
+              <Button
+                type="button"
+                className="pw-update-action"
+                onClick={() => void controller.restartForAppUpdate()}
+              >
+                Restart
+              </Button>
+            )}
+            {state.appUpdate?.phase === 'restarting' && (
+              <span className="pw-update-status" role="status">
+                Restarting…
+              </span>
+            )}
+          </div>
           <p>Return to a project, understand where it stands, and choose what comes next.</p>
         </div>
       </aside>
@@ -458,7 +490,7 @@ function GlobalSettings({
           <span className="pw-eyebrow">Settings</span>
           <h1 tabIndex={-1}>StateCarry settings</h1>
           <p className="pw-lead">
-            Choose the language for overview text and check whether Codex is available.
+            Choose the overview language, manage app updates, and check whether Codex is available.
           </p>
         </div>
       </header>
@@ -488,6 +520,84 @@ function GlobalSettings({
             </p>
           )}
         </Card>
+
+        {state.appUpdate && (
+          <Card className={cardSurface} aria-labelledby="app-update-heading">
+            <div className="pw-section-head">
+              <h2 id="app-update-heading">App updates</h2>
+              <Badge
+                kind={
+                  state.appUpdate.phase === 'available' || state.appUpdate.phase === 'ready'
+                    ? 'continue'
+                    : state.appUpdate.phase === 'error'
+                      ? 'limited'
+                      : 'checking'
+                }
+              >
+                {state.appUpdate.phase === 'checking'
+                  ? 'Checking'
+                  : state.appUpdate.phase === 'available'
+                    ? 'Update available'
+                    : state.appUpdate.phase === 'downloading'
+                      ? 'Downloading'
+                      : state.appUpdate.phase === 'ready'
+                        ? 'Ready to restart'
+                        : state.appUpdate.phase === 'restarting'
+                          ? 'Restarting'
+                          : state.appUpdate.phase === 'error'
+                            ? 'Needs attention'
+                            : 'Up to date'}
+              </Badge>
+            </div>
+            <p className="pw-small">
+              Current version {state.appUpdate.currentVersion || 'unknown'}
+              {state.appUpdate.latestVersion &&
+              state.appUpdate.latestVersion !== state.appUpdate.currentVersion
+                ? ` · Latest version ${state.appUpdate.latestVersion}`
+                : ''}
+            </p>
+            {state.appUpdate.phase === 'error' && state.appUpdate.error && (
+              <p className="pw-notice" role="alert">
+                {state.appUpdate.error}
+              </p>
+            )}
+            {state.appUpdate.phase === 'downloading' && (
+              <p className="pw-small" role="status">
+                {state.appUpdate.progress === null
+                  ? 'Downloading the update…'
+                  : `Downloading the update… ${state.appUpdate.progress}%`}
+              </p>
+            )}
+            <div className="pw-actions">
+              <Button
+                className="pw-button"
+                disabled={['checking', 'downloading', 'restarting'].includes(state.appUpdate.phase)}
+                onClick={() => void controller.checkAppUpdate()}
+              >
+                {state.appUpdate.phase === 'checking' ? 'Checking…' : 'Check for updates'}
+              </Button>
+              {(state.appUpdate.phase === 'available' ||
+                (state.appUpdate.phase === 'error' &&
+                  !!state.appUpdate.latestVersion &&
+                  state.appUpdate.latestVersion !== state.appUpdate.currentVersion)) && (
+                <Button
+                  className="pw-button pw-button--primary"
+                  onClick={() => void controller.downloadAppUpdate()}
+                >
+                  Download update
+                </Button>
+              )}
+              {state.appUpdate.phase === 'ready' && (
+                <Button
+                  className="pw-button pw-button--primary"
+                  onClick={() => void controller.restartForAppUpdate()}
+                >
+                  Restart to update
+                </Button>
+              )}
+            </div>
+          </Card>
+        )}
 
         <Card className={cardSurface} aria-labelledby="codex-integration-heading">
           <div className="pw-section-head">

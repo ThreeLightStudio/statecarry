@@ -189,6 +189,22 @@
   @apply rounded-md px-3 py-2.5 text-sm font-medium no-underline;
 }
 
+.pw-settings-row {
+  @apply flex items-center gap-2;
+}
+
+.pw-settings-link {
+  @apply min-w-0 flex-1;
+}
+
+.pw-update-action {
+  @apply h-8 shrink-0 px-2.5 text-xs;
+}
+
+.pw-update-status {
+  @apply shrink-0 text-[11px] font-medium text-foreground;
+}
+
 .pw-settings-link:hover,
 .pw-settings-link[aria-current='page'] {
   @apply bg-accent text-accent-foreground;

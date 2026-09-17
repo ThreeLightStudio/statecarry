@@ -14,6 +14,7 @@ import {
 import type { StateCarry } from '@statecarry/core';
 import { canonicalProjectCommand } from './adapters/project-folder';
 import type { LocalFolderPicker } from './adapters/local-folder-picker';
+import type { LocalUpdater } from './adapters/local-updater';
 
 export class ChangeEvents extends EventEmitter {
   constructor(private record?: (event: Observation) => Promise<boolean>) {
@@ -62,7 +63,7 @@ export function createHttpServer(
   events: ChangeEvents,
   webDir: string,
   port = 4310,
-  local: { folderPicker?: LocalFolderPicker } = {},
+  local: { folderPicker?: LocalFolderPicker; updater?: LocalUpdater } = {},
 ) {
   const origins = new Set([`http://127.0.0.1:${port}`, 'http://127.0.0.1:4311']);
   return createServer(async (req, res) => {
@@ -128,6 +129,25 @@ export function createHttpServer(
               501,
             );
           return json(res, 200, { path: await local.folderPicker.choose() });
+        }
+        if (parts[0] === 'local' && parts[1] === 'updater' && parts.length >= 2) {
+          if (!local.updater)
+            throw new DomainError(
+              'CAPABILITY_UNSUPPORTED',
+              'App updates are unavailable in this environment.',
+              501,
+            );
+          if (req.method === 'GET' && parts.length === 2)
+            return json(res, 200, await local.updater.state());
+          if (req.method === 'POST' && parts.length === 3) {
+            z.object({})
+              .strict()
+              .parse(await body(req));
+            if (parts[2] === 'check') return json(res, 200, await local.updater.check());
+            if (parts[2] === 'download') return json(res, 200, await local.updater.download());
+            if (parts[2] === 'restart') return json(res, 202, await local.updater.restart());
+          }
+          throw new DomainError('NOT_FOUND', 'Updater route not found.', 404);
         }
         if (parts[0] === 'project-workspace') {
           if (req.method === 'GET' && parts.length === 1)

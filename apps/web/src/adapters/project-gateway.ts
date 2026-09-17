@@ -5,6 +5,7 @@ import type {
   ProjectProfile,
   ProjectSourcesInput,
   ProjectDeletionPreview,
+  AppUpdateState,
 } from '@statecarry/presentation';
 import type { Capabilities, Connection, Receipt, SourceRevision } from '@statecarry/contracts';
 
@@ -51,6 +52,18 @@ export class HttpProjectGateway implements ProjectGateway {
   }
   chooseFolder() {
     return this.request<{ path: string | null }>('/local/folder-picker', {});
+  }
+  appUpdate() {
+    return this.request<AppUpdateState>('/local/updater');
+  }
+  checkAppUpdate() {
+    return this.request<AppUpdateState>('/local/updater/check', {});
+  }
+  downloadAppUpdate() {
+    return this.request<AppUpdateState>('/local/updater/download', {});
+  }
+  restartAppUpdate() {
+    return this.request<AppUpdateState>('/local/updater/restart', {});
   }
   create(input: ProjectCreateInput) {
     return this.command('/project-workspace', 0, input);

@@ -6,6 +6,7 @@ import { CodexReader } from './adapters/codex-reader';
 import { CodexSummary } from './adapters/codex-summary';
 import { identity } from './adapters/identity';
 import { MacLocalFolderPicker, type LocalFolderPicker } from './adapters/local-folder-picker';
+import type { LocalUpdater } from './adapters/local-updater';
 import { CodexNavigator } from './adapters/navigator';
 import { observationLog } from './adapters/observation-log';
 import { GitProjectInspector } from './adapters/project-inspector';
@@ -24,6 +25,7 @@ export type ServerRuntimeOptions = {
   port?: number;
   webDir?: string;
   folderPicker?: LocalFolderPicker;
+  updater?: LocalUpdater;
   reportBackgroundError?: (error: unknown) => void;
   onServerError?: (error: Error) => void;
 };
@@ -58,6 +60,7 @@ export function createServerRuntime(options: ServerRuntimeOptions = {}) {
   );
   const server = createHttpServer(core, events, webDir, port, {
     folderPicker: options.folderPicker ?? new MacLocalFolderPicker(),
+    updater: options.updater,
   });
   const background = new BackgroundLoop(
     core,
