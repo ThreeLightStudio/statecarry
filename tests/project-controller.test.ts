@@ -887,6 +887,35 @@ describe('project-oriented presentation and return memory', () => {
       controller.stop();
     }
   });
+  it('checks for app updates again while the app stays open', async () => {
+    vi.useFakeTimers();
+    const h = setup();
+    const state = {
+      supported: true,
+      currentVersion: '0.1.0',
+      latestVersion: '0.1.0',
+      phase: 'idle' as const,
+      progress: null,
+      error: null,
+    };
+    h.gateway.checkAppUpdate = vi.fn(async () => state);
+    const controller = h.controller();
+    try {
+      await controller.start({ page: 'home' });
+      await Promise.resolve();
+      expect(h.gateway.checkAppUpdate).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
+      expect(h.gateway.checkAppUpdate).toHaveBeenCalledTimes(2);
+
+      controller.stop();
+      await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
+      expect(h.gateway.checkAppUpdate).toHaveBeenCalledTimes(2);
+    } finally {
+      controller.stop();
+      vi.useRealTimers();
+    }
+  });
   it('canonicalizes old links without reopening the legacy journey', () => {
     expect(projectRouteHref(parseProjectRoute('#/details/a'))).toBe('#/project/a');
     expect(projectRouteHref(parseProjectRoute('#/resume/a?task=second'))).toBe(

@@ -38,6 +38,7 @@ export type ProjectControllerState = {
   inspectionLoading: boolean;
   deletion: ProjectDeletionPreview | null;
 };
+const appUpdateCheckIntervalMs = 6 * 60 * 60 * 1000;
 const emptyEdits = (): SavedResumeEdits => ({
   goalDraft: null,
   actionDrafts: [],
@@ -80,6 +81,7 @@ export class ProjectController {
   private settledDuringRead = new Set<string>();
   private changeTimer: ReturnType<typeof setTimeout> | null = null;
   private updateTimer: ReturnType<typeof setInterval> | null = null;
+  private updateCheckTimer: ReturnType<typeof setInterval> | null = null;
   private unsubscribe?: () => void;
   private outputLanguage: 'en' | 'ko' = 'en';
   constructor(
@@ -197,6 +199,15 @@ export class ProjectController {
       },
     );
     void this.checkAppUpdate();
+    if (this.updateCheckTimer !== null) clearInterval(this.updateCheckTimer);
+    this.updateCheckTimer = setInterval(() => {
+      if (
+        this.value.appUpdate?.phase === 'downloading' ||
+        this.value.appUpdate?.phase === 'restarting'
+      )
+        return;
+      void this.checkAppUpdate();
+    }, appUpdateCheckIntervalMs);
     return this.refresh();
   }
   stop() {
@@ -206,6 +217,8 @@ export class ProjectController {
     this.cancelScheduledRead();
     if (this.updateTimer !== null) clearInterval(this.updateTimer);
     this.updateTimer = null;
+    if (this.updateCheckTimer !== null) clearInterval(this.updateCheckTimer);
+    this.updateCheckTimer = null;
     this.unsubscribe?.();
     this.unsubscribe = undefined;
   }

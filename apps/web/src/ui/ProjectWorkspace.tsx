@@ -26,7 +26,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-import { Star } from 'lucide-react';
+import { Download, LoaderCircle, RotateCw, Settings as SettingsIcon, Star } from 'lucide-react';
 import './project-workspace.css';
 
 type WorkspaceState = ReturnType<ProjectController['getSnapshot']>;
@@ -240,22 +240,32 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
               className="pw-settings-link"
               current={route.page === 'global-settings' ? 'page' : undefined}
             >
-              Settings
+              <SettingsIcon aria-hidden="true" />
+              <span>Settings</span>
             </RouteLink>
-            {state.appUpdate?.phase === 'available' && (
+            {(state.appUpdate?.phase === 'available' ||
+              (state.appUpdate?.phase === 'error' &&
+                !!state.appUpdate.latestVersion &&
+                state.appUpdate.latestVersion !== state.appUpdate.currentVersion)) && (
               <Button
                 type="button"
                 className="pw-update-action"
                 onClick={() => void controller.downloadAppUpdate()}
+                aria-label="Download update"
+                title="Download update"
               >
-                Download update
+                <Download aria-hidden="true" />
+                <span className="pw-update-action-label">Download</span>
               </Button>
             )}
             {state.appUpdate?.phase === 'downloading' && (
               <span className="pw-update-status" role="status">
-                {state.appUpdate.progress === null
-                  ? 'Downloading…'
-                  : `${state.appUpdate.progress}%`}
+                <LoaderCircle aria-hidden="true" />
+                <span>
+                  {state.appUpdate.progress === null
+                    ? 'Downloading…'
+                    : `${state.appUpdate.progress}%`}
+                </span>
               </span>
             )}
             {state.appUpdate?.phase === 'ready' && (
@@ -263,8 +273,11 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
                 type="button"
                 className="pw-update-action"
                 onClick={() => void controller.restartForAppUpdate()}
+                aria-label="Restart to update"
+                title="Restart to update"
               >
-                Restart
+                <RotateCw aria-hidden="true" />
+                <span className="pw-update-action-label">Restart</span>
               </Button>
             )}
             {state.appUpdate?.phase === 'restarting' && (
@@ -490,7 +503,7 @@ function GlobalSettings({
           <span className="pw-eyebrow">Settings</span>
           <h1 tabIndex={-1}>StateCarry settings</h1>
           <p className="pw-lead">
-            Choose the overview language, manage app updates, and check whether Codex is available.
+            Choose the overview language and check whether Codex is available.
           </p>
         </div>
       </header>
@@ -520,84 +533,6 @@ function GlobalSettings({
             </p>
           )}
         </Card>
-
-        {state.appUpdate && (
-          <Card className={cardSurface} aria-labelledby="app-update-heading">
-            <div className="pw-section-head">
-              <h2 id="app-update-heading">App updates</h2>
-              <Badge
-                kind={
-                  state.appUpdate.phase === 'available' || state.appUpdate.phase === 'ready'
-                    ? 'continue'
-                    : state.appUpdate.phase === 'error'
-                      ? 'limited'
-                      : 'checking'
-                }
-              >
-                {state.appUpdate.phase === 'checking'
-                  ? 'Checking'
-                  : state.appUpdate.phase === 'available'
-                    ? 'Update available'
-                    : state.appUpdate.phase === 'downloading'
-                      ? 'Downloading'
-                      : state.appUpdate.phase === 'ready'
-                        ? 'Ready to restart'
-                        : state.appUpdate.phase === 'restarting'
-                          ? 'Restarting'
-                          : state.appUpdate.phase === 'error'
-                            ? 'Needs attention'
-                            : 'Up to date'}
-              </Badge>
-            </div>
-            <p className="pw-small">
-              Current version {state.appUpdate.currentVersion || 'unknown'}
-              {state.appUpdate.latestVersion &&
-              state.appUpdate.latestVersion !== state.appUpdate.currentVersion
-                ? ` · Latest version ${state.appUpdate.latestVersion}`
-                : ''}
-            </p>
-            {state.appUpdate.phase === 'error' && state.appUpdate.error && (
-              <p className="pw-notice" role="alert">
-                {state.appUpdate.error}
-              </p>
-            )}
-            {state.appUpdate.phase === 'downloading' && (
-              <p className="pw-small" role="status">
-                {state.appUpdate.progress === null
-                  ? 'Downloading the update…'
-                  : `Downloading the update… ${state.appUpdate.progress}%`}
-              </p>
-            )}
-            <div className="pw-actions">
-              <Button
-                className="pw-button"
-                disabled={['checking', 'downloading', 'restarting'].includes(state.appUpdate.phase)}
-                onClick={() => void controller.checkAppUpdate()}
-              >
-                {state.appUpdate.phase === 'checking' ? 'Checking…' : 'Check for updates'}
-              </Button>
-              {(state.appUpdate.phase === 'available' ||
-                (state.appUpdate.phase === 'error' &&
-                  !!state.appUpdate.latestVersion &&
-                  state.appUpdate.latestVersion !== state.appUpdate.currentVersion)) && (
-                <Button
-                  className="pw-button pw-button--primary"
-                  onClick={() => void controller.downloadAppUpdate()}
-                >
-                  Download update
-                </Button>
-              )}
-              {state.appUpdate.phase === 'ready' && (
-                <Button
-                  className="pw-button pw-button--primary"
-                  onClick={() => void controller.restartForAppUpdate()}
-                >
-                  Restart to update
-                </Button>
-              )}
-            </div>
-          </Card>
-        )}
 
         <Card className={cardSurface} aria-labelledby="codex-integration-heading">
           <div className="pw-section-head">
@@ -700,6 +635,7 @@ function GlobalSettings({
           )}
         </Card>
       </div>
+      <footer className="pw-settings-footer">StateCarry · Version {__STATECARRY_VERSION__}</footer>
     </>
   );
 }

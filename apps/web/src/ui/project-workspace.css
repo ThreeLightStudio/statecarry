@@ -186,7 +186,11 @@
 }
 
 .pw-settings-link {
-  @apply rounded-md px-3 py-2.5 text-sm font-medium no-underline;
+  @apply flex items-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium no-underline;
+}
+
+.pw-settings-link svg {
+  @apply size-4 shrink-0;
 }
 
 .pw-settings-row {
@@ -198,16 +202,48 @@
 }
 
 .pw-update-action {
-  @apply h-8 shrink-0 px-2.5 text-xs;
+  @apply h-8 w-8 shrink-0 justify-start gap-0 overflow-hidden rounded-full p-0 text-xs transition-[width,padding,gap] duration-150;
+}
+
+.pw-update-action:hover,
+.pw-update-action:focus-visible {
+  @apply w-[102px] gap-1.5 px-2.5;
+}
+
+.pw-update-action svg {
+  @apply size-3.5 shrink-0;
+  margin-inline: 8px;
+}
+
+.pw-update-action:hover svg,
+.pw-update-action:focus-visible svg {
+  margin-inline: 0;
+}
+
+.pw-update-action-label {
+  @apply whitespace-nowrap opacity-0 transition-opacity duration-100;
+}
+
+.pw-update-action:hover .pw-update-action-label,
+.pw-update-action:focus-visible .pw-update-action-label {
+  @apply opacity-100;
 }
 
 .pw-update-status {
-  @apply shrink-0 text-[11px] font-medium text-foreground;
+  @apply inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border px-2.5 text-[11px] font-medium text-foreground;
+}
+
+.pw-update-status svg {
+  @apply size-3.5 animate-spin;
 }
 
 .pw-settings-link:hover,
 .pw-settings-link[aria-current='page'] {
   @apply bg-accent text-accent-foreground;
+}
+
+.pw-settings-footer {
+  @apply mt-8 border-t border-border pt-5 text-xs text-muted-foreground;
 }
 
 .pw-main {

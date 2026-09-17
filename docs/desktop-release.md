@@ -40,14 +40,16 @@ Use a semantic desktop version such as `0.1.3`. Update the current desktop-facin
 
 ```text
 package.json
-electrobun.config.ts
+apps/desktop/src/app-version.ts
 apps/server/src/adapters/rpc.ts
 ```
+
+`electrobun.config.ts` consumes `APP_VERSION` from `apps/desktop/src/app-version.ts`, so keep the literal version in that shared file instead of duplicating it in the Electrobun config.
 
 Check for stale occurrences before release:
 
 ```sh
-rtk rg -n '0\.1\.[0-9]+' package.json electrobun.config.ts apps/server/src/adapters/rpc.ts
+rtk rg -n '0\.1\.[0-9]+' package.json apps/desktop/src/app-version.ts apps/server/src/adapters/rpc.ts
 ```
 
 Review the diff and keep unrelated work out of a version-only release commit.

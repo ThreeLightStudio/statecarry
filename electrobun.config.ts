@@ -1,7 +1,8 @@
 import type { ElectrobunConfig } from 'electrobun';
+import { APP_VERSION } from './apps/desktop/src/app-version';
 
 export default {
-  app: { name: 'StateCarry', identifier: 'com.threelightstudio.statecarry', version: '0.1.2' },
+  app: { name: 'StateCarry', identifier: 'com.threelightstudio.statecarry', version: APP_VERSION },
   build: {
     mainProcess: 'cottontail',
     cottontail: { entrypoint: 'apps/desktop/src/main.ts' },

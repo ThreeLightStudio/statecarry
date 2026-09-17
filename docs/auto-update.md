@@ -105,7 +105,7 @@ Delta patch generation is currently disabled in `electrobun.config.ts`. Updates 
 For a desktop release, keep the application version synchronized in the locations that currently expose it:
 
 - root `package.json`;
-- `electrobun.config.ts`;
+- `apps/desktop/src/app-version.ts`, which is consumed by `electrobun.config.ts` and injected into the web UI;
 - the Codex RPC client metadata in `apps/server/src/adapters/rpc.ts`.
 
 Workspace package versions are not used as the desktop update identity and do not need to change solely for a desktop patch release unless the repository adopts a different package-version policy.

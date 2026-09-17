@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppUpdateState } from '@statecarry/presentation';
 import {
+  go,
   installBrowser,
   mountProjectRoot,
   press,
@@ -41,15 +42,19 @@ describe('desktop update UI', () => {
     try {
       await settle();
       expect(mounted.host.textContent).toContain('Settings');
-      expect(mounted.host.textContent).toContain('Download update');
+      expect(mounted.host.textContent).toContain('Download');
 
-      await press(mounted.host, 'Download update');
+      await press(mounted.host, 'Download');
       await settle();
       expect(fixture.projectGateway.downloadAppUpdate).toHaveBeenCalledTimes(1);
       expect(mounted.host.textContent).toContain('Restart');
 
       await press(mounted.host, 'Restart');
       expect(fixture.projectGateway.restartAppUpdate).toHaveBeenCalledTimes(1);
+
+      await go('#/settings');
+      expect(mounted.host.textContent).not.toContain('App updates');
+      expect(mounted.host.textContent).toContain('StateCarry · Version 0.1.2');
     } finally {
       await mounted.unmount();
     }
