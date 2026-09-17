@@ -35,6 +35,7 @@ type WorkspaceProps = { controller: ProjectController; onNavigate: Navigate };
 type ProjectProps = WorkspaceProps & { project: ProjectView; state: WorkspaceState };
 const emptyEdits: SavedResumeEdits = { goalDraft: null, actionDrafts: [], expanded: [], scroll: 0 };
 const responseLanguageKey = 'statecarry.response-language.v1';
+const feedbackUrl = 'https://forms.gle/U8RcHwGe1dJxLdvq5';
 
 function readResponseLanguage(): 'en' | 'ko' {
   try {
@@ -332,13 +333,16 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
             )}
           </nav>
           <div className="pw-actions">
-            <span className="pw-small" role="status">
-              {state.loading
-                ? 'Loading projects…'
-                : state.online
-                  ? 'StateCarry is ready'
+            {(state.loading || !state.online) && (
+              <span className="pw-small" role="status">
+                {state.loading
+                  ? 'Loading projects…'
                   : "StateCarry can't connect to its local service."}
-            </span>
+              </span>
+            )}
+            <a className="pw-feedback-link" href={feedbackUrl} target="_blank" rel="noreferrer">
+              Send feedback <span aria-hidden="true">↗</span>
+            </a>
             <Button
               type="button"
               className="pw-button pw-button--quiet"

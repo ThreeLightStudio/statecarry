@@ -13,6 +13,7 @@ declare module 'electrobun/main' {
       canChooseDirectory: true;
       allowsMultipleSelection: false;
     }): Promise<string[]>;
+    openExternal(url: string): boolean;
   };
 
   export const Updater: {
@@ -45,6 +46,24 @@ declare module 'electrobun/main' {
       url: string;
       frame?: { width: number; height: number; x?: number; y?: number };
     });
+    readonly webview: {
+      on(
+        name: 'new-window-open',
+        handler: (event: {
+          data: {
+            detail:
+              | string
+              | {
+                  url: string;
+                  isCmdClick: boolean;
+                  modifierFlags?: number;
+                  targetDisposition?: number;
+                  userGesture?: boolean;
+                };
+          };
+        }) => void,
+      ): void;
+    };
   }
 
   type BeforeQuitEvent = { response?: { allow: boolean } };

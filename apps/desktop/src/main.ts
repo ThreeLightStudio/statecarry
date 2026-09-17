@@ -57,6 +57,11 @@ try {
     url: `http://${runtime.host}:${runtime.port}/`,
     frame: { width: 1280, height: 840, x: 120, y: 80 },
   });
+  mainWindow.webview.on('new-window-open', (event) => {
+    const detail = (event as { data?: { detail?: string | { url?: string } } }).data?.detail;
+    const url = typeof detail === 'string' ? detail : detail?.url;
+    if (url) Utils.openExternal(url);
+  });
 } catch (error) {
   await runtime.stop();
   throw error;

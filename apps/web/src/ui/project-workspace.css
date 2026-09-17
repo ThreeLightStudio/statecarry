@@ -282,6 +282,14 @@
   @apply gap-3;
 }
 
+.pw-feedback-link {
+  @apply text-sm font-medium text-foreground no-underline;
+}
+
+.pw-feedback-link:hover {
+  @apply text-primary;
+}
+
 .pw-hero {
   @apply mb-10 items-start gap-6;
 }
