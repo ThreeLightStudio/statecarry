@@ -97,7 +97,9 @@ rtk pnpm verify
 `verify` uses the repository's local Turborepo cache for deterministic checks and the production
 build. Use `rtk pnpm verify:fresh` when release evidence must execute those tasks instead of reading
 prior cache entries. See [development](docs/development.md) for focused tests, the workspace layout,
-cache boundaries, contribution guidance, diagnostics and local packaging.
+cache boundaries, contribution guidance and diagnostics. The current signed/notarized macOS release
+procedure is in [desktop release](docs/desktop-release.md), and the in-app stable updater contract is
+in [desktop automatic updates](docs/auto-update.md).
 
 ## Known limitations
 
@@ -109,7 +111,7 @@ Project explanations reuse validated structured current-state and reason fields,
 
 Changing the goal or record scope hides the previous candidate until the selected records are checked. A temporary read failure can retain a same-scope brief with accessible supporting evidence, but its action remains blocked. An unchanged bounded file sample is shown as a limitation without forcing another identical analysis; it is not proof that every project file was checked.
 
-The primary v0 scope excludes automatic execution, full project management, new provider integrations and environment restoration. Existing auxiliary context screens are subject to a keep/move/remove review in the redesign; they are not a permanent requirement. A public download and completed real-work validation are separate release steps. Keep private `.cache/` observations out of shared source and builds.
+The primary v0 scope excludes automatic task execution, full project management, new provider integrations and environment restoration. Stable application updates are supported on the current Apple Silicon desktop release. Existing auxiliary context screens are subject to a keep/move/remove review in the redesign; they are not a permanent requirement. Public desktop delivery and completed real-work validation remain separate kinds of evidence. Keep private `.cache/` observations out of shared source and builds.
 
 ## License
 
