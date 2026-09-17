@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppUpdateState } from '@statecarry/presentation';
+import { APP_VERSION } from '../apps/desktop/src/app-version';
 import {
   go,
   installBrowser,
@@ -54,7 +55,7 @@ describe('desktop update UI', () => {
 
       await go('#/settings');
       expect(mounted.host.textContent).not.toContain('App updates');
-      expect(mounted.host.textContent).toContain('StateCarry · Version 0.1.2');
+      expect(mounted.host.textContent).toContain(`StateCarry · Version ${APP_VERSION}`);
     } finally {
       await mounted.unmount();
     }
