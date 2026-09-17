@@ -72,6 +72,7 @@ export type AttemptMeta = {
 };
 export interface SummaryProvider {
   generateResume?(input: unknown): Promise<unknown>;
+  analyzeWorkingTree?(input: unknown): Promise<import('@statecarry/contracts').WorkingTreeAnalysis>;
   generateExplanation?(
     context: import('@statecarry/contracts').ExplanationContext,
     onRemote: (meta: AttemptMeta) => void,

@@ -9,6 +9,7 @@ import type {
   SourceRevision,
   Receipt,
   Capabilities,
+  WorkspaceSnapshot,
 } from '@statecarry/contracts';
 import { presentResumeWork, resumeWorkStatus } from './resume';
 
@@ -39,6 +40,7 @@ export interface ProjectGateway {
   downloadAppUpdate?(): Promise<AppUpdateState>;
   restartAppUpdate?(): Promise<AppUpdateState>;
   list(): Promise<ProjectWorkspace>;
+  workspace?(id: string, outputLanguage?: 'en' | 'ko'): Promise<WorkspaceSnapshot>;
   create(input: ProjectCreateInput): Promise<Receipt>;
   settings(id: string, revision: number, input: ProjectProfile): Promise<Receipt>;
   sources(id: string, revision: number, input: ProjectSourcesInput): Promise<Receipt>;
@@ -56,6 +58,84 @@ export interface ProjectGateway {
   }>;
   turns(id: string): Promise<{ turns: { id: string; at: string | null }[] }>;
   evidence(workId: string, sourceId: string): Promise<SourceRevision>;
+}
+
+export type WorkingTreeView = {
+  kind: 'no-git' | 'clean' | 'normal' | 'mixed' | 'large';
+  fileCount: number;
+  additions: number;
+  deletions: number;
+  untrackedCount: number;
+  branch: string | null;
+  head: string | null;
+  lastCommit: string | null;
+  files: string[];
+  groups: Array<{
+    title: string;
+    summary: string;
+    currentState: string;
+    openItems: string[];
+    suggestedNextStep: string;
+    reason: string;
+    doneWhen: string;
+    files: string[];
+  }>;
+  summary: string;
+};
+
+export function presentWorkingTree(snapshot: WorkspaceSnapshot): WorkingTreeView {
+  const fileCount = snapshot.changedFileCount ?? snapshot.changedPaths?.length ?? 0;
+  const additions = snapshot.additions ?? 0;
+  const deletions = snapshot.deletions ?? 0;
+  const untrackedCount = snapshot.untrackedCount ?? 0;
+  const files = (
+    snapshot.changedFiles?.map((file) => file.path) ??
+    snapshot.changedPaths ??
+    []
+  ).slice(0, 120);
+  const groups = snapshot.workingTreeAnalysis?.groups ?? [];
+  const common = {
+    fileCount,
+    additions,
+    deletions,
+    untrackedCount,
+    branch: snapshot.branch ?? null,
+    head: snapshot.commit ?? null,
+    lastCommit: snapshot.recentCommits?.[0]?.subject ?? null,
+    files,
+    groups,
+  };
+  if (snapshot.status !== 'checked' || snapshot.dirty === null)
+    return {
+      ...common,
+      kind: 'no-git',
+      summary:
+        'Git is not available for this project, so StateCarry cannot reliably carry uncommitted work.',
+    };
+  if (!snapshot.dirty)
+    return { ...common, kind: 'clean', summary: 'This project has no uncommitted changes.' };
+  if (fileCount >= 50 || additions + deletions >= 10_000)
+    return {
+      ...common,
+      kind: 'large',
+      summary:
+        snapshot.workingTreeAnalysis?.summary ??
+        'This is a large uncommitted change set. StateCarry could not reconstruct its work groups yet.',
+    };
+  if (groups.length >= 2)
+    return {
+      ...common,
+      kind: 'mixed',
+      summary:
+        snapshot.workingTreeAnalysis?.summary ?? 'The working tree contains multiple work groups.',
+    };
+  return {
+    ...common,
+    kind: 'normal',
+    summary:
+      snapshot.workingTreeAnalysis?.summary ??
+      'The current working tree contains uncommitted changes. Semantic reconstruction is unavailable.',
+  };
 }
 
 export type ProjectRoute = {

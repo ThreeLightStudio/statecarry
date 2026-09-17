@@ -12,12 +12,21 @@ import {
   type Receipt,
   type ResumeWork,
   type Work,
+  type WorkingTreeAnalysis,
 } from '@statecarry/contracts';
 import type { StateCarry } from './service';
 import { projectDeletionPlan } from './project-deletion';
 import { normalizeProjectFolder } from './project-folder';
 
 export class Projects {
+  private workingTreeAnalysisCache = new Map<
+    string,
+    { signature: string; analysis: WorkingTreeAnalysis }
+  >();
+  private workingTreeAnalysisPending = new Map<
+    string,
+    { signature: string; promise: Promise<WorkingTreeAnalysis> }
+  >();
   constructor(private core: StateCarry) {}
 
   private hash(action: string, workId: string | null, command: Command) {
@@ -150,6 +159,62 @@ export class Projects {
         };
       }),
     };
+  }
+
+  async workspace(workId: string, outputLanguage: 'en' | 'ko' = 'en') {
+    const work = this.core.work(workId);
+    const connection = this.connection(work);
+    const inspector = this.core.projectInspector;
+    if (!inspector)
+      throw new DomainError(
+        'CAPABILITY_UNSUPPORTED',
+        'Project workspace inspection is unavailable.',
+      );
+    const snapshot = inspector.inspect(connection.cwd);
+    if (!snapshot.dirty || !this.core.summary.analyzeWorkingTree) return snapshot;
+    const cacheKey = `${workId}:${outputLanguage}`;
+    const signature = this.core.ids.hash({
+      outputLanguage,
+      branch: snapshot.branch,
+      commit: snapshot.commit,
+      changedFiles: snapshot.changedFiles,
+      changedFileCount: snapshot.changedFileCount,
+      additions: snapshot.additions,
+      deletions: snapshot.deletions,
+      untrackedCount: snapshot.untrackedCount,
+      diffPreview: snapshot.diffPreview,
+      fileFingerprint: snapshot.fileFingerprint,
+      inventoryFingerprint: snapshot.inventoryFingerprint,
+    });
+    const cached = this.workingTreeAnalysisCache.get(cacheKey);
+    if (cached?.signature === signature)
+      return { ...snapshot, workingTreeAnalysis: cached.analysis };
+    const pending = this.workingTreeAnalysisPending.get(cacheKey);
+    if (pending?.signature === signature)
+      return { ...snapshot, workingTreeAnalysis: await pending.promise };
+    try {
+      const promise = this.core.summary.analyzeWorkingTree({
+        projectTitle: this.profile(work).title,
+        outputLanguage,
+        snapshot,
+      });
+      this.workingTreeAnalysisPending.set(cacheKey, { signature, promise });
+      const workingTreeAnalysis = await promise;
+      this.workingTreeAnalysisCache.set(cacheKey, { signature, analysis: workingTreeAnalysis });
+      return { ...snapshot, workingTreeAnalysis };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return {
+        ...snapshot,
+        limitations: [
+          ...snapshot.limitations,
+          `Working-tree semantic analysis unavailable: ${detail.slice(0, 500)}`,
+        ].slice(0, 20),
+      };
+    } finally {
+      const current = this.workingTreeAnalysisPending.get(cacheKey);
+      if (current?.signature === signature) this.workingTreeAnalysisPending.delete(cacheKey);
+    }
   }
 
   create(command: Command): Receipt {

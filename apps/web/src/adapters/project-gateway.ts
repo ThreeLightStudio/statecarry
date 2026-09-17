@@ -7,7 +7,13 @@ import type {
   ProjectDeletionPreview,
   AppUpdateState,
 } from '@statecarry/presentation';
-import type { Capabilities, Connection, Receipt, SourceRevision } from '@statecarry/contracts';
+import type {
+  Capabilities,
+  Connection,
+  Receipt,
+  SourceRevision,
+  WorkspaceSnapshot,
+} from '@statecarry/contracts';
 
 export class ProjectRequestError extends Error {
   constructor(
@@ -46,6 +52,11 @@ export class HttpProjectGateway implements ProjectGateway {
   }
   list() {
     return this.request<ProjectWorkspace>('/project-workspace');
+  }
+  workspace(id: string, outputLanguage: 'en' | 'ko' = 'en') {
+    return this.request<WorkspaceSnapshot>(
+      `/project-workspace/${encodeURIComponent(id)}/workspace?outputLanguage=${outputLanguage}`,
+    );
   }
   capabilities() {
     return this.request<Capabilities>('/capabilities');

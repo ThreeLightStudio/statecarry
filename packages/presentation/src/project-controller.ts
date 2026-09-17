@@ -4,6 +4,7 @@ import { presentResumeWork, resumeHandoffText } from './resume';
 import type { ResumeMemory, SavedResumeEdits } from './resume-memory';
 import {
   presentProjects,
+  presentWorkingTree,
   projectError,
   type ProjectGateway,
   type ProjectRoute,
@@ -14,6 +15,7 @@ import {
   type ProjectSourcesInput,
   type ProjectDeletionPreview,
   type AppUpdateState,
+  type WorkingTreeView,
 } from './projects';
 
 export type ProjectControllerState = {
@@ -37,6 +39,8 @@ export type ProjectControllerState = {
   } | null;
   inspectionLoading: boolean;
   deletion: ProjectDeletionPreview | null;
+  workingTrees: Record<string, WorkingTreeView | undefined>;
+  workingTreeLoading: Record<string, boolean>;
 };
 const appUpdateCheckIntervalMs = 6 * 60 * 60 * 1000;
 const emptyEdits = (): SavedResumeEdits => ({
@@ -65,6 +69,8 @@ export class ProjectController {
     inspection: null,
     inspectionLoading: false,
     deletion: null,
+    workingTrees: {},
+    workingTreeLoading: {},
   };
   private listeners = new Set<() => void>();
   private active = false;
@@ -72,6 +78,7 @@ export class ProjectController {
   private readEpoch = 0;
   private inspectionGeneration = 0;
   private pending: Promise<void> | null = null;
+  private workingTreeReads = new Map<string, Promise<WorkingTreeView | null>>();
   private readAgain = false;
   private hasLoaded = false;
   private connectionLost = false;
@@ -310,6 +317,8 @@ export class ProjectController {
       notice: null,
     });
     if (route.workId && route.candidateKey) this.select(route.workId, route.candidateKey);
+    if (route.page === 'project' && route.workId && this.hasLoaded)
+      void this.inspectWorkingTree(route.workId);
   }
   /** Returning to the app checks files/current access without preparing AI output. */
   checkForChanges() {
@@ -380,6 +389,7 @@ export class ProjectController {
             });
           }
           this.present({ online: true, checkingCurrent: false, error: null, loading: false });
+          if (route.page === 'project' && route.workId) void this.inspectWorkingTree(route.workId);
           if (
             this.value.route.page === 'original' &&
             !this.value.inspection &&
@@ -406,6 +416,95 @@ export class ProjectController {
       if (this.active && generation !== this.generation) void this.refresh();
     });
     return this.pending;
+  }
+  async inspectWorkingTree(id: string): Promise<WorkingTreeView | null> {
+    if (!this.active || !this.gateway.workspace) return null;
+    const language = this.outputLanguage;
+    const readKey = `${id}:${language}`;
+    const existing = this.workingTreeReads.get(readKey);
+    if (existing) return existing;
+    this.set({ workingTreeLoading: { ...this.value.workingTreeLoading, [id]: true } });
+    const read = (async () => {
+      try {
+        const snapshot = await this.gateway.workspace!(id, language);
+        if (!this.active || language !== this.outputLanguage) return null;
+        const view = presentWorkingTree(snapshot);
+        this.set({
+          workingTrees: { ...this.value.workingTrees, [id]: view },
+          workingTreeLoading: { ...this.value.workingTreeLoading, [id]: false },
+        });
+        return view;
+      } catch (error) {
+        if (this.active && language === this.outputLanguage)
+          this.set({
+            workingTreeLoading: { ...this.value.workingTreeLoading, [id]: false },
+            error: projectError(error),
+          });
+        return null;
+      } finally {
+        this.workingTreeReads.delete(readKey);
+      }
+    })();
+    this.workingTreeReads.set(readKey, read);
+    return read;
+  }
+  async workingTreeHandoff(id: string): Promise<string | null> {
+    const project = this.value.projects.find((item) => item.id === id);
+    if (!project || project.disconnected) return null;
+    const tree = this.value.workingTrees[id] ?? (await this.inspectWorkingTree(id));
+    if (!tree || tree.kind === 'clean' || tree.kind === 'no-git') return null;
+    const groups = tree.groups
+      .map((group, index) => {
+        const openItems = group.openItems.length
+          ? group.openItems.map((item) => `  - ${item}`).join('\n')
+          : '  - No specific open item was established from the current diff.';
+        const suggested = group.suggestedNextStep
+          ? [
+              `Suggested next step: ${group.suggestedNextStep}`,
+              ...(group.reason ? [`Why: ${group.reason}`] : []),
+              ...(group.doneWhen ? [`Done when: ${group.doneWhen}`] : []),
+            ]
+          : [];
+        const files = group.files.length
+          ? group.files.map((path) => `  - ${path}`).join('\n')
+          : '  - No file subset was assigned.';
+        return [
+          `${index + 1}. ${group.title}`,
+          `Summary: ${group.summary}`,
+          `Current state: ${group.currentState}`,
+          ...suggested,
+          'Open or review next:',
+          openItems,
+          'Relevant changed files:',
+          files,
+        ].join('\n');
+      })
+      .join('\n\n');
+    const analyzed = tree.groups.length > 0;
+    const hasSuggestedNextStep = tree.groups.some((group) => !!group.suggestedNextStep);
+    return [
+      analyzed
+        ? 'You are continuing work from a repository state already analyzed by StateCarry.'
+        : 'You are continuing work in an existing repository from its current working-tree state.',
+      '',
+      `Project: ${project.title}`,
+      `Project folder: ${project.cwd}`,
+      `Branch: ${tree.branch ?? 'unknown'}`,
+      `HEAD: ${tree.head ?? 'unknown'}`,
+      `Last commit: ${tree.lastCommit ?? 'unknown'}`,
+      `Changed files: ${tree.fileCount}`,
+      `Tracked diff: +${tree.additions} / -${tree.deletions}${tree.untrackedCount ? ` · ${tree.untrackedCount} untracked` : ''}`,
+      '',
+      analyzed ? `StateCarry summary: ${tree.summary}` : tree.summary,
+      ...(analyzed ? ['', 'Reconstructed work:', groups] : []),
+      '',
+      analyzed
+        ? hasSuggestedNextStep
+          ? 'Continue from this analyzed state. Preserve unrelated uncommitted changes and keep the reconstructed work groups separate. Start with the suggested next step for the relevant work group unless the current files contradict this handoff. Do not redo broad repository reconstruction first.'
+          : 'Continue from this analyzed state. Preserve unrelated uncommitted changes and keep the reconstructed work groups separate. StateCarry did not establish a useful first action from the diff, so wait for the user’s direction rather than inventing work. Do not redo broad repository reconstruction unless the current files contradict this handoff.'
+        : 'StateCarry could not reconstruct semantic work groups. Inspect the current diff before changing files, preserve unrelated changes, and establish the work in progress before continuing.',
+      'Do not assume prior conversation context.',
+    ].join('\n');
   }
   private readEdits(id: string): SavedResumeEdits {
     if (this.value.edits[id]) return this.value.edits[id];
@@ -817,7 +916,11 @@ export class ProjectController {
     return this.gateway.chooseFolder().then((result) => result.path);
   }
   setOutputLanguage(language: 'en' | 'ko') {
+    if (this.outputLanguage === language) return;
     this.outputLanguage = language;
+    const route = this.value.route;
+    if (this.active && this.hasLoaded && route.page === 'project' && route.workId)
+      void this.inspectWorkingTree(route.workId);
   }
   async localizeGeneratedOverviews(language: 'en' | 'ko'): Promise<boolean> {
     this.outputLanguage = language;

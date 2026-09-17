@@ -5,6 +5,7 @@ import { join, relative, resolve } from 'node:path';
 import { resolveExecutable } from './executable-resolver';
 import type { ProjectInspector } from '@statecarry/core';
 import type {
+  WorkspaceChangedFile,
   WorkspaceFileObservation,
   WorkspaceInspectionHints,
   WorkspaceSnapshot,
@@ -22,6 +23,7 @@ const MAX_PREVIEW = 4000;
 const MAX_HINT_SCAN_FILES = 600;
 const MAX_RECENT_COMMITS = 8;
 const MAX_GIT_PATHS = 120;
+const MAX_DIFF_PREVIEW = 80_000;
 const SOURCE_EXTENSIONS = new Set([
   '.c',
   '.cc',
@@ -73,6 +75,37 @@ const IGNORED_DIRECTORIES = new Set([
 
 type FileCandidate = { absolute: string; path: string; size: number; mtimeMs: number };
 type Discovered = { files: FileCandidate[]; limitations: string[] };
+
+function changedFile(line: string): WorkspaceChangedFile | null {
+  if (line.length < 4) return null;
+  const code = line.slice(0, 2);
+  const rawPath = line.slice(3).trim();
+  if (!rawPath) return null;
+  const path = rawPath.includes(' -> ') ? rawPath.split(' -> ').at(-1)! : rawPath;
+  const status: WorkspaceChangedFile['status'] =
+    code === '??'
+      ? 'untracked'
+      : code.includes('R')
+        ? 'renamed'
+        : code.includes('D')
+          ? 'deleted'
+          : code.includes('A')
+            ? 'added'
+            : 'modified';
+  return { path, status };
+}
+
+function numstat(value: string): { additions: number; deletions: number } {
+  let additions = 0;
+  let deletions = 0;
+  for (const line of value.split('\n')) {
+    if (!line.trim()) continue;
+    const [added, removed] = line.split('\t');
+    if (added !== '-' && /^\d+$/.test(added ?? '')) additions += Number(added);
+    if (removed !== '-' && /^\d+$/.test(removed ?? '')) deletions += Number(removed);
+  }
+  return { additions, deletions };
+}
 
 function digest(value: string | Buffer): string {
   return createHash('sha256').update(value).digest('hex');
@@ -347,6 +380,12 @@ export class GitProjectInspector implements ProjectInspector {
     let commit: string | null = null;
     let dirty: boolean | null = null;
     let changedPaths: string[] = [];
+    let changedFiles: WorkspaceChangedFile[] = [];
+    let changedFileCount = 0;
+    let additions = 0;
+    let deletions = 0;
+    let untrackedCount = 0;
+    let diffPreview = '';
     let recentCommits: NonNullable<WorkspaceSnapshot['recentCommits']> = [];
     const limitations: string[] = [];
     let status: WorkspaceSnapshot['status'] = 'checked';
@@ -373,20 +412,40 @@ export class GitProjectInspector implements ProjectInspector {
             windowsHide: true,
           });
         const run = (args: string[]) => runRaw(args).trim();
+        const runOptional = (args: string[]) => {
+          try {
+            return run(args);
+          } catch {
+            return '';
+          }
+        };
         root = run(['rev-parse', '--show-toplevel']) || root;
         branch = run(['branch', '--show-current']) || null;
-        commit = run(['rev-parse', 'HEAD']) || null;
+        commit = runOptional(['rev-parse', '--verify', 'HEAD']) || null;
         const statusOutput = runRaw(['status', '--porcelain=v1', '--untracked-files=all']);
         dirty = statusOutput.trim().length > 0;
-        changedPaths = statusOutput
+        const allChangedFiles = statusOutput
           .replace(/\n$/, '')
           .split('\n')
           .filter(Boolean)
-          .map((line) => line.slice(3).trim())
-          .map((path) => (path.includes(' -> ') ? path.split(' -> ').at(-1)! : path))
-          .filter(Boolean)
-          .slice(0, MAX_GIT_PATHS);
-        const recentHashes = run(['log', `-${MAX_RECENT_COMMITS}`, '--pretty=format:%H'])
+          .map(changedFile)
+          .filter((file): file is WorkspaceChangedFile => file !== null);
+        changedFileCount = allChangedFiles.length;
+        untrackedCount = allChangedFiles.filter((file) => file.status === 'untracked').length;
+        changedFiles = allChangedFiles.slice(0, MAX_GIT_PATHS);
+        changedPaths = changedFiles.map((file) => file.path);
+        if (commit) {
+          const stats = numstat(runOptional(['diff', 'HEAD', '--numstat', '--']));
+          additions = stats.additions;
+          deletions = stats.deletions;
+          diffPreview = runOptional(['diff', 'HEAD', '--no-ext-diff', '--unified=3', '--']).slice(
+            0,
+            MAX_DIFF_PREVIEW,
+          );
+        }
+        const recentHashes = (
+          commit ? runOptional(['log', `-${MAX_RECENT_COMMITS}`, '--pretty=format:%H']) : ''
+        )
           .split('\n')
           .map((hash) => hash.trim())
           .filter(Boolean);
@@ -416,7 +475,14 @@ export class GitProjectInspector implements ProjectInspector {
         limitations.push(`Git state unavailable: ${detail.slice(0, 500)}`);
       }
     }
-    const sampled = sampleFiles(cwd, root, hints);
+    const changedHints: WorkspaceInspectionHints | undefined = changedPaths.length
+      ? {
+          paths: [...new Set([...(hints?.paths ?? []), ...changedPaths])].slice(0, MAX_GIT_PATHS),
+          symbols: hints?.symbols ?? [],
+          terms: hints?.terms ?? [],
+        }
+      : hints;
+    const sampled = sampleFiles(cwd, root, changedHints);
     limitations.push(...sampled.limitations);
     return {
       cwd,
@@ -425,6 +491,12 @@ export class GitProjectInspector implements ProjectInspector {
       commit,
       dirty,
       changedPaths,
+      changedFiles,
+      changedFileCount,
+      additions,
+      deletions,
+      untrackedCount,
+      diffPreview,
       recentCommits,
       status,
       checkedAt,

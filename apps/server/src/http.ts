@@ -152,6 +152,12 @@ export function createHttpServer(
         if (parts[0] === 'project-workspace') {
           if (req.method === 'GET' && parts.length === 1)
             return json(res, 200, core.projects.list());
+          if (req.method === 'GET' && parts.length === 3 && parts[2] === 'workspace') {
+            const outputLanguage = z
+              .enum(['en', 'ko'])
+              .parse(url.searchParams.get('outputLanguage') ?? 'en');
+            return json(res, 200, await core.projects.workspace(parts[1], outputLanguage));
+          }
           if (req.method === 'GET' && parts.length === 3 && parts[2] === 'deletion')
             return json(res, 200, core.projects.deletionPreview(parts[1]));
           if (req.method === 'POST') {

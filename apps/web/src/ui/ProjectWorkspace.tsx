@@ -17,6 +17,7 @@ import {
   type ProjectView,
   type RecordRange,
   type SavedResumeEdits,
+  type WorkingTreeView,
 } from '@statecarry/presentation';
 import '@/styles/globals.css';
 import { Alert } from '@/components/ui/alert';
@@ -28,6 +29,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import {
   Download,
+  GitBranch,
   LoaderCircle,
   PanelLeftClose,
   PanelLeftOpen,
@@ -42,9 +44,21 @@ type Navigate = (href: string) => void;
 type WorkspaceProps = { controller: ProjectController; onNavigate: Navigate };
 type ProjectProps = WorkspaceProps & { project: ProjectView; state: WorkspaceState };
 type UpdateUiPreviewPhase = 'available' | 'downloading' | 'ready' | 'restarting';
+type DirtyWorkPreviewScenario = 'off' | 'clean' | 'normal' | 'mixed' | 'large' | 'no-git';
+type DirtyWorkPreview = {
+  kind: WorkingTreeView['kind'];
+  fileCount?: number;
+  additions?: number;
+  deletions?: number;
+  groups?: WorkingTreeView['groups'];
+  files?: string[];
+  lastCommit?: string;
+  summary: string;
+};
 const emptyEdits: SavedResumeEdits = { goalDraft: null, actionDrafts: [], expanded: [], scroll: 0 };
 const responseLanguageKey = 'statecarry.response-language.v1';
 const updateUiPreviewKey = 'statecarry.developer.update-ui-preview.v1';
+const dirtyWorkPreviewKey = 'statecarry.developer.dirty-work-preview.v1';
 const feedbackUrl = 'https://forms.gle/U8RcHwGe1dJxLdvq5';
 const productHuntUrl =
   'https://www.producthunt.com/products/statecarry?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-statecarry';
@@ -67,6 +81,149 @@ function writeUpdateUiPreview(enabled: boolean) {
   try {
     if (enabled) window.localStorage.setItem(updateUiPreviewKey, '1');
     else window.localStorage.removeItem(updateUiPreviewKey);
+  } catch {
+    // Developer preview remains active for this tab when browser storage is unavailable.
+  }
+}
+
+const dirtyWorkPreviewScenarios: Record<
+  Exclude<DirtyWorkPreviewScenario, 'off'>,
+  DirtyWorkPreview
+> = {
+  clean: {
+    kind: 'clean',
+    summary:
+      'This project has no uncommitted changes. StateCarry would keep the normal project flow.',
+  },
+  normal: {
+    kind: 'normal',
+    fileCount: 4,
+    additions: 143,
+    deletions: 58,
+    files: [
+      'apps/web/src/ui/ProjectWorkspace.tsx',
+      'apps/web/src/ui/project-workspace.css',
+      'apps/desktop/src/app-updater.ts',
+      'tests/project-updater-ui.test.tsx',
+    ],
+    groups: [
+      {
+        title: 'Working-tree recovery',
+        summary: 'Connect current Git state to the project workspace and continuation handoff.',
+        currentState:
+          'Git metadata, changed files, diff statistics, and the working-tree card are wired together.',
+        suggestedNextStep: 'Review the current UI and copied handoff using this real dirty tree.',
+        reason:
+          'The implementation exists, but the continuation experience still needs user-facing validation.',
+        doneWhen:
+          'The current work is understandable here and the copied handoff gives a new Codex session a clear first action.',
+        openItems: ['Review whether the continuation handoff is sufficient in real use.'],
+        files: [
+          'apps/web/src/ui/ProjectWorkspace.tsx',
+          'apps/web/src/ui/project-workspace.css',
+          'apps/desktop/src/app-updater.ts',
+          'tests/project-updater-ui.test.tsx',
+        ],
+      },
+    ],
+    lastCommit: 'feat: improve updater status',
+    summary:
+      'The current working tree contains a focused set of changes. StateCarry would hand the current repository state to a new Codex session for reconstruction and continuation.',
+  },
+  mixed: {
+    kind: 'mixed',
+    fileCount: 7,
+    additions: 286,
+    deletions: 91,
+    groups: [
+      {
+        title: 'Updater status flow',
+        summary:
+          'Move update status into the workspace and keep the desktop updater state visible.',
+        currentState:
+          'The workspace UI and desktop updater both contain changes for the new status flow.',
+        suggestedNextStep: 'Review the final updater interaction in the running app.',
+        reason: 'The diff shows the UI and updater wiring, but not user-facing validation.',
+        doneWhen:
+          'The updater status remains clear through the available, downloading, and ready states.',
+        openItems: ['Review the final interaction in the app.'],
+        files: ['apps/web/src/ui/ProjectWorkspace.tsx', 'apps/desktop/src/app-updater.ts'],
+      },
+      {
+        title: 'Release presentation',
+        summary:
+          'Update release-facing documentation and assets to match the current product state.',
+        currentState: 'Documentation and release assets have uncommitted updates.',
+        suggestedNextStep: 'Review the release-facing copy against the current product behavior.',
+        reason: 'The changed release material should match what the app now does.',
+        doneWhen:
+          'The release copy and assets describe the current product without stale behavior.',
+        openItems: [],
+        files: ['docs/ux-writing.md', 'README.md'],
+      },
+    ],
+    lastCommit: 'chore: prepare stable release',
+    summary:
+      'The working tree spans several areas. StateCarry would preserve the whole state and ask a new Codex session to separate the changes into logical pieces before continuing.',
+  },
+  large: {
+    kind: 'large',
+    fileCount: 126,
+    additions: 38_000,
+    deletions: 12_000,
+    groups: [
+      {
+        title: 'Workspace runtime consolidation',
+        summary:
+          'A broad runtime refactor spans application code, validation, and release support.',
+        currentState:
+          'The diff is large enough that the reconstructed scope should be reviewed before continuing.',
+        suggestedNextStep: 'Review the reconstructed work group before making additional changes.',
+        reason:
+          'The change set is large enough that a wrong continuation would have a high correction cost.',
+        doneWhen:
+          'The current work boundary is clear enough to choose one next edit without mixing unrelated changes.',
+        openItems: ['Confirm the work groups before making additional changes.'],
+        files: ['apps/web/src/ui/ProjectWorkspace.tsx'],
+      },
+    ],
+    lastCommit: 'refactor: consolidate workspace runtime',
+    summary:
+      'This is a large uncommitted change set. StateCarry would not try to reconstruct the work itself; it would start a new Codex session that inspects the repository first and reports logical work groups before changing anything.',
+  },
+  'no-git': {
+    kind: 'no-git',
+    summary:
+      'Git is not available for this project, so StateCarry cannot reliably detect or carry uncommitted work. The normal project flow remains available, with Git setup recommended for working-tree recovery.',
+  },
+};
+
+function isDirtyWorkPreviewScenario(value: string | null): value is DirtyWorkPreviewScenario {
+  return (
+    value === 'off' ||
+    value === 'clean' ||
+    value === 'normal' ||
+    value === 'mixed' ||
+    value === 'large' ||
+    value === 'no-git'
+  );
+}
+
+function readDirtyWorkPreview(): DirtyWorkPreviewScenario {
+  if (!isDevelopmentBuild) return 'off';
+  try {
+    const value = window.localStorage.getItem(dirtyWorkPreviewKey);
+    return isDirtyWorkPreviewScenario(value) ? value : 'off';
+  } catch {
+    return 'off';
+  }
+}
+
+function writeDirtyWorkPreview(scenario: DirtyWorkPreviewScenario) {
+  if (!isDevelopmentBuild) return;
+  try {
+    if (scenario === 'off') window.localStorage.removeItem(dirtyWorkPreviewKey);
+    else window.localStorage.setItem(dirtyWorkPreviewKey, scenario);
   } catch {
     // Developer preview remains active for this tab when browser storage is unavailable.
   }
@@ -197,6 +354,8 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [updateUiPreview, setUpdateUiPreview] = useState(readUpdateUiPreview);
+  const [dirtyWorkPreview, setDirtyWorkPreview] =
+    useState<DirtyWorkPreviewScenario>(readDirtyWorkPreview);
   const [updateUiPreviewPhase, setUpdateUiPreviewPhase] =
     useState<UpdateUiPreviewPhase>('available');
   const updateUiPreviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -222,6 +381,10 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
     setUpdateUiPreviewPhase('available');
     setUpdateUiPreview(enabled);
     writeUpdateUiPreview(enabled);
+  };
+  const changeDirtyWorkPreview = (scenario: DirtyWorkPreviewScenario) => {
+    setDirtyWorkPreview(scenario);
+    writeDirtyWorkPreview(scenario);
   };
   const previewDownloadAppUpdate = () => {
     clearUpdateUiPreviewTimer();
@@ -533,6 +696,8 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
             onNavigate={onNavigate}
             updateUiPreview={updateUiPreview}
             onUpdateUiPreviewChange={changeUpdateUiPreview}
+            dirtyWorkPreview={dirtyWorkPreview}
+            onDirtyWorkPreviewChange={changeDirtyWorkPreview}
           />
         ) : project ? (
           route.page === 'settings' ? (
@@ -556,6 +721,7 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
               state={state}
               controller={controller}
               onNavigate={onNavigate}
+              dirtyWorkPreview={dirtyWorkPreview}
             />
           )
         ) : state.loading ? (
@@ -580,10 +746,14 @@ function GlobalSettings({
   onNavigate,
   updateUiPreview,
   onUpdateUiPreviewChange,
+  dirtyWorkPreview,
+  onDirtyWorkPreviewChange,
 }: WorkspaceProps & {
   state: WorkspaceState;
   updateUiPreview: boolean;
   onUpdateUiPreviewChange: (enabled: boolean) => void;
+  dirtyWorkPreview: DirtyWorkPreviewScenario;
+  onDirtyWorkPreviewChange: (scenario: DirtyWorkPreviewScenario) => void;
 }) {
   const [language, setLanguage] = useState<'en' | 'ko'>(() => readResponseLanguage());
   const [capabilities, setCapabilities] = useState<Awaited<
@@ -673,8 +843,10 @@ function GlobalSettings({
         <Card className={cardSurface} aria-labelledby="response-language-heading">
           <h2 id="response-language-heading">Overview language</h2>
           <p className="pw-small">
-            This changes overview text only. Existing overviews are translated without re-checking
-            project files, Git, or Codex conversations. Quoted source text stays unchanged.
+            This changes generated overview and working-tree analysis text. Existing overviews are
+            translated without re-checking project files, Git, or Codex conversations. Working-tree
+            analysis is reused when the repository state and selected language have not changed.
+            Quoted source text stays unchanged.
           </p>
           <label className="pw-field">
             Language
@@ -817,6 +989,32 @@ function GlobalSettings({
                   onChange={(event) => onUpdateUiPreviewChange(event.target.checked)}
                 />
                 Preview update UI
+              </label>
+            </div>
+            <div className="pw-setting-row">
+              <div className="pw-setting-copy">
+                <strong>Uncommitted work preview</strong>
+                <span className="pw-small">
+                  Show a hard-coded dirty-work scenario on Project without changing project data.
+                </span>
+              </div>
+              <label className="pw-field pw-preview-scenario">
+                Scenario
+                <select
+                  name="preview-dirty-work"
+                  value={dirtyWorkPreview}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    onDirtyWorkPreviewChange(isDirtyWorkPreviewScenario(value) ? value : 'off');
+                  }}
+                >
+                  <option value="off">Off</option>
+                  <option value="clean">Clean working tree</option>
+                  <option value="normal">Normal dirty tree</option>
+                  <option value="mixed">Mixed dirty tree</option>
+                  <option value="large">Large dirty tree</option>
+                  <option value="no-git">No Git</option>
+                </select>
               </label>
             </div>
           </Card>
@@ -1018,7 +1216,210 @@ function Home({ state, controller, onNavigate }: WorkspaceProps & { state: Works
   );
 }
 
-function ProjectPage({ project, state, controller, onNavigate }: ProjectProps) {
+function UncommittedWorkPreview({ scenario }: { scenario: DirtyWorkPreviewScenario }) {
+  if (!isDevelopmentBuild || scenario === 'off') return null;
+  const preview = dirtyWorkPreviewScenarios[scenario];
+  return <WorkingTreeCard tree={preview} developerPreview />;
+}
+
+function WorkingTreeCard({
+  tree,
+  developerPreview = false,
+  loading = false,
+  onContinue,
+}: {
+  tree: DirtyWorkPreview | WorkingTreeView;
+  developerPreview?: boolean;
+  loading?: boolean;
+  onContinue?: () => void;
+}) {
+  const [showFiles, setShowFiles] = useState(false);
+  if (tree.kind === 'clean' && !developerPreview) return null;
+
+  if (tree.kind === 'clean') {
+    return (
+      <section
+        className={cn(cardSurface, 'pw-card pw-uncommitted-work pw-uncommitted-work--clean')}
+        aria-label="Uncommitted work developer preview"
+      >
+        <div className="pw-card-meta">
+          {developerPreview && <Badge kind="checking">Developer preview</Badge>}
+          <span className="pw-small">Clean working tree</span>
+        </div>
+        <div className="pw-git-heading">
+          <GitBranch aria-hidden="true" />
+          <h2>No uncommitted changes</h2>
+        </div>
+        <p className="pw-small">{tree.summary}</p>
+      </section>
+    );
+  }
+
+  if (tree.kind === 'no-git') {
+    return (
+      <section
+        className={cn(cardSurface, 'pw-card pw-uncommitted-work pw-uncommitted-work--no-git')}
+        aria-label={
+          developerPreview ? 'Uncommitted work developer preview' : 'Working-tree recovery'
+        }
+      >
+        <div className="pw-card-meta">
+          {developerPreview && <Badge kind="checking">Developer preview</Badge>}
+          <span className="pw-small">Git unavailable</span>
+        </div>
+        <div className="pw-git-heading">
+          <GitBranch aria-hidden="true" />
+          <h2>Working-tree recovery unavailable</h2>
+        </div>
+        <p>{tree.summary}</p>
+        <div className="pw-actions" aria-label="No Git preview actions">
+          <Button type="button" disabled>
+            Set up Git
+          </Button>
+        </div>
+        {developerPreview && (
+          <p className="pw-small">Actions are disabled in this developer preview.</p>
+        )}
+      </section>
+    );
+  }
+
+  return (
+    <section
+      className={cn(
+        cardSurface,
+        'pw-card pw-uncommitted-work',
+        tree.kind === 'normal' && 'pw-uncommitted-work--normal',
+        tree.kind === 'mixed' && 'pw-uncommitted-work--mixed',
+        tree.kind === 'large' && 'pw-uncommitted-work--large',
+      )}
+      aria-label={developerPreview ? 'Uncommitted work developer preview' : 'Uncommitted work'}
+    >
+      <div className="pw-section-head">
+        <div className="pw-stack pw-uncommitted-heading">
+          <div className="pw-card-meta">
+            {developerPreview && <Badge kind="checking">Developer preview</Badge>}
+            <span className="pw-small">
+              {tree.fileCount} file{tree.fileCount === 1 ? '' : 's'} changed
+            </span>
+          </div>
+          <div className="pw-git-heading">
+            <GitBranch aria-hidden="true" />
+            <h2>Uncommitted work</h2>
+          </div>
+        </div>
+      </div>
+      <p>{tree.summary}</p>
+      <dl className="pw-facts pw-uncommitted-last-point">
+        {tree.additions !== undefined && tree.deletions !== undefined && (
+          <div>
+            <dt>Diff size</dt>
+            <dd>
+              +{tree.additions.toLocaleString()} / −{tree.deletions.toLocaleString()}
+            </dd>
+          </div>
+        )}
+        {tree.lastCommit && (
+          <div>
+            <dt>Last commit</dt>
+            <dd>{tree.lastCommit}</dd>
+          </div>
+        )}
+      </dl>
+      {tree.groups && tree.groups.length > 0 && (
+        <div className="pw-uncommitted-groups">
+          {tree.groups.map((group) => (
+            <article className="pw-uncommitted-group" key={group.title}>
+              <div className="pw-uncommitted-group-heading">
+                <h3>{group.title}</h3>
+                <span className="pw-small">
+                  {group.files.length} file{group.files.length === 1 ? '' : 's'}
+                </span>
+              </div>
+              <p>{group.summary}</p>
+              <dl className="pw-uncommitted-group-state">
+                <div>
+                  <dt>Current state</dt>
+                  <dd>{group.currentState}</dd>
+                </div>
+                {group.suggestedNextStep && (
+                  <div>
+                    <dt>Suggested next step</dt>
+                    <dd>{group.suggestedNextStep}</dd>
+                  </div>
+                )}
+                {group.reason && (
+                  <div>
+                    <dt>Why</dt>
+                    <dd>{group.reason}</dd>
+                  </div>
+                )}
+                {group.doneWhen && (
+                  <div>
+                    <dt>Done when</dt>
+                    <dd>{group.doneWhen}</dd>
+                  </div>
+                )}
+                {group.openItems.length > 0 && (
+                  <div>
+                    <dt>Open or review next</dt>
+                    <dd>
+                      <ul>
+                        {group.openItems.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            </article>
+          ))}
+        </div>
+      )}
+      {tree.files && tree.files.length > 0 && showFiles && (
+        <section className="pw-details pw-uncommitted-files" aria-label="Changed files">
+          <div className="pw-section-head">
+            <h3>Changed files</h3>
+            <span className="pw-small">{tree.files.length} shown</span>
+          </div>
+          <ul>
+            {tree.files.map((file) => (
+              <li key={file}>
+                <code>{file}</code>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      <div className="pw-actions" aria-label="Uncommitted work preview actions">
+        <Button type="button" disabled={developerPreview || loading} onClick={onContinue}>
+          Copy handoff for new Codex session
+        </Button>
+        <Button
+          type="button"
+          className="pw-button--quiet"
+          disabled={developerPreview}
+          aria-expanded={showFiles}
+          onClick={() => setShowFiles((value) => !value)}
+        >
+          {showFiles ? 'Hide changed files' : 'View changed files'}
+        </Button>
+      </div>
+      {developerPreview && (
+        <p className="pw-small">Actions are disabled in this developer preview.</p>
+      )}
+    </section>
+  );
+}
+
+function ProjectPage({
+  project,
+  state,
+  controller,
+  onNavigate,
+  dirtyWorkPreview,
+}: ProjectProps & { dirtyWorkPreview: DirtyWorkPreviewScenario }) {
   const edits = state.edits[project.id] ?? emptyEdits;
   const selectedKey = state.route.candidateKey ?? edits.selectedKey;
   const selected =
@@ -1027,6 +1428,23 @@ function ProjectPage({ project, state, controller, onNavigate }: ProjectProps) {
       : (project.tasks.find((task) => task.status !== 'accepted' && task.status !== 'paused') ??
         project.tasks[0]);
   const busy = state.busyWorkId === project.id;
+  const workingTree = state.workingTrees[project.id];
+  const workingTreeLoading = state.workingTreeLoading[project.id] ?? false;
+  const [workingTreeCopyStatus, setWorkingTreeCopyStatus] = useState('');
+  const continueWorkingTree = async () => {
+    const text = await controller.workingTreeHandoff(project.id);
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setWorkingTreeCopyStatus(
+        'Repository handoff copied. Start a new Codex session in this project and paste it there.',
+      );
+    } catch {
+      setWorkingTreeCopyStatus(
+        'Could not copy the repository handoff. No project files were changed.',
+      );
+    }
+  };
   const missing = selectedKey !== undefined && !selected;
   useEffect(() => {
     if (selectedKey === undefined && selected) controller.select(project.id, selected.key);
@@ -1098,6 +1516,20 @@ function ProjectPage({ project, state, controller, onNavigate }: ProjectProps) {
               </div>
             </dl>
           </section>
+          {dirtyWorkPreview !== 'off' ? (
+            <UncommittedWorkPreview scenario={dirtyWorkPreview} />
+          ) : workingTree ? (
+            <>
+              <WorkingTreeCard
+                tree={workingTree}
+                loading={workingTreeLoading}
+                onContinue={() => void continueWorkingTree()}
+              />
+              {workingTreeCopyStatus && <p className="pw-small">{workingTreeCopyStatus}</p>}
+            </>
+          ) : workingTreeLoading ? (
+            <p className="pw-small">Checking current Git working tree…</p>
+          ) : null}
           <section
             className={`pw-goal${!project.goal && selected && !edits.goalDraft ? ' pw-goal--suggested' : ''}`}
             aria-label="Current goal"

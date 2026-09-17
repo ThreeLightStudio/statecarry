@@ -30,6 +30,36 @@ export const workspaceGitCommitSchema = z
   .strict();
 export type WorkspaceGitCommit = z.infer<typeof workspaceGitCommitSchema>;
 
+export const workspaceChangedFileSchema = z
+  .object({
+    path: z.string().min(1).max(2000),
+    status: z.enum(['added', 'modified', 'deleted', 'renamed', 'untracked']),
+  })
+  .strict();
+export type WorkspaceChangedFile = z.infer<typeof workspaceChangedFileSchema>;
+
+export const workingTreeWorkGroupSchema = z
+  .object({
+    title: z.string().min(1).max(120),
+    summary: z.string().min(1).max(700),
+    currentState: z.string().min(1).max(700),
+    openItems: z.array(z.string().min(1).max(300)).max(5),
+    suggestedNextStep: z.string().min(1).max(400),
+    reason: z.string().min(1).max(500),
+    doneWhen: z.string().min(1).max(500),
+    files: z.array(z.string().min(1).max(2000)).min(1).max(60),
+  })
+  .strict();
+export type WorkingTreeWorkGroup = z.infer<typeof workingTreeWorkGroupSchema>;
+
+export const workingTreeAnalysisSchema = z
+  .object({
+    summary: z.string().min(1).max(900),
+    groups: z.array(workingTreeWorkGroupSchema).min(1).max(5),
+  })
+  .strict();
+export type WorkingTreeAnalysis = z.infer<typeof workingTreeAnalysisSchema>;
+
 /** Bounded clues from connected records used to choose project files for inspection. */
 export const workspaceInspectionHintsSchema = z
   .object({
@@ -80,6 +110,18 @@ export const workspaceSnapshotSchema = z
     recentCommits: z.array(workspaceGitCommitSchema).max(12).optional(),
     /** Bounded paths changed in the working tree at inspection time. */
     changedPaths: z.array(z.string().min(1).max(2000)).max(120).optional(),
+    /** Bounded changed-file details captured from Git porcelain output. */
+    changedFiles: z.array(workspaceChangedFileSchema).max(120).optional(),
+    /** Complete changed-file count, including files omitted from bounded path details. */
+    changedFileCount: z.number().int().nonnegative().optional(),
+    /** Tracked diff line totals against HEAD. Untracked content is not included. */
+    additions: z.number().int().nonnegative().optional(),
+    deletions: z.number().int().nonnegative().optional(),
+    untrackedCount: z.number().int().nonnegative().optional(),
+    /** Bounded textual diff used only for working-tree reconstruction. */
+    diffPreview: z.string().max(80000).optional(),
+    /** Optional semantic reconstruction produced from current repository evidence only. */
+    workingTreeAnalysis: workingTreeAnalysisSchema.optional(),
     status: z.enum(['checked', 'unknown']),
     checkedAt: z.string().datetime(),
     limitations: z.array(z.string().max(1500)).max(20),

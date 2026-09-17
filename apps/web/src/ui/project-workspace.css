@@ -530,6 +530,119 @@
   @apply mb-6;
 }
 
+.pw-uncommitted-work {
+  @apply mb-6;
+}
+
+.pw-uncommitted-work--clean {
+  border-color: color-mix(in oklab, #2f8f62 28%, var(--border));
+  background: color-mix(in oklab, #2f8f62 5%, var(--card));
+}
+
+.pw-uncommitted-work--normal {
+  border-color: color-mix(in oklab, #4f78a8 24%, var(--border));
+  background: color-mix(in oklab, #4f78a8 4%, var(--card));
+}
+
+.pw-uncommitted-work--mixed {
+  border-color: color-mix(in oklab, #b78624 30%, var(--border));
+  background: color-mix(in oklab, #b78624 5%, var(--card));
+}
+
+.pw-uncommitted-work--large {
+  border-color: color-mix(in oklab, #bf5f45 30%, var(--border));
+  background: color-mix(in oklab, #bf5f45 5%, var(--card));
+}
+
+.pw-uncommitted-work--no-git {
+  border-color: color-mix(in oklab, #6e7f96 26%, var(--border));
+  background: color-mix(in oklab, #6e7f96 4%, var(--card));
+}
+
+.pw-uncommitted-heading {
+  @apply gap-2;
+}
+
+.pw-git-heading {
+  @apply flex min-w-0 items-center gap-2.5;
+}
+
+.pw-git-heading > svg {
+  @apply size-5 shrink-0 text-muted-foreground;
+}
+
+.pw-uncommitted-work--clean .pw-git-heading > svg {
+  color: #2f8f62;
+}
+
+.pw-uncommitted-work--normal .pw-git-heading > svg {
+  color: #4f78a8;
+}
+
+.pw-uncommitted-work--mixed .pw-git-heading > svg {
+  color: #b78624;
+}
+
+.pw-uncommitted-work--large .pw-git-heading > svg {
+  color: #bf5f45;
+}
+
+.pw-uncommitted-work--no-git .pw-git-heading > svg {
+  color: #6e7f96;
+}
+
+.pw-uncommitted-groups {
+  @apply mt-4 grid gap-3;
+}
+
+.pw-uncommitted-group {
+  @apply grid gap-3 rounded-lg border border-border bg-card/70 px-4 py-4;
+}
+
+.pw-uncommitted-group-heading {
+  @apply flex min-w-0 items-center justify-between gap-3;
+}
+
+.pw-uncommitted-group-state {
+  @apply m-0 grid gap-3 text-sm;
+}
+
+.pw-uncommitted-group-state > div {
+  @apply grid gap-1.5;
+}
+
+.pw-uncommitted-group-state dt {
+  @apply text-xs font-semibold text-muted-foreground;
+}
+
+.pw-uncommitted-group-state dd {
+  @apply m-0;
+}
+
+.pw-uncommitted-group-state ul {
+  @apply m-0 grid list-inside list-disc gap-1 pl-0;
+}
+
+.pw-uncommitted-source {
+  @apply grid gap-1 rounded-md bg-muted px-4 py-3;
+}
+
+.pw-uncommitted-source span {
+  @apply text-sm text-muted-foreground;
+}
+
+.pw-uncommitted-last-point {
+  @apply rounded-md border border-border p-4;
+}
+
+.pw-uncommitted-files ul {
+  @apply m-0 grid gap-2 pl-5 text-sm;
+}
+
+.pw-uncommitted-files code {
+  @apply break-all;
+}
+
 .pw-state-grid {
   @apply gap-x-6 gap-y-[18px];
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -643,6 +756,10 @@
   @apply grid gap-1;
 }
 
+.pw-preview-scenario {
+  @apply w-[min(100%,260px)] shrink-0;
+}
+
 .pw-setting-row .pw-checkbox {
   @apply shrink-0;
 }
@@ -732,6 +849,14 @@
   .pw-state-grid,
   .pw-source-summary {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pw-setting-row {
+    @apply flex-col;
+  }
+
+  .pw-preview-scenario {
+    @apply w-full;
   }
 }
 
