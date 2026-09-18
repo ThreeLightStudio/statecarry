@@ -59,11 +59,11 @@ StateCarry runs locally on your Mac. It does not execute the next action or send
 
 ## Download
 
-Download the latest Developer ID-signed public beta for Apple Silicon macOS:
+Download the latest signed and notarized public beta for Apple Silicon macOS:
 
 **[Download StateCarry Public Beta](https://github.com/ThreeLightStudio/statecarry/releases/latest/download/macos-arm64-StateCarry.dmg)**
 
-Install the app from the DMG into Applications and launch StateCarry from Finder. The current v0.1.8 DMG is Developer ID signed but was published without Apple notarization, so macOS may ask you to confirm opening it from Finder. Stable desktop builds check for newer releases automatically; downloading an available update and restarting to apply it remain explicit actions. See [desktop automatic updates](docs/auto-update.md) for the update flow and [desktop release](docs/desktop-release.md) for release verification details.
+Install the app from the DMG into Applications and launch StateCarry from Finder. Stable desktop builds are Developer ID signed, Apple notarized, and checked by Gatekeeper before publication. They also check for newer releases automatically; downloading an available update and restarting to apply it remain explicit actions. See [desktop automatic updates](docs/auto-update.md) for the update flow and [desktop release](docs/desktop-release.md) for release verification details.
 
 ## Run from source
 
