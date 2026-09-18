@@ -58,7 +58,7 @@ describe('project workspace registration and decisions', () => {
       inspector,
     );
 
-    const snapshot = await core.projects.workspace(receipt.workId, 'ko');
+    const snapshot = await core.projects.observe(receipt.workId, 'ko');
 
     expect(h.summary.analyzeWorkingTree).toHaveBeenCalledWith(
       expect.objectContaining({ projectTitle: 'Export project', outputLanguage: 'ko' }),
@@ -68,10 +68,10 @@ describe('project workspace registration and decisions', () => {
       files: ['src/recovery.ts', 'tests/recovery.test.ts'],
     });
 
-    await core.projects.workspace(receipt.workId, 'ko');
+    await core.projects.observe(receipt.workId, 'ko');
     expect(h.summary.analyzeWorkingTree).toHaveBeenCalledTimes(1);
 
-    await core.projects.workspace(receipt.workId, 'en');
+    await core.projects.observe(receipt.workId, 'en');
     expect(h.summary.analyzeWorkingTree).toHaveBeenCalledTimes(2);
   });
 

@@ -14,7 +14,11 @@ export type {
   ResumeCorrection,
   Continuation,
 } from '@statecarry/contracts';
-export type ResumeChangeNotice = { workId: string | null; kind?: 'collection-settled' };
+export type ResumeChangeNotice = {
+  workId: string | null;
+  kind?: 'collection-settled';
+  topic?: 'profile' | 'sources' | 'observation' | 'working-tree-analysis' | 'overview';
+};
 export interface ResumeGateway {
   /** Optional change stream. It updates a displayed brief but never starts analysis. */
   subscribe?(

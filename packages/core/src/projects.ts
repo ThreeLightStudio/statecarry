@@ -4,8 +4,10 @@ import {
   projectProfileSchema,
   projectSourcesSchema,
   projectDeletionSchema,
+  workspaceSnapshotSchema,
   type Command,
   type Connection,
+  type ProjectObservation,
   type ProjectProfile,
   type ProjectRegistrations,
   type ProjectWorkspace,
@@ -14,20 +16,17 @@ import {
   type ResumeWork,
   type Work,
   type WorkingTreeAnalysis,
+  type WorkingTreeAnalysisRecord,
+  type WorkspaceInspectionHints,
+  type WorkspaceProbe,
+  type WorkspaceSnapshot,
 } from '@statecarry/contracts';
 import type { StateCarry } from './service';
 import { projectDeletionPlan } from './project-deletion';
 import { normalizeProjectFolder } from './project-folder';
 
 export class Projects {
-  private workingTreeAnalysisCache = new Map<
-    string,
-    { signature: string; analysis: WorkingTreeAnalysis }
-  >();
-  private workingTreeAnalysisPending = new Map<
-    string,
-    { signature: string; promise: Promise<WorkingTreeAnalysis> }
-  >();
+  private workingTreeAnalysisPending = new Map<string, { promise: Promise<WorkingTreeAnalysis> }>();
   constructor(private core: StateCarry) {}
 
   private hash(action: string, workId: string | null, command: Command) {
@@ -96,6 +95,7 @@ export class Projects {
     action: string,
     command: Command,
     change: (work: Work, connection: Connection) => void,
+    topic?: 'profile' | 'sources' | 'observation' | 'working-tree-analysis' | 'overview',
   ): Receipt {
     const hash = this.hash(action, workId, command);
     const result = this.core.repo.transaction(() => {
@@ -106,8 +106,251 @@ export class Projects {
       change(work, this.connection(work));
       return this.receipt(command, hash, action, this.core.work(workId), work.projectId);
     });
-    this.core.events.changed(workId);
+    this.core.events.changed(workId, topic);
     return result;
+  }
+
+  private probeKey(probe: WorkspaceProbe): string {
+    return this.core.ids.hash({
+      cwd: probe.cwd,
+      root: probe.root,
+      branch: probe.branch,
+      commit: probe.commit,
+      statusFingerprint: probe.statusFingerprint,
+      status: probe.status,
+    });
+  }
+
+  private inspectionKey(snapshot: WorkspaceSnapshot): string {
+    return this.core.ids.hash({
+      cwd: snapshot.cwd,
+      root: snapshot.root ?? null,
+      branch: snapshot.branch,
+      commit: snapshot.commit,
+      dirty: snapshot.dirty,
+      changedFiles: snapshot.changedFiles ?? [],
+      changedFileCount: snapshot.changedFileCount ?? 0,
+      additions: snapshot.additions ?? 0,
+      deletions: snapshot.deletions ?? 0,
+      untrackedCount: snapshot.untrackedCount ?? 0,
+      diffPreview: snapshot.diffPreview ?? '',
+      recentCommits: snapshot.recentCommits ?? [],
+      fileFingerprint: snapshot.fileFingerprint ?? snapshot.fingerprint ?? null,
+      inventoryFingerprint: snapshot.inventoryFingerprint ?? null,
+      files: (snapshot.files ?? snapshot.fileObservations ?? []).map((file) => ({
+        path: file.path,
+        hash: file.hash,
+        size: file.size ?? null,
+      })),
+      status: snapshot.status,
+      limitations: snapshot.limitations,
+    });
+  }
+
+  private semanticEvidenceKey(snapshot: WorkspaceSnapshot): string {
+    return this.core.ids.hash({
+      branch: snapshot.branch,
+      commit: snapshot.commit,
+      changedFiles: snapshot.changedFiles ?? [],
+      changedFileCount: snapshot.changedFileCount ?? 0,
+      additions: snapshot.additions ?? 0,
+      deletions: snapshot.deletions ?? 0,
+      untrackedCount: snapshot.untrackedCount ?? 0,
+      diffPreview: snapshot.diffPreview ?? '',
+      fileFingerprint: snapshot.fileFingerprint ?? snapshot.fingerprint ?? null,
+      files: (snapshot.files ?? snapshot.fileObservations ?? []).map((file) => ({
+        path: file.path,
+        hash: file.hash,
+      })),
+    });
+  }
+
+  private semanticKey(
+    work: Work,
+    observation: ProjectObservation,
+    outputLanguage: 'en' | 'ko',
+  ): string {
+    return this.core.ids.hash({
+      evidence: observation.semanticKey,
+      outputLanguage,
+      projectTitle: this.profile(work).title,
+      analysis: this.core.summary.configuration(),
+    });
+  }
+
+  private analysisRecordId(workId: string, semanticKey: string): string {
+    return this.core.ids.hash(['working-tree-analysis', workId, semanticKey]);
+  }
+
+  private withoutAnalysis(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
+    const { workingTreeAnalysis: _analysis, ...raw } = snapshot;
+    return raw;
+  }
+
+  private unknownSnapshot(cwd: string): WorkspaceSnapshot {
+    return {
+      cwd,
+      root: null,
+      branch: null,
+      commit: null,
+      dirty: null,
+      status: 'unknown',
+      checkedAt: this.core.clock.now(),
+      limitations: ['Project state has not been observed yet.'],
+    };
+  }
+
+  latestObservation(workId: string): ProjectObservation | null {
+    const stored = this.core.repo.get('projectObservation', workId);
+    if (stored) return stored;
+    const legacy = this.core.repo.get('work', workId)?.resume?.workspaceAfter;
+    const parsed = workspaceSnapshotSchema.safeParse(legacy);
+    if (!parsed.success) return null;
+    const snapshot = this.withoutAnalysis(parsed.data);
+    return {
+      id: workId,
+      workId,
+      checkedAt: snapshot.checkedAt,
+      probeKey: this.core.ids.hash(['legacy-project-observation', workId, snapshot.checkedAt]),
+      inspectionKey: this.inspectionKey(snapshot),
+      semanticKey: this.semanticEvidenceKey(snapshot),
+      snapshot,
+    };
+  }
+
+  latestSnapshot(workId: string, outputLanguage: 'en' | 'ko' = 'en'): WorkspaceSnapshot {
+    const work = this.core.work(workId);
+    const connection = this.connection(work);
+    const observation = this.latestObservation(workId);
+    if (!observation) return this.unknownSnapshot(connection.cwd);
+    const snapshot = this.withoutAnalysis(observation.snapshot);
+    if (!snapshot.dirty) return snapshot;
+    const semanticKey = this.semanticKey(work, observation, outputLanguage);
+    const record = this.core.repo.get(
+      'workingTreeAnalysis',
+      this.analysisRecordId(workId, semanticKey),
+    );
+    return record ? { ...snapshot, workingTreeAnalysis: record.result } : snapshot;
+  }
+
+  private async analyzeObservation(
+    work: Work,
+    observation: ProjectObservation,
+    outputLanguage: 'en' | 'ko',
+  ): Promise<WorkspaceSnapshot> {
+    const snapshot = this.withoutAnalysis(observation.snapshot);
+    if (!snapshot.dirty || !this.core.summary.analyzeWorkingTree) return snapshot;
+    const semanticKey = this.semanticKey(work, observation, outputLanguage);
+    const recordId = this.analysisRecordId(work.id, semanticKey);
+    const stored = this.core.repo.get('workingTreeAnalysis', recordId);
+    if (stored) return { ...snapshot, workingTreeAnalysis: stored.result };
+    const pending = this.workingTreeAnalysisPending.get(recordId);
+    if (pending) return { ...snapshot, workingTreeAnalysis: await pending.promise };
+    try {
+      const promise = this.core.summary.analyzeWorkingTree({
+        projectTitle: this.profile(work).title,
+        outputLanguage,
+        snapshot,
+      });
+      this.workingTreeAnalysisPending.set(recordId, { promise });
+      const result = await promise;
+      const record: WorkingTreeAnalysisRecord = {
+        id: recordId,
+        workId: work.id,
+        semanticKey,
+        outputLanguage,
+        result,
+        generatedAt: this.core.clock.now(),
+      };
+      this.core.repo.put('workingTreeAnalysis', record);
+      this.core.events.changed(work.id, 'working-tree-analysis');
+      return { ...snapshot, workingTreeAnalysis: result };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return {
+        ...snapshot,
+        limitations: [
+          ...snapshot.limitations,
+          `Working-tree semantic analysis unavailable: ${detail.slice(0, 500)}`,
+        ].slice(0, 20),
+      };
+    } finally {
+      this.workingTreeAnalysisPending.delete(recordId);
+    }
+  }
+
+  async analyzeLatest(
+    workId: string,
+    outputLanguage: 'en' | 'ko' = 'en',
+  ): Promise<WorkspaceSnapshot> {
+    const work = this.core.work(workId);
+    const observation = this.latestObservation(workId);
+    if (!observation) return this.latestSnapshot(workId, outputLanguage);
+    return this.analyzeObservation(work, observation, outputLanguage);
+  }
+
+  async observe(
+    workId: string,
+    outputLanguage: 'en' | 'ko' = 'en',
+    hints?: WorkspaceInspectionHints,
+    analyze = true,
+  ): Promise<WorkspaceSnapshot> {
+    const work = this.core.work(workId);
+    const connection = this.connection(work);
+    const inspector = this.core.projectInspector;
+    if (!inspector)
+      throw new DomainError(
+        'CAPABILITY_UNSUPPORTED',
+        'Project workspace inspection is unavailable.',
+      );
+    const previous = this.latestObservation(workId);
+    let probeKey: string;
+    let snapshot: WorkspaceSnapshot;
+    if (inspector.probeAsync || inspector.probe) {
+      const probe = inspector.probeAsync
+        ? await inspector.probeAsync(connection.cwd)
+        : inspector.probe!(connection.cwd);
+      probeKey = this.probeKey(probe);
+      if (previous?.probeKey === probeKey)
+        return analyze
+          ? this.analyzeObservation(work, previous, outputLanguage)
+          : this.withoutAnalysis(previous.snapshot);
+      snapshot = workspaceSnapshotSchema.parse(
+        inspector.inspectAsync
+          ? await inspector.inspectAsync(
+              connection.cwd,
+              hints ?? previous?.snapshot.inspection?.hints,
+            )
+          : inspector.inspect(connection.cwd, hints ?? previous?.snapshot.inspection?.hints),
+      );
+    } else {
+      snapshot = workspaceSnapshotSchema.parse(
+        inspector.inspectAsync
+          ? await inspector.inspectAsync(connection.cwd, hints)
+          : inspector.inspect(connection.cwd, hints),
+      );
+      probeKey = this.inspectionKey(snapshot);
+      if (previous?.probeKey === probeKey)
+        return analyze
+          ? this.analyzeObservation(work, previous, outputLanguage)
+          : this.withoutAnalysis(previous.snapshot);
+    }
+    snapshot = this.withoutAnalysis(snapshot);
+    const observation: ProjectObservation = {
+      id: workId,
+      workId,
+      checkedAt: snapshot.checkedAt,
+      probeKey,
+      inspectionKey: this.inspectionKey(snapshot),
+      semanticKey: this.semanticEvidenceKey(snapshot),
+      snapshot,
+    };
+    this.core.repo.put('projectObservation', observation);
+    if (previous?.inspectionKey !== observation.inspectionKey)
+      this.core.events.changed(workId, 'observation');
+    return analyze
+      ? this.analyzeObservation(work, observation, outputLanguage)
+      : observation.snapshot;
   }
 
   registrations(): ProjectRegistrations {
@@ -185,59 +428,7 @@ export class Projects {
   }
 
   async workspace(workId: string, outputLanguage: 'en' | 'ko' = 'en') {
-    const work = this.core.work(workId);
-    const connection = this.connection(work);
-    const inspector = this.core.projectInspector;
-    if (!inspector)
-      throw new DomainError(
-        'CAPABILITY_UNSUPPORTED',
-        'Project workspace inspection is unavailable.',
-      );
-    const snapshot = inspector.inspect(connection.cwd);
-    if (!snapshot.dirty || !this.core.summary.analyzeWorkingTree) return snapshot;
-    const cacheKey = `${workId}:${outputLanguage}`;
-    const signature = this.core.ids.hash({
-      outputLanguage,
-      branch: snapshot.branch,
-      commit: snapshot.commit,
-      changedFiles: snapshot.changedFiles,
-      changedFileCount: snapshot.changedFileCount,
-      additions: snapshot.additions,
-      deletions: snapshot.deletions,
-      untrackedCount: snapshot.untrackedCount,
-      diffPreview: snapshot.diffPreview,
-      fileFingerprint: snapshot.fileFingerprint,
-      inventoryFingerprint: snapshot.inventoryFingerprint,
-    });
-    const cached = this.workingTreeAnalysisCache.get(cacheKey);
-    if (cached?.signature === signature)
-      return { ...snapshot, workingTreeAnalysis: cached.analysis };
-    const pending = this.workingTreeAnalysisPending.get(cacheKey);
-    if (pending?.signature === signature)
-      return { ...snapshot, workingTreeAnalysis: await pending.promise };
-    try {
-      const promise = this.core.summary.analyzeWorkingTree({
-        projectTitle: this.profile(work).title,
-        outputLanguage,
-        snapshot,
-      });
-      this.workingTreeAnalysisPending.set(cacheKey, { signature, promise });
-      const workingTreeAnalysis = await promise;
-      this.workingTreeAnalysisCache.set(cacheKey, { signature, analysis: workingTreeAnalysis });
-      return { ...snapshot, workingTreeAnalysis };
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      return {
-        ...snapshot,
-        limitations: [
-          ...snapshot.limitations,
-          `Working-tree semantic analysis unavailable: ${detail.slice(0, 500)}`,
-        ].slice(0, 20),
-      };
-    } finally {
-      const current = this.workingTreeAnalysisPending.get(cacheKey);
-      if (current?.signature === signature) this.workingTreeAnalysisPending.delete(cacheKey);
-    }
+    return this.latestSnapshot(workId, outputLanguage);
   }
 
   create(command: Command): Receipt {
@@ -337,28 +528,32 @@ export class Projects {
 
   settings(workId: string, command: Command): Receipt {
     const profile = projectProfileSchema.parse(command.payload);
-    const result = this.commit(workId, 'project-settings', command, (work, connection) => {
-      if (profile.focused && !this.profile(work).focused) {
-        const focused = this.core.repo
-          .list('work')
-          .filter((other) => other.id !== workId && other.projectProfile?.focused);
-        if (focused.length >= 3)
-          throw new DomainError(
-            'VALIDATION',
-            'Home focus already contains three projects. Remove one before adding another.',
-            409,
-          );
-      }
-      this.core.repo.put('work', {
-        ...work,
-        title: profile.title,
-        projectProfile: profile,
-        revision: work.revision + 1,
-      });
-      this.core.repo.put('connection', { ...connection, title: profile.title });
-    });
-    this.core.events.changed(workId);
-    return result;
+    return this.commit(
+      workId,
+      'project-settings',
+      command,
+      (work, connection) => {
+        if (profile.focused && !this.profile(work).focused) {
+          const focused = this.core.repo
+            .list('work')
+            .filter((other) => other.id !== workId && other.projectProfile?.focused);
+          if (focused.length >= 3)
+            throw new DomainError(
+              'VALIDATION',
+              'Home focus already contains three projects. Remove one before adding another.',
+              409,
+            );
+        }
+        this.core.repo.put('work', {
+          ...work,
+          title: profile.title,
+          projectProfile: profile,
+          revision: work.revision + 1,
+        });
+        this.core.repo.put('connection', { ...connection, title: profile.title });
+      },
+      'profile',
+    );
   }
 
   sources(workId: string, command: Command): Receipt {

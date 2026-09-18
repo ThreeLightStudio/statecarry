@@ -48,11 +48,9 @@ export class Resumes {
       connection = this.core.repo.get('connection', work.projectId);
     if (!this.core.isConnectionActive(connection))
       throw new DomainError('NOT_FOUND', 'Connection not found', 404);
-    const storedHints =
-      hints ??
-      work.resume?.workspaceAfter?.inspection?.hints ??
-      work.resume?.workspaceBefore?.inspection?.hints;
-    return this.core.inspectWorkspace(connection.cwd, storedHints);
+    void hints;
+    if (!this.core.projectInspector) return null;
+    return this.core.projects.latestSnapshot(id, work.resume?.outputLanguage ?? 'en');
   }
   private workspaceKey(value: WorkspaceSnapshot | null | undefined): string | null {
     if (!value) return null;
@@ -671,7 +669,9 @@ export class Resumes {
       // Collect first so path/function clues from the connected records can
       // select implementation files beyond the default directory sample.
       const inspectionHints = this.inspectionHints(id, this.core.sources(id));
-      const workspaceBefore = this.workspace(id, inspectionHints);
+      const workspaceBefore = this.core.projectInspector
+        ? await this.core.projects.observe(id, outputLanguage, inspectionHints, false)
+        : null;
       const input = this.input(id, workspaceBefore),
         { sources, work, connection, version, scope, links } = input;
       const checkpoints = this.core.repo
@@ -857,7 +857,9 @@ export class Resumes {
           c.actionSource = null;
         }
       }
-      const workspaceAfter = this.workspace(id, inspectionHints);
+      const workspaceAfter = this.core.projectInspector
+        ? await this.core.projects.observe(id, outputLanguage, inspectionHints, false)
+        : null;
       const currentConnection = this.core.repo.get('connection', work.projectId);
       if (
         !this.core.isConnectionActive(currentConnection) ||

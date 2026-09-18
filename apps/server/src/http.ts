@@ -28,8 +28,11 @@ export class ChangeEvents extends EventEmitter {
       return false;
     }
   }
-  changed(workId: string | null) {
-    this.emit('change', { workId });
+  changed(
+    workId: string | null,
+    topic?: 'profile' | 'sources' | 'observation' | 'working-tree-analysis' | 'overview',
+  ) {
+    this.emit('change', { workId, ...(topic ? { topic } : {}) });
   }
   collectionSettled(workId: string) {
     this.emit('collection-settled', { workId });
@@ -191,6 +194,24 @@ export function createHttpServer(
               .enum(['en', 'ko'])
               .parse(url.searchParams.get('outputLanguage') ?? 'en');
             return json(res, 200, await core.projects.workspace(parts[1], outputLanguage));
+          }
+          if (req.method === 'POST' && parts.length === 3 && parts[2] === 'observe') {
+            const input = z
+              .object({ outputLanguage: z.enum(['en', 'ko']).default('en') })
+              .strict()
+              .parse(await body(req));
+            return json(res, 200, await core.projects.observe(parts[1], input.outputLanguage));
+          }
+          if (req.method === 'POST' && parts.length === 3 && parts[2] === 'analysis') {
+            const input = z
+              .object({ outputLanguage: z.enum(['en', 'ko']).default('en') })
+              .strict()
+              .parse(await body(req));
+            return json(
+              res,
+              200,
+              await core.projects.analyzeLatest(parts[1], input.outputLanguage),
+            );
           }
           if (req.method === 'GET' && parts.length === 3 && parts[2] === 'deletion')
             return json(res, 200, core.projects.deletionPreview(parts[1]));

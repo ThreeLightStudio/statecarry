@@ -22,7 +22,23 @@ export class HttpResumeGateway implements ResumeGateway {
           'workId' in value &&
           (value.workId === null || (typeof value.workId === 'string' && value.workId.length > 0))
         ) {
-          listener({ workId: value.workId, ...(kind ? { kind } : {}) });
+          const topic =
+            'topic' in value &&
+            ['profile', 'sources', 'observation', 'working-tree-analysis', 'overview'].includes(
+              String(value.topic),
+            )
+              ? (value.topic as
+                  | 'profile'
+                  | 'sources'
+                  | 'observation'
+                  | 'working-tree-analysis'
+                  | 'overview')
+              : undefined;
+          listener({
+            workId: value.workId,
+            ...(kind ? { kind } : {}),
+            ...(topic ? { topic } : {}),
+          });
           return;
         }
       } catch {

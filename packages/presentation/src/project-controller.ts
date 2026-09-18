@@ -82,6 +82,7 @@ export class ProjectController {
   private inspectionGeneration = 0;
   private pending: Promise<void> | null = null;
   private workingTreeReads = new Map<string, Promise<WorkingTreeView | null>>();
+  private observationReads = new Map<string, Promise<WorkingTreeView | null>>();
   private readAgain = false;
   private hasLoaded = false;
   private hasRegistrations = false;
@@ -197,6 +198,16 @@ export class ProjectController {
           )
             return;
         }
+        if (change?.topic) {
+          if (
+            change.workId &&
+            change.workId === this.value.route.workId &&
+            (change.topic === 'observation' || change.topic === 'working-tree-analysis')
+          )
+            void this.inspectWorkingTree(change.workId);
+          this.scheduleRead();
+          return;
+        }
         this.invalidateRead(false, change?.workId ?? null);
         this.scheduleRead();
       },
@@ -257,13 +268,16 @@ export class ProjectController {
           loadingDetails: this.hydratingWorkIds.size > 0,
           error: null,
         });
-        return this.refresh(true);
+        await this.refresh(true);
+        void this.observeCurrentProject();
+        return;
       } catch {
         // Older or temporarily unavailable registration reads fall back to the
         // full workspace read so startup remains backward-compatible.
       }
     }
-    return this.refresh();
+    await this.refresh();
+    void this.observeCurrentProject();
   }
   stop() {
     this.active = false;
@@ -369,10 +383,10 @@ export class ProjectController {
       void this.inspectWorkingTree(route.workId);
   }
   /** Returning to the app checks files/current access without preparing AI output. */
-  checkForChanges() {
+  async checkForChanges() {
     if (!this.active) return Promise.resolve();
-    this.invalidateRead();
-    return this.refresh(true);
+    await this.refresh(true);
+    await this.observeCurrentProject();
   }
   async refresh(background = false): Promise<void> {
     if (!this.active) return;
@@ -506,6 +520,51 @@ export class ProjectController {
     })();
     this.workingTreeReads.set(readKey, read);
     return read;
+  }
+  private async observeWorkingTree(id: string): Promise<WorkingTreeView | null> {
+    if (!this.active || !this.gateway.observe) return this.inspectWorkingTree(id);
+    const language = this.outputLanguage;
+    const readKey = [id, language].join(':');
+    const existing = this.observationReads.get(readKey);
+    if (existing) return existing;
+    const read = (async () => {
+      try {
+        const snapshot = await this.gateway.observe!(id, language);
+        if (!this.active || language !== this.outputLanguage) return null;
+        const view = presentWorkingTree(snapshot);
+        this.set({ workingTrees: { ...this.value.workingTrees, [id]: view } });
+        return view;
+      } catch (error) {
+        if (this.active && language === this.outputLanguage)
+          this.set({ error: projectError(error) });
+        return null;
+      } finally {
+        this.observationReads.delete(readKey);
+      }
+    })();
+    this.observationReads.set(readKey, read);
+    return read;
+  }
+  private async analyzeWorkingTree(id: string): Promise<WorkingTreeView | null> {
+    if (!this.active || !this.gateway.analyzeWorkspace) return this.inspectWorkingTree(id);
+    const language = this.outputLanguage;
+    try {
+      const snapshot = await this.gateway.analyzeWorkspace(id, language);
+      if (!this.active || language !== this.outputLanguage) return null;
+      const view = presentWorkingTree(snapshot);
+      this.set({ workingTrees: { ...this.value.workingTrees, [id]: view } });
+      return view;
+    } catch (error) {
+      if (this.active && language === this.outputLanguage) this.set({ error: projectError(error) });
+      return null;
+    }
+  }
+  private observeCurrentProject(): Promise<WorkingTreeView | null> {
+    const route = this.value.route;
+    if (route.page !== 'project' || !route.workId) return Promise.resolve(null);
+    if (!this.workspace.projects.some((entry) => entry.workId === route.workId))
+      return Promise.resolve(null);
+    return this.observeWorkingTree(route.workId);
   }
   async workingTreeHandoff(id: string): Promise<string | null> {
     const project = this.value.projects.find((item) => item.id === id);
@@ -989,8 +1048,10 @@ export class ProjectController {
     if (this.outputLanguage === language) return;
     this.outputLanguage = language;
     const route = this.value.route;
-    if (this.active && this.hasLoaded && route.page === 'project' && route.workId)
+    if (this.active && this.hasLoaded && route.page === 'project' && route.workId) {
       void this.inspectWorkingTree(route.workId);
+      void this.analyzeWorkingTree(route.workId);
+    }
   }
   async localizeGeneratedOverviews(language: 'en' | 'ko'): Promise<boolean> {
     this.outputLanguage = language;

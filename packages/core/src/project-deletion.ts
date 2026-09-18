@@ -19,6 +19,8 @@ const contentKinds = {
   explanation: true,
   explanationJob: true,
   questionExecution: true,
+  projectObservation: true,
+  workingTreeAnalysis: true,
 } satisfies Record<Exclude<keyof Entities, 'source' | 'receipt'>, true>;
 type ContentKind = keyof typeof contentKinds;
 type ContentRow = { kind: ContentKind; entity: Entities[ContentKind]; owner: string };

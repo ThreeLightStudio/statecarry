@@ -495,7 +495,7 @@ describe('settled discovery change notifications', () => {
   });
 });
 
-it('keeps workspace inspection on the live view read: quiet collection is not a file watcher or a workspace cache', async () => {
+it('keeps workspace reads passive until an explicit observation updates the cached view', async () => {
   let workspace: WorkspaceSnapshot = {
     cwd: '/tmp/example',
     branch: 'main',
@@ -510,6 +510,7 @@ it('keeps workspace inspection on the live view read: quiet collection is not a 
   const h = fixture(['thread-a'], true, { inspect });
   await h.core.collect(h.id);
   await h.discover();
+  await h.core.projects.observe(h.id, 'en', undefined, false);
   const before = h.core.resumes.view(h.id);
   expect(before.workspace?.fileFingerprint).toBe('before-file-edit');
   inspect.mockClear();
@@ -519,10 +520,12 @@ it('keeps workspace inspection on the live view read: quiet collection is not a 
   await h.discover();
   expect(inspect).not.toHaveBeenCalled();
   expect(h.changed).not.toHaveBeenCalled();
+  expect(h.core.resumes.view(h.id).workspace?.fileFingerprint).toBe('before-file-edit');
+  await h.core.projects.observe(h.id, 'en', undefined, false);
   const after = h.core.resumes.view(h.id);
   expect(inspect).toHaveBeenCalledTimes(1);
   expect(after.workspace?.fileFingerprint).toBe('after-file-edit');
   expect(after.version).not.toBe(before.version);
-  expect(h.changed).not.toHaveBeenCalled();
+  expect(h.changed).toHaveBeenCalledWith(h.id, 'observation');
   expect(h.counts()).toEqual({ generationCalls: 0, checkCalls: 0, openCalls: 0 });
 });

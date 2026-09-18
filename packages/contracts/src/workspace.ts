@@ -91,6 +91,17 @@ export const workspaceInspectionSchema = z
   .strict();
 export type WorkspaceInspection = z.infer<typeof workspaceInspectionSchema>;
 
+export type WorkspaceProbe = {
+  cwd: string;
+  root: string | null;
+  branch: string | null;
+  commit: string | null;
+  statusFingerprint: string | null;
+  status: 'checked' | 'unknown';
+  checkedAt: string;
+  limitations: string[];
+};
+
 /**
  * A point-in-time observation of a project workspace used while preparing a
  * return brief. Nullable fields mean the provider could not establish a value;
@@ -138,3 +149,22 @@ export const workspaceSnapshotSchema = z
   })
   .strict();
 export type WorkspaceSnapshot = z.infer<typeof workspaceSnapshotSchema>;
+
+export type ProjectObservation = {
+  id: string;
+  workId: string;
+  checkedAt: string;
+  probeKey: string;
+  inspectionKey: string;
+  semanticKey: string;
+  snapshot: WorkspaceSnapshot;
+};
+
+export type WorkingTreeAnalysisRecord = {
+  id: string;
+  workId: string;
+  semanticKey: string;
+  outputLanguage: 'en' | 'ko';
+  result: WorkingTreeAnalysis;
+  generatedAt: string;
+};

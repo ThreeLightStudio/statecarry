@@ -45,6 +45,8 @@ export interface ProjectGateway {
   restartAppUpdate?(): Promise<AppUpdateState>;
   list(): Promise<ProjectWorkspace>;
   workspace?(id: string, outputLanguage?: 'en' | 'ko'): Promise<WorkspaceSnapshot>;
+  observe?(id: string, outputLanguage?: 'en' | 'ko'): Promise<WorkspaceSnapshot>;
+  analyzeWorkspace?(id: string, outputLanguage?: 'en' | 'ko'): Promise<WorkspaceSnapshot>;
   create(input: ProjectCreateInput): Promise<Receipt>;
   settings(id: string, revision: number, input: ProjectProfile): Promise<Receipt>;
   sources(id: string, revision: number, input: ProjectSourcesInput): Promise<Receipt>;

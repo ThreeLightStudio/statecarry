@@ -128,6 +128,7 @@ describe('resume workspace evidence', () => {
     h.summary.generateResume = async () => ({ candidates: [candidate(records)] });
     await h.core.resumes.refresh(h.id);
     h.setWorkspace({ commit: 'new-commit' });
+    await h.core.projects.observe(h.id, 'en', undefined, false);
     expect(h.core.resumes.view(h.id)).toMatchObject({
       stale: true,
       workspaceChanged: true,
@@ -148,6 +149,7 @@ describe('resume workspace evidence', () => {
       dirty: null,
       limitations: ['Workspace check unavailable'],
     });
+    await h.core.projects.observe(h.id, 'en', undefined, false);
     expect(h.core.resumes.view(h.id)).toMatchObject({
       state: 'limited',
       stale: true,
@@ -210,6 +212,7 @@ describe('resume workspace evidence', () => {
     h.summary.generateResume = async () => ({ candidates: [candidate(records)] });
     await h.core.resumes.refresh(h.id);
     h.setWorkspace({ limitations: ['Only the project metadata was checked.'] });
+    await h.core.projects.observe(h.id, 'en', undefined, false);
     expect(h.core.resumes.view(h.id)).toMatchObject({
       stale: true,
       workspaceChanged: true,

@@ -1,6 +1,7 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import { resolveExecutable } from './executable-resolver';
 import type { ProjectInspector } from '@statecarry/core';
@@ -8,6 +9,7 @@ import type {
   WorkspaceChangedFile,
   WorkspaceFileObservation,
   WorkspaceInspectionHints,
+  WorkspaceProbe,
   WorkspaceSnapshot,
 } from '@statecarry/contracts';
 
@@ -75,6 +77,38 @@ const IGNORED_DIRECTORIES = new Set([
 
 type FileCandidate = { absolute: string; path: string; size: number; mtimeMs: number };
 type Discovered = { files: FileCandidate[]; limitations: string[] };
+
+async function mapLimit<T, R>(
+  values: T[],
+  limit: number,
+  transform: (value: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, values.length) }, async () => {
+    while (true) {
+      const index = next++;
+      if (index >= values.length) return;
+      results[index] = await transform(values[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+function execText(file: string, args: string[], cwd: string): Promise<string> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    execFile(
+      file,
+      ['-C', cwd, ...args],
+      { encoding: 'utf8', timeout: 5000, windowsHide: true, maxBuffer: 4 * 1024 * 1024 },
+      (error, stdout) => {
+        if (error) rejectPromise(error);
+        else resolvePromise(stdout);
+      },
+    );
+  });
+}
 
 function changedFile(line: string): WorkspaceChangedFile | null {
   if (line.length < 4) return null;
@@ -172,6 +206,49 @@ function discoverFiles(cwd: string, root: string): Discovered {
   if (pending.length)
     limitations.push(`Project file inventory was limited to ${MAX_DISCOVERED_FILES} source files.`);
   return { files, limitations };
+}
+
+async function discoverFilesAsync(cwd: string, root: string): Promise<Discovered> {
+  const candidates: Array<{ absolute: string; path: string }> = [];
+  const limitations: string[] = [];
+  const base = resolve(root || cwd);
+  const pending = [base];
+  while (pending.length && candidates.length < MAX_DISCOVERED_FILES) {
+    const folder = pending.shift()!;
+    let entries: import('node:fs').Dirent<string>[];
+    try {
+      entries = await readdir(folder, { withFileTypes: true, encoding: 'utf8' });
+    } catch (error) {
+      limitations.push(
+        `Could not read ${relative(base, folder) || '.'}: ${error instanceof Error ? error.message.slice(0, 180) : String(error).slice(0, 180)}`,
+      );
+      continue;
+    }
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      const absolute = join(folder, entry.name);
+      if (entry.isDirectory()) {
+        if (!IGNORED_DIRECTORIES.has(entry.name)) pending.push(absolute);
+        continue;
+      }
+      if (!entry.isFile() || !sourceFile(entry.name)) continue;
+      candidates.push({ absolute, path: relative(base, absolute) || entry.name });
+      if (candidates.length >= MAX_DISCOVERED_FILES) break;
+    }
+  }
+  if (pending.length)
+    limitations.push(`Project file inventory was limited to ${MAX_DISCOVERED_FILES} source files.`);
+  const measured = await mapLimit(candidates, 32, async (file) => {
+    try {
+      const info = await stat(file.absolute);
+      return { ...file, size: info.size, mtimeMs: info.mtimeMs };
+    } catch (error) {
+      limitations.push(
+        `Could not inspect ${file.path}: ${error instanceof Error ? error.message.slice(0, 180) : String(error).slice(0, 180)}`,
+      );
+      return null;
+    }
+  });
+  return { files: measured.filter((file): file is FileCandidate => file !== null), limitations };
 }
 
 function pathScore(path: string, hints: WorkspaceInspectionHints): number {
@@ -371,8 +448,396 @@ function sampleFiles(
   };
 }
 
+async function sampleFilesAsync(
+  cwd: string,
+  root: string,
+  rawHints?: WorkspaceInspectionHints,
+): Promise<{
+  files: WorkspaceFileObservation[];
+  limitations: string[];
+  fingerprint: string;
+  inventoryFingerprint: string;
+  inspection: NonNullable<WorkspaceSnapshot['inspection']>;
+}> {
+  const hints = cleanHints(rawHints);
+  const discovered = await discoverFilesAsync(cwd, root);
+  const limitations = [...discovered.limitations];
+  const scores = new Map<string, number>();
+  for (const file of discovered.files) scores.set(file.path, pathScore(file.path, hints));
+  const scanFiles = hints.symbols.length
+    ? discovered.files
+        .filter((file) => (scores.get(file.path) ?? 0) < 100 && file.size <= MAX_FILE_BYTES)
+        .slice(0, MAX_HINT_SCAN_FILES)
+    : [];
+  const scans = await mapLimit(scanFiles, 16, async (file) => {
+    try {
+      return await readFile(file.absolute, { encoding: 'utf8' });
+    } catch {
+      return null;
+    }
+  });
+  scans.forEach((text, index) => {
+    if (text === null) return;
+    const file = scanFiles[index];
+    scores.set(file.path, Math.max(scores.get(file.path) ?? 0, scoreContent(text, hints)));
+  });
+  if (hints.symbols.length && discovered.files.length > MAX_HINT_SCAN_FILES)
+    limitations.push(
+      `Related-file matching was limited to ${MAX_HINT_SCAN_FILES} readable files; unmatched files were not treated as absent.`,
+    );
+  const related = discovered.files
+    .filter((file) => (scores.get(file.path) ?? 0) > 0)
+    .sort((a, b) => scores.get(b.path)! - scores.get(a.path)! || a.path.localeCompare(b.path));
+  const selected = [
+    ...related,
+    ...discovered.files
+      .filter((file) => !related.includes(file))
+      .sort((a, b) => a.path.localeCompare(b.path)),
+  ].slice(0, MAX_FILES);
+  const relatedSelected = new Set(related.slice(0, MAX_FILES).map((file) => file.path));
+  const omitted = discovered.files.filter((file) => !selected.includes(file));
+  if (omitted.length)
+    limitations.push(
+      `File observations were limited to ${MAX_FILES} selected files; ${omitted.length} discovered files were not read.`,
+    );
+  if (hints.paths.length && !related.length)
+    limitations.push(
+      'No connected-record file path matched; the bounded sample is shown and absence does not prove the implementation is missing.',
+    );
+  if (related.length > MAX_FILES)
+    limitations.push(`Some related files were outside the ${MAX_FILES} file observation limit.`);
+
+  const observations = await mapLimit(selected, 16, async (file) => {
+    const isRelated = relatedSelected.has(file.path);
+    const selection = isRelated ? ('related' as const) : ('sampled' as const);
+    if (file.size > MAX_FILE_BYTES)
+      return {
+        file: {
+          revisionId: `workspace-file:${digest(`${file.path}:${file.size}`)}`,
+          path: file.path,
+          hash: `size:${file.size}`,
+          size: file.size,
+          preview: null,
+          status: 'unavailable' as const,
+          selection,
+          limitation: 'File exceeds the read limit.',
+        },
+        limitation: `Skipped ${file.path}: file is larger than the ${MAX_FILE_BYTES} byte read limit.`,
+        unreadable: file.path,
+      };
+    try {
+      const content = await readFile(file.absolute);
+      const text = content.toString('utf8');
+      const hash = digest(content);
+      return {
+        file: {
+          revisionId: `workspace-file:${digest(`${file.path}:${hash}`)}`,
+          path: file.path,
+          hash,
+          size: file.size,
+          preview: excerpt(text, hints, isRelated),
+          status: 'checked' as const,
+          selection,
+          limitation: null,
+        },
+        limitation: null,
+        unreadable: null,
+      };
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return {
+        file: {
+          revisionId: `workspace-file:${digest(`${file.path}:unavailable`)}`,
+          path: file.path,
+          hash: 'unavailable',
+          size: null,
+          preview: null,
+          status: 'unavailable' as const,
+          selection,
+          limitation: detail.slice(0, 1500),
+        },
+        limitation: `Could not read ${file.path}: ${detail.slice(0, 180)}`,
+        unreadable: file.path,
+      };
+    }
+  });
+  const files = observations.map((item) => item.file).sort((a, b) => a.path.localeCompare(b.path));
+  const unreadablePaths: string[] = [];
+  for (const item of observations) {
+    if (item.limitation) limitations.push(item.limitation);
+    if (item.unreadable) unreadablePaths.push(item.unreadable);
+  }
+  const fingerprint = digest(
+    JSON.stringify(files.map((file) => [file.path, file.hash, file.size ?? null])),
+  );
+  const inventoryFingerprint = digest(
+    JSON.stringify(
+      discovered.files
+        .map((file) => [file.path, file.size, file.mtimeMs])
+        .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+    ),
+  );
+  return {
+    files,
+    limitations: [...new Set(limitations)].slice(0, 20),
+    fingerprint,
+    inventoryFingerprint,
+    inspection: {
+      strategy: related.length ? 'related' : 'sampled',
+      hints,
+      selectedPaths: files.map((file) => file.path),
+      relatedPaths: selected
+        .filter((file) => relatedSelected.has(file.path))
+        .map((file) => file.path),
+      omittedPaths: omitted.slice(0, 120).map((file) => file.path),
+      omittedCount: omitted.length,
+      unreadablePaths: [...new Set(unreadablePaths)].slice(0, 120),
+      limits: { maxFiles: MAX_FILES, maxFileBytes: MAX_FILE_BYTES, maxPreview: MAX_PREVIEW },
+    },
+  };
+}
+
 /** Read-only Git metadata and bounded, clue-aware source-file observations. */
 export class GitProjectInspector implements ProjectInspector {
+  async probeAsync(cwd: string): Promise<WorkspaceProbe> {
+    const checkedAt = new Date().toISOString();
+    let root = resolve(cwd);
+    let branch: string | null = null;
+    let commit: string | null = null;
+    let statusFingerprint: string | null = null;
+    let status: WorkspaceProbe['status'] = 'checked';
+    const limitations: string[] = [];
+    try {
+      const info = await stat(root);
+      if (!info.isDirectory()) throw new Error('Project path is not a directory');
+      const git = resolveExecutable('git');
+      if (!git) throw new Error('Git executable was not found on this machine');
+      root = (await execText(git, ['rev-parse', '--show-toplevel'], cwd)).trim() || root;
+      const porcelain = await execText(
+        git,
+        ['status', '--porcelain=v2', '--branch', '--untracked-files=all'],
+        cwd,
+      );
+      for (const line of porcelain.split('\n')) {
+        if (line.startsWith('# branch.head ')) {
+          const value = line.slice('# branch.head '.length).trim();
+          branch = value && value !== '(detached)' ? value : null;
+        } else if (line.startsWith('# branch.oid ')) {
+          const value = line.slice('# branch.oid '.length).trim();
+          commit = value && value !== '(initial)' ? value : null;
+        }
+      }
+      statusFingerprint = digest(
+        porcelain
+          .split('\n')
+          .filter((line) => line && !line.startsWith('# branch.'))
+          .join('\n'),
+      );
+    } catch (error) {
+      status = 'unknown';
+      const detail = error instanceof Error ? error.message : String(error);
+      limitations.push(`Project state could not be probed: ${detail.slice(0, 500)}`);
+    }
+    return {
+      cwd,
+      root: status === 'checked' ? root : null,
+      branch,
+      commit,
+      statusFingerprint,
+      status,
+      checkedAt,
+      limitations,
+    };
+  }
+
+  probe(cwd: string): WorkspaceProbe {
+    const checkedAt = new Date().toISOString();
+    let root = resolve(cwd);
+    let branch: string | null = null;
+    let commit: string | null = null;
+    let statusFingerprint: string | null = null;
+    let status: WorkspaceProbe['status'] = 'checked';
+    const limitations: string[] = [];
+    try {
+      const info = statSync(root);
+      if (!info.isDirectory()) throw new Error('Project path is not a directory');
+      const git = resolveExecutable('git');
+      if (!git) throw new Error('Git executable was not found on this machine');
+      const runRaw = (args: string[]) =>
+        execFileSync(git, ['-C', cwd, ...args], {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: 5000,
+          windowsHide: true,
+        });
+      root = runRaw(['rev-parse', '--show-toplevel']).trim() || root;
+      const porcelain = runRaw(['status', '--porcelain=v2', '--branch', '--untracked-files=all']);
+      for (const line of porcelain.split('\n')) {
+        if (line.startsWith('# branch.head ')) {
+          const value = line.slice('# branch.head '.length).trim();
+          branch = value && value !== '(detached)' ? value : null;
+        } else if (line.startsWith('# branch.oid ')) {
+          const value = line.slice('# branch.oid '.length).trim();
+          commit = value && value !== '(initial)' ? value : null;
+        }
+      }
+      statusFingerprint = digest(
+        porcelain
+          .split('\n')
+          .filter((line) => line && !line.startsWith('# branch.'))
+          .join('\n'),
+      );
+    } catch (error) {
+      status = 'unknown';
+      const detail = error instanceof Error ? error.message : String(error);
+      limitations.push(`Project state could not be probed: ${detail.slice(0, 500)}`);
+    }
+    return {
+      cwd,
+      root: status === 'checked' ? root : null,
+      branch,
+      commit,
+      statusFingerprint,
+      status,
+      checkedAt,
+      limitations,
+    };
+  }
+
+  async inspectAsync(cwd: string, hints?: WorkspaceInspectionHints): Promise<WorkspaceSnapshot> {
+    const checkedAt = new Date().toISOString();
+    let root = resolve(cwd);
+    let branch: string | null = null;
+    let commit: string | null = null;
+    let dirty: boolean | null = null;
+    let changedPaths: string[] = [];
+    let changedFiles: WorkspaceChangedFile[] = [];
+    let changedFileCount = 0;
+    let additions = 0;
+    let deletions = 0;
+    let untrackedCount = 0;
+    let diffPreview = '';
+    let recentCommits: NonNullable<WorkspaceSnapshot['recentCommits']> = [];
+    const limitations: string[] = [];
+    let status: WorkspaceSnapshot['status'] = 'checked';
+    let folderReadable = true;
+    try {
+      const info = await stat(root);
+      if (!info.isDirectory()) throw new Error('Project path is not a directory');
+      await readdir(root, { withFileTypes: true, encoding: 'utf8' });
+    } catch (error) {
+      folderReadable = false;
+      status = 'unknown';
+      const detail = error instanceof Error ? error.message : String(error);
+      limitations.push(`Project folder could not be read: ${detail.slice(0, 500)}`);
+    }
+    if (folderReadable) {
+      try {
+        const git = resolveExecutable('git');
+        if (!git) throw new Error('Git executable was not found on this machine');
+        const runRaw = (args: string[]) => execText(git, args, cwd);
+        const run = async (args: string[]) => (await runRaw(args)).trim();
+        const runOptional = async (args: string[]) => {
+          try {
+            return await run(args);
+          } catch {
+            return '';
+          }
+        };
+        root = (await run(['rev-parse', '--show-toplevel'])) || root;
+        const [branchValue, commitValue, statusOutput] = await Promise.all([
+          run(['branch', '--show-current']),
+          runOptional(['rev-parse', '--verify', 'HEAD']),
+          runRaw(['status', '--porcelain=v1', '--untracked-files=all']),
+        ]);
+        branch = branchValue || null;
+        commit = commitValue || null;
+        dirty = statusOutput.trim().length > 0;
+        const allChangedFiles = statusOutput
+          .replace(/\n$/, '')
+          .split('\n')
+          .filter(Boolean)
+          .map(changedFile)
+          .filter((file): file is WorkspaceChangedFile => file !== null);
+        changedFileCount = allChangedFiles.length;
+        untrackedCount = allChangedFiles.filter((file) => file.status === 'untracked').length;
+        changedFiles = allChangedFiles.slice(0, MAX_GIT_PATHS);
+        changedPaths = changedFiles.map((file) => file.path);
+        if (commit) {
+          const [statsValue, diffValue] = await Promise.all([
+            runOptional(['diff', 'HEAD', '--numstat', '--']),
+            runOptional(['diff', 'HEAD', '--no-ext-diff', '--unified=3', '--']),
+          ]);
+          const stats = numstat(statsValue);
+          additions = stats.additions;
+          deletions = stats.deletions;
+          diffPreview = diffValue.slice(0, MAX_DIFF_PREVIEW);
+        }
+        const recentHashes = (
+          commit ? await runOptional(['log', `-${MAX_RECENT_COMMITS}`, '--pretty=format:%H']) : ''
+        )
+          .split('\n')
+          .map((hash) => hash.trim())
+          .filter(Boolean);
+        recentCommits = await mapLimit(recentHashes, 4, async (hash) => {
+          const detail = await run([
+            'show',
+            '--no-renames',
+            '--date=iso-strict',
+            '--pretty=format:%H%x1f%cI%x1f%s',
+            '--name-only',
+            hash,
+          ]);
+          const [header = '', ...pathLines] = detail.split('\n');
+          const [resolvedHash = hash, committedAt = '', subject = ''] = header.split('\x1f');
+          return {
+            hash: resolvedHash,
+            committedAt,
+            subject,
+            changedPaths: pathLines
+              .map((path) => path.trim())
+              .filter(Boolean)
+              .slice(0, MAX_GIT_PATHS),
+          };
+        });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        limitations.push(`Git state unavailable: ${detail.slice(0, 500)}`);
+      }
+    }
+    const changedHints: WorkspaceInspectionHints | undefined = changedPaths.length
+      ? {
+          paths: [...new Set([...(hints?.paths ?? []), ...changedPaths])].slice(0, MAX_GIT_PATHS),
+          symbols: hints?.symbols ?? [],
+          terms: hints?.terms ?? [],
+        }
+      : hints;
+    const sampled = await sampleFilesAsync(cwd, root, changedHints);
+    limitations.push(...sampled.limitations);
+    return {
+      cwd,
+      root: status === 'checked' ? root : null,
+      branch,
+      commit,
+      dirty,
+      changedPaths,
+      changedFiles,
+      changedFileCount,
+      additions,
+      deletions,
+      untrackedCount,
+      diffPreview,
+      recentCommits,
+      status,
+      checkedAt,
+      limitations: [...new Set(limitations)].slice(0, 20),
+      fileFingerprint: sampled.fingerprint,
+      inventoryFingerprint: sampled.inventoryFingerprint,
+      files: sampled.files,
+      inspection: sampled.inspection,
+    };
+  }
+
   inspect(cwd: string, hints?: WorkspaceInspectionHints): WorkspaceSnapshot {
     const checkedAt = new Date().toISOString();
     let root = resolve(cwd);

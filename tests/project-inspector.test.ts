@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -7,7 +7,7 @@ import { workspaceSnapshotSchema } from '@statecarry/contracts';
 import { GitProjectInspector } from '../apps/server/src/adapters/project-inspector';
 
 describe('related project inspection', () => {
-  it('captures bounded recent commits and current changed paths', () => {
+  it('captures bounded recent commits and current changed paths', async () => {
     const root = mkdtempSync(join(tmpdir(), 'statecarry-git-inspector-'));
     try {
       execFileSync('git', ['init', root]);
@@ -22,8 +22,22 @@ describe('related project inspection', () => {
       writeFileSync(join(root, 'first.ts'), 'export const first = 3;\n');
       writeFileSync(join(root, 'untracked.ts'), 'export const untracked = true;\n');
 
-      const snapshot = new GitProjectInspector().inspect(root);
+      const inspector = new GitProjectInspector();
+      const snapshot = inspector.inspect(root);
+      const asyncSnapshot = await inspector.inspectAsync(root);
       expect(() => workspaceSnapshotSchema.parse(snapshot)).not.toThrow();
+      expect(() => workspaceSnapshotSchema.parse(asyncSnapshot)).not.toThrow();
+      expect(asyncSnapshot).toMatchObject({
+        branch: snapshot.branch,
+        commit: snapshot.commit,
+        dirty: snapshot.dirty,
+        changedFiles: snapshot.changedFiles,
+        changedFileCount: snapshot.changedFileCount,
+        additions: snapshot.additions,
+        deletions: snapshot.deletions,
+        untrackedCount: snapshot.untrackedCount,
+        fileFingerprint: snapshot.fileFingerprint,
+      });
       expect(snapshot.changedPaths).toContain('first.ts');
       expect(snapshot.changedPaths).toContain('untracked.ts');
       expect(snapshot.changedFileCount).toBe(2);
@@ -44,6 +58,34 @@ describe('related project inspection', () => {
         'add first',
       ]);
       expect(snapshot.recentCommits?.[0].changedPaths).toContain('second.ts');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the cheap probe stable for an unrelated tracked-file mtime touch', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'statecarry-git-probe-'));
+    try {
+      execFileSync('git', ['init', root]);
+      execFileSync('git', ['-C', root, 'config', 'user.email', 'statecarry@example.test']);
+      execFileSync('git', ['-C', root, 'config', 'user.name', 'StateCarry Test']);
+      writeFileSync(join(root, 'dirty.ts'), 'export const dirty = 1;\n');
+      writeFileSync(join(root, 'unrelated.ts'), 'export const unrelated = true;\n');
+      execFileSync('git', ['-C', root, 'add', '.']);
+      execFileSync('git', ['-C', root, 'commit', '-m', 'seed']);
+      writeFileSync(join(root, 'dirty.ts'), 'export const dirty = 2;\n');
+      const inspector = new GitProjectInspector();
+      const first = await inspector.probeAsync(root);
+      const now = new Date();
+      utimesSync(join(root, 'unrelated.ts'), now, now);
+      const second = await inspector.probeAsync(root);
+
+      expect(second).toMatchObject({
+        status: 'checked',
+        branch: first.branch,
+        commit: first.commit,
+        statusFingerprint: first.statusFingerprint,
+      });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

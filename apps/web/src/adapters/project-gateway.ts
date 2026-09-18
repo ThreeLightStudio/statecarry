@@ -62,6 +62,17 @@ export class HttpProjectGateway implements ProjectGateway {
       `/project-workspace/${encodeURIComponent(id)}/workspace?outputLanguage=${outputLanguage}`,
     );
   }
+  observe(id: string, outputLanguage: 'en' | 'ko' = 'en') {
+    return this.request<WorkspaceSnapshot>(`/project-workspace/${encodeURIComponent(id)}/observe`, {
+      outputLanguage,
+    });
+  }
+  analyzeWorkspace(id: string, outputLanguage: 'en' | 'ko' = 'en') {
+    return this.request<WorkspaceSnapshot>(
+      `/project-workspace/${encodeURIComponent(id)}/analysis`,
+      { outputLanguage },
+    );
+  }
   capabilities() {
     return this.request<Capabilities>('/capabilities');
   }

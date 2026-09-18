@@ -8,7 +8,7 @@ import type {
   ResumeGateway,
   ResumeMemory,
 } from '@statecarry/presentation';
-import type { Capabilities, Receipt } from '@statecarry/contracts';
+import type { Capabilities, Receipt, WorkspaceSnapshot } from '@statecarry/contracts';
 import { Root } from '../apps/web/src/Root';
 import { LocalResumeMemory } from '../apps/web/src/adapters/resume-memory';
 import { source } from './helpers';
@@ -123,6 +123,48 @@ export function projectUiFixture(entries = [projectEntry()]) {
           : '22222222-2222-2222-2222-222222222222.jpg',
     })),
     list: vi.fn(async () => structuredClone(rows)),
+    workspace: vi.fn(
+      async (id) =>
+        structuredClone(
+          rows.projects.find((entry) => entry.workId === id)?.resume?.workspace ?? {
+            cwd: `/synthetic/${id}`,
+            status: 'unknown',
+            branch: null,
+            commit: null,
+            dirty: null,
+            checkedAt: now,
+            limitations: [],
+          },
+        ) as WorkspaceSnapshot,
+    ),
+    observe: vi.fn(
+      async (id) =>
+        structuredClone(
+          rows.projects.find((entry) => entry.workId === id)?.resume?.workspace ?? {
+            cwd: `/synthetic/${id}`,
+            status: 'unknown',
+            branch: null,
+            commit: null,
+            dirty: null,
+            checkedAt: now,
+            limitations: [],
+          },
+        ) as WorkspaceSnapshot,
+    ),
+    analyzeWorkspace: vi.fn(
+      async (id) =>
+        structuredClone(
+          rows.projects.find((entry) => entry.workId === id)?.resume?.workspace ?? {
+            cwd: `/synthetic/${id}`,
+            status: 'unknown',
+            branch: null,
+            commit: null,
+            dirty: null,
+            checkedAt: now,
+            limitations: [],
+          },
+        ) as WorkspaceSnapshot,
+    ),
     create: vi.fn(async () => testReceipt('new-project')),
     settings: vi.fn(async (id) => testReceipt(id)),
     sources: vi.fn(async (id) => testReceipt(id)),

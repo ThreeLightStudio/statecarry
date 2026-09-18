@@ -838,7 +838,8 @@ export class StateCarry {
       this.repo.put('receipt', r);
       return r;
     });
-    this.events.changed(receipt.workId);
+    if (projectWorkId) this.events.changed(receipt.workId, 'sources');
+    else this.events.changed(receipt.workId);
     return receipt;
   }
   /** Remove a connection from StateCarry's active project list. This is a
@@ -1733,7 +1734,7 @@ export class StateCarry {
         return source && this.accessibleSource(workId, source.id) ? source : null;
       }),
       freshness: this.freshness(workId),
-      workspace: this.inspectWorkspace(this.repo.get('connection', work.projectId)!.cwd),
+      workspace: this.projects.latestSnapshot(workId),
       continuation:
         this.repo
           .list('continuation')

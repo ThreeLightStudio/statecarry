@@ -298,8 +298,14 @@ describe('inspection limits and actual action blockers', () => {
     'keeps the same-goal brief readable but blocks actions for %s',
     async (condition) => {
       const h = await prepared({ limitations: [inspectionLimit] });
-      if (condition === 'changed workspace') h.inspect({ commit: 'new-commit' });
-      if (condition === 'unavailable workspace') h.inspect({ status: 'unknown' });
+      if (condition === 'changed workspace') {
+        h.inspect({ commit: 'new-commit' });
+        await h.core.projects.observe(h.id, 'en', undefined, false);
+      }
+      if (condition === 'unavailable workspace') {
+        h.inspect({ status: 'unknown' });
+        await h.core.projects.observe(h.id, 'en', undefined, false);
+      }
       if (condition === 'failed refresh') {
         h.summary.generateResume = async () => {
           throw new Error('Synthetic failure');

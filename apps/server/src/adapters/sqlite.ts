@@ -121,6 +121,8 @@ export class SQLiteRepository implements StateRepository {
         'checkpoint',
         'handoff',
         'continuation',
+        'projectObservation',
+        'workingTreeAnalysis',
         'receipt',
       ].includes(kind) &&
       'workId' in entity &&

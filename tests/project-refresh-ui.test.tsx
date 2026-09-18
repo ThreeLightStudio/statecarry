@@ -76,6 +76,7 @@ it('checks once on app return, with no periodic read or analysis', async () => {
   const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
   try {
     expect(h.projectGateway.list).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(h.projectGateway.observe).toHaveBeenCalledTimes(1));
     vi.useFakeTimers();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(60000);
@@ -86,8 +87,6 @@ it('checks once on app return, with no periodic read or analysis', async () => {
       window.dispatchEvent(new Event('focus'));
     });
     expect(h.projectGateway.list).toHaveBeenCalledTimes(1);
-    const returnedRead = deferred<ProjectWorkspace>();
-    vi.mocked(h.projectGateway.list).mockImplementationOnce(() => returnedRead.promise);
     Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
     await act(async () => {
       document.dispatchEvent(new Event('visibilitychange'));
@@ -97,17 +96,12 @@ it('checks once on app return, with no periodic read or analysis', async () => {
       document.dispatchEvent(new Event('visibilitychange'));
     });
     expect(h.projectGateway.list).toHaveBeenCalledTimes(2);
-    expect(mounted.host.querySelector('.pw-app-header .pw-workspace-status')?.textContent).toBe(
-      'Checking for changes…',
-    );
+    expect(h.projectGateway.observe).toHaveBeenCalledTimes(2);
+    expect(mounted.host.querySelector('.pw-app-header .pw-workspace-status')).toBeNull();
     expect(mounted.host.querySelector('.pw-app-header')?.textContent).toContain('Send feedback');
     expect(mounted.host.querySelector('.pw-app-header')?.textContent).not.toContain(
       'Check for changes',
     );
-    await act(async () => {
-      returnedRead.resolve(structuredClone(h.rows));
-    });
-    expect(mounted.host.querySelector('.pw-workspace-status')).toBeNull();
     expect(h.resumeGateway.refresh).not.toHaveBeenCalled();
     expect(h.resumeGateway.setGoal).not.toHaveBeenCalled();
     expect(h.resumeGateway.correct).not.toHaveBeenCalled();

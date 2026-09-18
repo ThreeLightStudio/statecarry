@@ -161,6 +161,7 @@ describe('resume MVP core boundaries', () => {
         limitation: null,
       },
     ]);
+    await core.projects.observe(id, 'en', undefined, false);
     expect(core.resumes.view(id)).toMatchObject({
       workspaceChanged: true,
       stale: true,
@@ -267,6 +268,7 @@ describe('resume MVP core boundaries', () => {
       dirty: null,
       limitations: ['Workspace state unavailable'],
     };
+    await core.projects.observe(id, 'en', undefined, false);
     expect(core.resumes.view(id)).toMatchObject({
       state: 'limited',
       candidates: [expect.objectContaining({ key: 'goal-a' })],

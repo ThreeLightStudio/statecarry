@@ -18,6 +18,9 @@ import type {
   Continuation,
   WorkspaceSnapshot,
   WorkspaceInspectionHints,
+  WorkspaceProbe,
+  ProjectObservation,
+  WorkingTreeAnalysisRecord,
 } from '@statecarry/contracts';
 export type Entities = {
   explanation: import('@statecarry/contracts').ExplanationRevision;
@@ -35,6 +38,8 @@ export type Entities = {
   job: Job;
   handoff: Handoff;
   continuation: Continuation;
+  projectObservation: ProjectObservation;
+  workingTreeAnalysis: WorkingTreeAnalysisRecord;
   receipt: Receipt;
 };
 export interface StateRepository {
@@ -61,7 +66,10 @@ export interface SourceReader {
 /** Read-only project state used to keep a return brief tied to its workspace.
  * Implementations may use Git or another local project provider. */
 export interface ProjectInspector {
+  probe?(cwd: string): WorkspaceProbe;
+  probeAsync?(cwd: string): Promise<WorkspaceProbe>;
   inspect(cwd: string, hints?: WorkspaceInspectionHints): WorkspaceSnapshot;
+  inspectAsync?(cwd: string, hints?: WorkspaceInspectionHints): Promise<WorkspaceSnapshot>;
   close?(): void | Promise<void>;
 }
 export type AttemptMeta = {
@@ -140,7 +148,10 @@ export interface Identity {
   hash(value: unknown): string;
 }
 export interface Events {
-  changed(workId: string | null): void;
+  changed(
+    workId: string | null,
+    topic?: 'profile' | 'sources' | 'observation' | 'working-tree-analysis' | 'overview',
+  ): void;
   /** Completes an observation that a concurrent reader may have seen in progress. */
   collectionSettled?(workId: string): void;
 }
