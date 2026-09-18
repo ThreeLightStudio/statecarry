@@ -5,5 +5,6 @@
 - Use `rtk pnpm format:check`, `rtk pnpm lint`, and `rtk pnpm check` while working. Run focused tests for changed behavior.
 - Run `rtk pnpm verify` before handoff and report any failure. It may replace ignored `dist/` output but must not rewrite source or configuration.
 - Treat `pnpm-lock.yaml` as pnpm-owned output; do not format or edit it manually.
+- Before running `rtk pnpm desktop:build:stable`, load the local release credentials with `source ~/.config/statecarry/release-env.zsh`. Keep that file and the referenced Apple `.p8` key outside the repository.
 - Follow `docs/ui-principles.md` before changing layout, navigation, hierarchy, interaction, loading behavior, component composition, or visual emphasis. Audit product intent, task, IA, state, hierarchy, and generative-UI drift before theme polish.
 - Follow `docs/ux-writing.md` for active user-facing copy, including labels, statuses, errors, notices, helper text, and presentation strings that can reach the UI.

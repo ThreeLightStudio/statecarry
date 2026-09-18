@@ -75,13 +75,14 @@ mac: { codesign: true, notarize: true, createDmg: true }
 release.baseUrl = 'https://github.com/ThreeLightStudio/statecarry/releases/latest/download'
 ```
 
-The stable build command is:
+Load the local release credentials before starting a stable build. The credential file is local operator state and must stay outside the repository:
 
 ```sh
-ELECTROBUN_DEVELOPER_ID='Developer ID Application: …' rtk pnpm desktop:build:stable
+source ~/.config/statecarry/release-env.zsh
+rtk pnpm desktop:build:stable
 ```
 
-If the release shell provides Electrobun-compatible notarization credentials, the build may complete signing and notarization in one invocation.
+The release environment file supplies `ELECTROBUN_DEVELOPER_ID` plus the Electrobun-compatible notarization credentials. With those variables loaded, the stable build completes signing and notarization in one invocation.
 
 If local notarization is performed separately with a Keychain profile, create the signed stable artifacts without committing a disabled notarization setting, restore the checked-in configuration immediately, and keep the tree clean before publication. This is a local release-operation detail, not a repository configuration change.
 
