@@ -356,12 +356,14 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
   const { route } = state;
   const project = state.projects.find((item) => item.id === route.workId);
   const workspaceStatus = state.loading
-    ? 'Loading projects…'
-    : !state.online
-      ? "StateCarry can't connect to its local service."
-      : state.checkingCurrent
-        ? 'Checking for changes…'
-        : null;
+    ? 'Finding projects…'
+    : state.loadingDetails
+      ? 'Loading project details…'
+      : !state.online
+        ? "StateCarry can't connect to its local service."
+        : state.checkingCurrent
+          ? 'Checking for changes…'
+          : null;
   const routeTitle =
     route.page === 'home'
       ? 'Home'
@@ -945,6 +947,29 @@ function FocusProjectCard({ project, onNavigate }: { project: ProjectView; onNav
   );
 }
 
+function LoadingLines({ label, lines = 3 }: { label: string; lines?: number }) {
+  return (
+    <div className="pw-loading-block" role="status" aria-label={label}>
+      {Array.from({ length: lines }, (_, index) => (
+        <span className="pw-loading-line" key={index} aria-hidden="true" />
+      ))}
+      <span className="sr-only">{label}</span>
+    </div>
+  );
+}
+
+function FocusLoadingSlot() {
+  return (
+    <div className="pw-focus-card pw-focus-card--loading" aria-label="Finding projects">
+      <span className="pw-focus-card-banner pw-loading-surface" aria-hidden="true" />
+      <span className="pw-focus-card-body">
+        <span className="pw-focus-card-icon pw-loading-surface" aria-hidden="true" />
+        <LoadingLines label="Finding projects" lines={2} />
+      </span>
+    </div>
+  );
+}
+
 function FocusEmptySlot({ primary, onNavigate }: { primary: boolean; onNavigate: Navigate }) {
   if (!primary)
     return (
@@ -990,12 +1015,22 @@ function Home({ state, onNavigate }: WorkspaceProps & { state: WorkspaceState })
           </div>
         </div>
         <div className="pw-focus-grid">
-          {focused.map((project) => (
-            <FocusProjectCard key={project.id} project={project} onNavigate={onNavigate} />
-          ))}
-          {slots.map((slot) => (
-            <FocusEmptySlot key={slot} primary={slot === 0} onNavigate={onNavigate} />
-          ))}
+          {state.loading && !state.projects.length ? (
+            <>
+              <FocusLoadingSlot />
+              <FocusLoadingSlot />
+              <FocusLoadingSlot />
+            </>
+          ) : (
+            <>
+              {focused.map((project) => (
+                <FocusProjectCard key={project.id} project={project} onNavigate={onNavigate} />
+              ))}
+              {slots.map((slot) => (
+                <FocusEmptySlot key={slot} primary={slot === 0} onNavigate={onNavigate} />
+              ))}
+            </>
+          )}
         </div>
         <div className="pw-focus-footer">
           <RouteLink href="#/projects" onNavigate={onNavigate} className="pw-project-picker-link">
@@ -1106,6 +1141,16 @@ function Projects({ state, controller, onNavigate }: WorkspaceProps & { state: W
       </div>
     </article>
   );
+  const loadingCards = Array.from({ length: 3 }, (_, index) => (
+    <article
+      key={index}
+      className={cn(cardSurface, 'pw-card pw-card--quiet pw-project-list-card')}
+      aria-label="Finding projects"
+    >
+      <span className="pw-project-list-icon pw-loading-surface" aria-hidden="true" />
+      <LoadingLines label="Finding projects" lines={2} />
+    </article>
+  ));
   return (
     <>
       <header className="pw-hero">
@@ -1141,7 +1186,9 @@ function Projects({ state, controller, onNavigate }: WorkspaceProps & { state: W
           </span>
         </div>
         <div className="pw-project-list">
-          {activeProjects.length ? (
+          {state.loading && !state.projects.length ? (
+            loadingCards
+          ) : activeProjects.length ? (
             activeProjects.map(projectCard)
           ) : (
             <div className="pw-empty">
@@ -1475,7 +1522,12 @@ function ProjectPage({
         <>
           <section className="pw-direction" aria-label="Project direction">
             <span className="pw-eyebrow">Direction</span>
-            {edits.goalDraft ? (
+            {project.detailsLoading ? (
+              <>
+                <p>{project.purpose || 'Loading project direction…'}</p>
+                <LoadingLines label="Loading project direction" lines={1} />
+              </>
+            ) : edits.goalDraft ? (
               <GoalEditor project={project} edits={edits} controller={controller} busy={busy} />
             ) : (
               <>
@@ -1501,7 +1553,11 @@ function ProjectPage({
             <div className="pw-section-head">
               <h2 id="current-decision-heading">Current decision</h2>
             </div>
-            {missing ? (
+            {project.detailsLoading ? (
+              <div className={cn(cardSurface, 'pw-card pw-current-decision-card')}>
+                <LoadingLines label="Loading current decision" lines={4} />
+              </div>
+            ) : missing ? (
               <section className="pw-empty">
                 <h3>The selected work is no longer available</h3>
                 <p>Your writing is kept. Choose another item from Other work.</p>
@@ -1539,7 +1595,12 @@ function ProjectPage({
               <h2 id="project-context-heading">Context</h2>
             </div>
             <div className="pw-context-list">
-              {dirtyWorkPreview !== 'off' ? (
+              {project.detailsLoading ? (
+                <div className="pw-context-item">
+                  <strong>Project context</strong>
+                  <LoadingLines label="Loading project context" lines={2} />
+                </div>
+              ) : dirtyWorkPreview !== 'off' ? (
                 <details className="pw-context-item">
                   <summary>Working tree preview</summary>
                   <UncommittedWorkPreview scenario={dirtyWorkPreview} />
@@ -1600,7 +1661,7 @@ function ProjectPage({
             </div>
           </section>
 
-          {(otherTasks.length > 0 || project.dismissed.length > 0) && (
+          {!project.detailsLoading && (otherTasks.length > 0 || project.dismissed.length > 0) && (
             <section className="pw-other-work" aria-labelledby="other-work-heading">
               <details>
                 <summary id="other-work-heading">Other work · {otherTasks.length}</summary>

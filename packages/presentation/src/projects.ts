@@ -1,6 +1,7 @@
 import type {
   ProjectWorkspace,
   ProjectWorkspaceEntry,
+  ProjectRegistrations,
   ProjectProfile,
   ProjectCreateInput,
   ProjectSourcesInput,
@@ -16,6 +17,7 @@ import { presentResumeWork, resumeWorkStatus } from './resume';
 export type {
   ProjectWorkspace,
   ProjectWorkspaceEntry,
+  ProjectRegistrations,
   ProjectProfile,
   ProjectCreateInput,
   ProjectSourcesInput,
@@ -33,6 +35,7 @@ export type AppUpdateState = {
 };
 
 export interface ProjectGateway {
+  registrations?(): Promise<ProjectRegistrations>;
   capabilities?(): Promise<Capabilities>;
   chooseFolder?(): Promise<{ path: string | null }>;
   appUpdate?(): Promise<AppUpdateState>;
@@ -218,6 +221,7 @@ export type ProjectView = {
   purpose: string;
   focused: boolean;
   disconnected: boolean;
+  detailsLoading: boolean;
   revision: number;
   version: string;
   goal: string;
@@ -512,6 +516,7 @@ export function presentProject(entry: ProjectWorkspaceEntry, online = true): Pro
     purpose: entry.purpose,
     focused: entry.focused,
     disconnected,
+    detailsLoading: false,
     revision: entry.revision,
     version: work?.version ?? '',
     goal: work?.goalText ?? '',
@@ -537,6 +542,37 @@ export function presentProject(entry: ProjectWorkspaceEntry, online = true): Pro
     tasks: current?.candidates.map(task) ?? [],
     dismissed: current?.dismissed.map(task) ?? [],
   };
+}
+
+export function presentRegistrations(
+  registrations: ProjectRegistrations,
+  online = true,
+): ProjectView[] {
+  return registrations.projects
+    .map((registration) => {
+      const project = presentProject(
+        { ...registration, acceptedKeys: [], pausedKeys: [], collecting: false, resume: null },
+        online,
+      );
+      return {
+        ...project,
+        detailsLoading: !registration.disconnectedAt,
+        stateLabel: registration.disconnectedAt ? 'Disconnected' : 'Loading project…',
+        stateDescription: registration.disconnectedAt
+          ? project.stateDescription
+          : 'StateCarry found this project and is loading its saved state.',
+        canEdit: false,
+        canDecide: false,
+        canRefresh: false,
+      };
+    })
+    .sort(
+      (a, b) =>
+        Number(a.disconnected) - Number(b.disconnected) ||
+        Number(b.focused) - Number(a.focused) ||
+        a.title.localeCompare(b.title) ||
+        a.id.localeCompare(b.id),
+    );
 }
 export function presentProjects(workspace: ProjectWorkspace, online = true): ProjectView[] {
   return workspace.projects

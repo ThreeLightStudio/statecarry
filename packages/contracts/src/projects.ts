@@ -22,6 +22,19 @@ export type ProjectWorkspaceEntry = {
 
 export type ProjectWorkspace = { projects: ProjectWorkspaceEntry[] };
 
+export type ProjectRegistration = {
+  workId: string;
+  connectionId: string;
+  title: string;
+  cwd: string;
+  purpose: string;
+  focused: boolean;
+  revision: number;
+  disconnectedAt: string | null;
+};
+
+export type ProjectRegistrations = { projects: ProjectRegistration[] };
+
 export type ProjectCreateInput = {
   title: string;
   cwd: string;

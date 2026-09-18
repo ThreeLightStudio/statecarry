@@ -428,6 +428,56 @@
   @apply truncate text-[13px] text-muted-foreground;
 }
 
+.pw-loading-block {
+  @apply grid min-w-0 flex-1 gap-2;
+}
+
+.pw-loading-line,
+.pw-loading-surface {
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--muted) 88%, white) 0%,
+    color-mix(in oklab, var(--muted) 58%, white) 50%,
+    color-mix(in oklab, var(--muted) 88%, white) 100%
+  );
+  background-size: 200% 100%;
+  animation: pw-loading-shimmer 1.35s ease-in-out infinite;
+}
+
+.pw-loading-line {
+  @apply block h-3 rounded-full;
+}
+
+.pw-loading-line:nth-child(1) {
+  width: min(82%, 420px);
+}
+
+.pw-loading-line:nth-child(2) {
+  width: min(64%, 320px);
+}
+
+.pw-loading-line:nth-child(3) {
+  width: min(74%, 360px);
+}
+
+.pw-loading-line:nth-child(4) {
+  width: min(52%, 260px);
+}
+
+.pw-focus-card--loading {
+  @apply pointer-events-none;
+}
+
+@keyframes pw-loading-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: -100% 0;
+  }
+}
+
 .pw-focus-slot {
   @apply grid place-items-center border-dashed bg-muted/40 text-muted-foreground;
 }
@@ -621,9 +671,15 @@
 }
 
 .pw-direction {
-  @apply mb-8 grid gap-2.5 rounded-r-md px-[26px] py-[22px];
-  border-left: 3px solid color-mix(in oklab, var(--primary) 45%, var(--border));
-  background: color-mix(in oklab, var(--accent) 65%, white);
+  @apply mb-7 grid gap-1.5 border-b border-border px-1 pb-5;
+}
+
+.pw-direction > p {
+  @apply text-[17px] font-medium leading-7 text-foreground;
+}
+
+.pw-direction .pw-button--quiet {
+  @apply h-auto min-h-0 px-0 py-0 text-[13px] font-medium;
 }
 
 .pw-overview-meta {
@@ -1065,5 +1121,10 @@
   .pw-shell * {
     transition: none !important;
     scroll-behavior: auto !important;
+  }
+
+  .pw-loading-line,
+  .pw-loading-surface {
+    animation: none !important;
   }
 }

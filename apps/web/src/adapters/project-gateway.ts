@@ -1,6 +1,7 @@
 import type {
   ProjectGateway,
   ProjectWorkspace,
+  ProjectRegistrations,
   ProjectCreateInput,
   ProjectProfile,
   ProjectSourcesInput,
@@ -52,6 +53,9 @@ export class HttpProjectGateway implements ProjectGateway {
   }
   list() {
     return this.request<ProjectWorkspace>('/project-workspace');
+  }
+  registrations() {
+    return this.request<ProjectRegistrations>('/project-workspace/registrations');
   }
   workspace(id: string, outputLanguage: 'en' | 'ko' = 'en') {
     return this.request<WorkspaceSnapshot>(

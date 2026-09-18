@@ -4,6 +4,7 @@ import { presentResumeWork, resumeHandoffText } from './resume';
 import type { ResumeMemory, SavedResumeEdits } from './resume-memory';
 import {
   presentProjects,
+  presentRegistrations,
   presentWorkingTree,
   projectError,
   type ProjectGateway,
@@ -22,6 +23,7 @@ export type ProjectControllerState = {
   route: ProjectRoute;
   projects: ProjectView[];
   loading: boolean;
+  loadingDetails: boolean;
   online: boolean;
   checkingCurrent: boolean;
   error: string | null;
@@ -58,6 +60,7 @@ export class ProjectController {
     route: { page: 'home' },
     projects: [],
     loading: true,
+    loadingDetails: true,
     online: false,
     checkingCurrent: true,
     error: null,
@@ -81,6 +84,8 @@ export class ProjectController {
   private workingTreeReads = new Map<string, Promise<WorkingTreeView | null>>();
   private readAgain = false;
   private hasLoaded = false;
+  private hasRegistrations = false;
+  private hydratingWorkIds = new Set<string>();
   private connectionLost = false;
   private streamConnected = false;
   private allChanged = true;
@@ -108,8 +113,18 @@ export class ProjectController {
   private present(patch: Partial<ProjectControllerState> = {}) {
     const online = patch.online ?? this.value.online;
     const checking = patch.checkingCurrent ?? this.value.checkingCurrent;
-    const projects = presentProjects(this.workspace, online).map((project) =>
-      online && checking && this.needsCurrent(project.id) && !project.disconnected
+    const projects = presentProjects(this.workspace, online).map((project) => {
+      if (this.hydratingWorkIds.has(project.id) && !project.disconnected)
+        return {
+          ...project,
+          detailsLoading: true,
+          canEdit: false,
+          canDecide: false,
+          canRefresh: false,
+          stateLabel: 'Loading project…',
+          stateDescription: 'StateCarry found this project and is loading its saved state.',
+        };
+      return online && checking && this.needsCurrent(project.id) && !project.disconnected
         ? {
             ...project,
             canEdit: false,
@@ -124,8 +139,8 @@ export class ProjectController {
             })),
             dismissed: project.dismissed.map((task) => ({ ...task, canAct: false })),
           }
-        : project,
-    );
+        : project;
+    });
     this.set({ ...patch, projects });
   }
   private needsCurrent(id: string) {
@@ -160,7 +175,7 @@ export class ProjectController {
       deletion: null,
     });
   }
-  start(route: ProjectRoute) {
+  async start(route: ProjectRoute) {
     this.active = true;
     this.generation++;
     this.connectionLost = false;
@@ -215,6 +230,39 @@ export class ProjectController {
         return;
       void this.checkAppUpdate();
     }, appUpdateCheckIntervalMs);
+    if (this.gateway.registrations) {
+      try {
+        const registrations = await this.gateway.registrations();
+        if (!this.active) return;
+        this.hasRegistrations = true;
+        this.hydratingWorkIds = new Set(
+          registrations.projects
+            .filter((project) => !project.disconnectedAt)
+            .map((project) => project.workId),
+        );
+        this.workspace = {
+          projects: registrations.projects.map((project) => ({
+            ...project,
+            acceptedKeys: [],
+            pausedKeys: [],
+            collecting: false,
+            resume: null,
+          })),
+        };
+        for (const entry of registrations.projects) this.readEdits(entry.workId);
+        this.set({
+          projects: presentRegistrations(registrations, true),
+          online: true,
+          loading: false,
+          loadingDetails: this.hydratingWorkIds.size > 0,
+          error: null,
+        });
+        return this.refresh(true);
+      } catch {
+        // Older or temporarily unavailable registration reads fall back to the
+        // full workspace read so startup remains backward-compatible.
+      }
+    }
     return this.refresh();
   }
   stop() {
@@ -341,7 +389,8 @@ export class ProjectController {
         const readEpoch = this.readEpoch;
         if (!background) this.inspectionGeneration++;
         this.set({
-          loading: !this.hasLoaded,
+          loading: !this.hasLoaded && !this.hasRegistrations,
+          loadingDetails: !this.hasLoaded && this.hasRegistrations,
           ...(!background ? { inspection: null, inspectionLoading: false } : {}),
         });
         try {
@@ -374,6 +423,8 @@ export class ProjectController {
           }
           this.workspace = workspace;
           this.hasLoaded = true;
+          this.hasRegistrations = true;
+          this.hydratingWorkIds.clear();
           this.allChanged = false;
           this.changedWorkIds.clear();
           for (const entry of workspace.projects) this.readEdits(entry.workId);
@@ -388,7 +439,13 @@ export class ProjectController {
                 'Old browser drafts could not be cleared. They will not be used for the current projects.',
             });
           }
-          this.present({ online: true, checkingCurrent: false, error: null, loading: false });
+          this.present({
+            online: true,
+            checkingCurrent: false,
+            error: null,
+            loading: false,
+            loadingDetails: false,
+          });
           if (route.page === 'project' && route.workId) void this.inspectWorkingTree(route.workId);
           if (
             this.value.route.page === 'original' &&
@@ -401,10 +458,12 @@ export class ProjectController {
           if (readEpoch !== this.readEpoch) continue;
           this.inspectionGeneration++;
           this.allChanged = true;
+          this.hydratingWorkIds.clear();
           this.present({
             online: false,
             checkingCurrent: true,
             loading: false,
+            loadingDetails: false,
             error: projectError(error),
             inspection: null,
             inspectionLoading: false,

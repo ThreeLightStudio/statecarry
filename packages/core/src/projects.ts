@@ -7,6 +7,7 @@ import {
   type Command,
   type Connection,
   type ProjectProfile,
+  type ProjectRegistrations,
   type ProjectWorkspace,
   type ProjectWorkspaceEntry,
   type Receipt,
@@ -102,6 +103,23 @@ export class Projects {
     });
     this.core.events.changed(workId);
     return result;
+  }
+
+  registrations(): ProjectRegistrations {
+    return {
+      projects: this.core.repo.list('work').map((work) => {
+        const connection = this.connection(work);
+        const profile = this.profile(work);
+        return {
+          workId: work.id,
+          connectionId: connection.id,
+          ...profile,
+          cwd: connection.cwd,
+          revision: work.revision,
+          disconnectedAt: connection.removedAt ?? null,
+        };
+      }),
+    };
   }
 
   list(): ProjectWorkspace {

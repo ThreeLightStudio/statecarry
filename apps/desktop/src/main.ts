@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import Electrobun, { BrowserWindow, PATHS, Utils } from 'electrobun/main';
+import Electrobun, { ApplicationMenu, BrowserWindow, PATHS, Utils } from 'electrobun/main';
 import { createServerRuntime } from '../../server/src/runtime';
 import { ElectrobunFolderPicker } from './folder-picker';
 import { ElectrobunUpdater } from './updater';
@@ -16,6 +16,24 @@ const runtime = createServerRuntime({
 });
 
 await runtime.start();
+
+ApplicationMenu.setApplicationMenu([
+  { label: 'StateCarry', submenu: [{ role: 'quit', accelerator: 'CommandOrControl+Q' }] },
+  {
+    label: 'Edit',
+    submenu: [
+      { role: 'undo', accelerator: 'CommandOrControl+Z' },
+      { role: 'redo', accelerator: 'CommandOrControl+Shift+Z' },
+      { type: 'divider' },
+      { role: 'cut', accelerator: 'CommandOrControl+X' },
+      { role: 'copy', accelerator: 'CommandOrControl+C' },
+      { role: 'paste', accelerator: 'CommandOrControl+V' },
+      { role: 'pasteAndMatchStyle', accelerator: 'CommandOrControl+Shift+V' },
+      { type: 'divider' },
+      { role: 'selectAll', accelerator: 'CommandOrControl+A' },
+    ],
+  },
+]);
 
 let stopping = false;
 let stopped = false;

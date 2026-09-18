@@ -314,6 +314,51 @@ describe('project-oriented presentation and return memory', () => {
     expect(controller.getSnapshot().edits.a.selectedKey).toBe('second');
     controller.stop();
   });
+  it('publishes project registrations before the full workspace read finishes', async () => {
+    const h = setup();
+    const full = deferred<ProjectWorkspace>();
+    h.gateway.registrations = vi.fn(async () => ({
+      projects: h
+        .rows()
+        .projects.map((entry) => ({
+          workId: entry.workId,
+          connectionId: entry.connectionId,
+          title: entry.title,
+          cwd: entry.cwd,
+          purpose: entry.purpose,
+          focused: entry.focused,
+          revision: entry.revision,
+          disconnectedAt: entry.disconnectedAt,
+        })),
+    }));
+    h.gateway.list = vi.fn(() => full.promise);
+    const controller = h.controller();
+    const started = controller.start({ page: 'project', workId: 'a' });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(controller.getSnapshot()).toMatchObject({
+      loading: false,
+      loadingDetails: true,
+      online: true,
+    });
+    expect(controller.getSnapshot().projects.find((item) => item.id === 'a')).toMatchObject({
+      title: 'Project a',
+      detailsLoading: true,
+      stateLabel: 'Loading project…',
+    });
+    full.resolve(workspace());
+    await started;
+    expect(controller.getSnapshot()).toMatchObject({
+      loading: false,
+      loadingDetails: false,
+      online: true,
+    });
+    expect(controller.getSnapshot().projects.find((item) => item.id === 'a')).toMatchObject({
+      detailsLoading: false,
+      stateLabel: 'Up to date',
+    });
+    controller.stop();
+  });
   it('keeps a new edit when an earlier save completes after moving to another project', async () => {
     const h = setup();
     const controller = h.controller();

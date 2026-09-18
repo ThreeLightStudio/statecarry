@@ -152,6 +152,8 @@ export function createHttpServer(
         if (parts[0] === 'project-workspace') {
           if (req.method === 'GET' && parts.length === 1)
             return json(res, 200, core.projects.list());
+          if (req.method === 'GET' && parts.length === 2 && parts[1] === 'registrations')
+            return json(res, 200, core.projects.registrations());
           if (req.method === 'GET' && parts.length === 3 && parts[2] === 'workspace') {
             const outputLanguage = z
               .enum(['en', 'ko'])

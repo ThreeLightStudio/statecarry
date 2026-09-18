@@ -1,7 +1,7 @@
 import { once } from 'node:events';
 import { request } from 'node:http';
 import { describe, expect, it, vi } from 'vitest';
-import type { ProjectWorkspace, Receipt } from '@statecarry/contracts';
+import type { ProjectRegistrations, ProjectWorkspace, Receipt } from '@statecarry/contracts';
 import { ChangeEvents, createHttpServer } from '../apps/server/src/http';
 import { harness } from './helpers';
 
@@ -71,6 +71,17 @@ describe('project workspace HTTP contract', () => {
       );
       const id = created.body.workId;
       const path = `/project-workspace/${encodeURIComponent(id)}`;
+      const registrations = (await call<ProjectRegistrations>('/project-workspace/registrations'))
+        .body;
+      expect(registrations.projects[0]).toMatchObject({
+        workId: id,
+        connectionId: created.body.resultId,
+        title: 'HTTP project',
+        cwd: '/tmp/example',
+        purpose: 'Keep context.',
+      });
+      expect(registrations.projects[0]).not.toHaveProperty('resume');
+      expect(registrations.projects[0]).not.toHaveProperty('acceptedKeys');
       const workspace = (await call<ProjectWorkspace>('/project-workspace')).body;
       expect(workspace.projects[0]).toMatchObject({
         workId: id,

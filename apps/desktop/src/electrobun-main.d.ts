@@ -7,6 +7,19 @@
  */
 declare module 'electrobun/main' {
   export const PATHS: { VIEWS_FOLDER: string };
+  export type ApplicationMenuItemConfig =
+    | { type: 'divider' | 'separator' }
+    | {
+        type?: 'normal';
+        label?: string;
+        role?: string;
+        accelerator?: string;
+        submenu?: ApplicationMenuItemConfig[];
+        enabled?: boolean;
+        checked?: boolean;
+        hidden?: boolean;
+      };
+  export const ApplicationMenu: { setApplicationMenu(menu: ApplicationMenuItemConfig[]): void };
   export const Utils: {
     openFileDialog(options: {
       canChooseFiles: false;
