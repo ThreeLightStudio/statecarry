@@ -101,4 +101,5 @@ The desktop framework is pinned in the existing pnpm workspace. The server curre
 - [Desktop automatic updates](auto-update.md)
 - [Desktop release runbook](desktop-release.md)
 - [Development and source layout](development.md)
+- [UI and interaction principles](ui-principles.md)
 - [UX writing and technical disclosure rules](ux-writing.md)

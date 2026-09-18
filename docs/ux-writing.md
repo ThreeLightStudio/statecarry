@@ -4,7 +4,7 @@ This document defines the writing rules for active StateCarry product copy. It a
 
 Use it when adding or changing user-facing copy. Product behavior remains the source of truth: copy must describe what StateCarry actually does, not what a future design intends to do.
 
-Related product context lives in [problem-definition.md](problem-definition.md) and [return-content-contract.md](return-content-contract.md). Those documents explain the larger product problem and evidence boundary. This document is the day-to-day writing contract.
+Related product context lives in [problem-definition.md](problem-definition.md) and [return-content-contract.md](return-content-contract.md). The structural UI and interaction contract lives in [ui-principles.md](ui-principles.md). Those documents explain the larger product problem, evidence boundary, screen responsibility and interaction hierarchy. This document is the day-to-day writing contract.
 
 ## Product sentence
 

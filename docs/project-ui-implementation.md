@@ -2,6 +2,8 @@
 
 Status: approved Home/Project replacement implemented and integrated on 2026-09-16 KST, from source baseline `58306ab`. The owner authorized a new UI without reusing the old layout. Controlled regression results and synthetic browser inspection are recorded below. Unassisted human work-return acceptance is still outstanding.
 
+The durable design rules extracted from later UI refinement are maintained in [ui-principles.md](ui-principles.md). This file remains the implementation/history record; future UI work should use the principles document as the active design contract rather than copying historical screen structure from this record.
+
 ## Approved experience
 
 Home helps choose where to spend attention across registered projects. It presents recognizable pending work, results to review and decisions with a reason for each. User-selected focus can lead; recency does not determine priority. All projects remain reachable through the list and search. Selecting a task carries it into the project view.
