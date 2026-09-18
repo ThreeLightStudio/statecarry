@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://statecarry.threelight-studio.com">
-    <img src="docs/images/readme/0.1.2/statecarry-banner.png" alt="StateCarry — Pick up where you left off" width="100%" />
+    <img src="docs/images/readme/statecarry-banner.png" alt="StateCarry — Pick up where you left off" width="100%" />
   </a>
 </p>
 
@@ -15,9 +15,9 @@
 
 <p align="center"><sub>Public beta · Apple Silicon macOS · Open source</sub></p>
 
-StateCarry helps you return to interrupted development work without reconstructing the whole project from memory. Home helps you choose across projects; each project explains the current state, the work that needs a decision, why it matters, and what would finish the next step.
+StateCarry helps you return to interrupted development work without reconstructing the whole project from memory. Home keeps up to three projects in focus so you can choose where to return. Inside a project, StateCarry keeps the project direction, current decision, supporting context, and other recorded work in one return flow.
 
-**Choose a project → understand the work → choose the next step.** Prepared explanations stay readable without opening transcripts. Original records remain available when you want to inspect the basis. Reported completion, a recorded check, and your acceptance remain distinct.
+**Choose a project → understand the current decision → check context when it matters → choose what to do next.** Prepared explanations stay readable without opening transcripts. Original records remain available when you want to inspect the basis. Reported completion, a recorded check, and your acceptance remain distinct.
 
 > [!NOTE]
 > StateCarry is in public beta. The current release is for Apple Silicon macOS. Real-work validation and the remaining beta work are tracked in the [implementation milestones](docs/project-ui-implementation.md) and [roadmap](docs/roadmap.md).
@@ -26,44 +26,44 @@ StateCarry runs locally on your Mac. It does not execute the next action or send
 
 ## Product preview
 
-<sub>Screenshots from StateCarry 0.1.2.</sub>
+<sub>Screenshots from StateCarry 0.1.8.</sub>
 
-### Find what needs your attention
+### Choose where to return
 
-![StateCarry Home showing projects and work that needs attention](docs/images/readme/0.1.2/statecarry-home.png)
+![StateCarry Home showing focused projects to return to](docs/images/readme/0.1.8/statecarry-home-focus.png)
 
-### Return to the project
+### Understand the current decision
 
-![StateCarry project overview showing current project state and goal](docs/images/readme/0.1.2/statecarry-project-overview.png)
+![StateCarry project view showing direction, current situation, and the next choice](docs/images/readme/0.1.8/statecarry-current-decision.png)
 
-### Choose the next step
+### Check the current project context
 
-![StateCarry task detail showing the suggested next choice](docs/images/readme/0.1.2/statecarry-task-detail.png)
+![StateCarry project context showing changed Git working tree and other recorded work](docs/images/readme/0.1.8/statecarry-project-context.png)
 
-### Inspect the basis when you need it
+### Inspect the basis when it changes your decision
 
-![StateCarry evidence view showing project files, Git, and original records](docs/images/readme/0.1.2/statecarry-evidence.png)
+![StateCarry explanation showing its supporting sources and links to original records](docs/images/readme/0.1.8/statecarry-decision-basis.png)
 
 <details>
 <summary>More screens</summary>
 
-### Add a project
+### Browse all projects
 
-![StateCarry Add a project screen](docs/images/readme/0.1.2/statecarry-add-project.png)
+![StateCarry Projects showing active projects and focus controls](docs/images/readme/0.1.8/statecarry-projects.png)
 
-### Settings
+### Review an out-of-date overview
 
-![StateCarry settings showing overview language, updates, and Codex status](docs/images/readme/0.1.2/statecarry-settings.png)
+![StateCarry project context showing that the project changed after the saved overview](docs/images/readme/0.1.8/statecarry-project-overview-stale.png)
 
 </details>
 
 ## Download
 
-Download the latest signed and notarized public beta for Apple Silicon macOS:
+Download the latest Developer ID-signed public beta for Apple Silicon macOS:
 
 **[Download StateCarry Public Beta](https://github.com/ThreeLightStudio/statecarry/releases/latest/download/macos-arm64-StateCarry.dmg)**
 
-Install the app from the DMG into Applications and launch StateCarry from Finder. Stable desktop builds check for newer releases automatically; downloading an available update and restarting to apply it remain explicit actions. See [desktop automatic updates](docs/auto-update.md) for the update flow and [desktop release](docs/desktop-release.md) for release verification details.
+Install the app from the DMG into Applications and launch StateCarry from Finder. The current v0.1.8 DMG is Developer ID signed but was published without Apple notarization, so macOS may ask you to confirm opening it from Finder. Stable desktop builds check for newer releases automatically; downloading an available update and restarting to apply it remain explicit actions. See [desktop automatic updates](docs/auto-update.md) for the update flow and [desktop release](docs/desktop-release.md) for release verification details.
 
 ## Run from source
 
@@ -92,9 +92,10 @@ An agent can install dependencies, build, and diagnose startup. Sign in yourself
 
 1. Choose **Add a project** and select the local folder you work in. Add a recognizable name and optional purpose or goal. StateCarry checks project files and Git, looks for related Codex conversations, and requests the first overview automatically. Codex conversations are optional; a project can still be added when none are found or discovery fails.
 2. Review or change the conversations StateCarry found through **Project settings** when needed. Exact record boundaries remain an advanced source-setting action, and existing ranges remain until you change them.
-3. On **Home**, compare work that needs a choice, or find a project in the full list. Your explicitly selected focus can lead the list. Recent activity does not automatically establish priority. Selecting a task opens that same task in its project.
-4. In the project, read the current situation, **Your next choice**, its reason, and finish condition. Continue in the working conversation when the recorded route is supported, or copy the task context to your working tool. Neither action performs the work. Review returned results before accepting them; pause or correct a suggestion when appropriate.
-5. StateCarry checks current project state when you return to the app. Choose **Update overview** when you want a fresh model-generated overview after the project changes. Editing a goal saves the goal and can make a previous overview out of date.
+3. On **Home**, keep up to three projects in focus and choose where to return. Open **Projects** to browse the full active list or change which projects stay in focus. Focus is an explicit choice; recent activity does not automatically establish priority.
+4. In the project, read its **Direction** and **Current decision**. The decision shows the current situation, **Your next choice**, why it matters, and the finish condition when one is available. Continue in the working conversation when the recorded route is supported, or copy the task context to your working tool. Neither action performs the work. Review returned results before accepting them; pause or correct a suggestion when appropriate.
+5. Use **Context** when current project state could change that decision. A changed Git working tree is summarized separately, including its changed-file count and any reconstructed work groups. You can inspect the changed files or copy a handoff for a new Codex session; copying the handoff does not modify project files or start work. **Other work** keeps the remaining recorded tasks available without competing with the current decision.
+6. StateCarry checks current project state when you return to the app. Choose **Update overview** when you want a fresh model-generated overview after the project changes. Editing a direction saves that direction and can make a previous overview out of date.
 
 Returning reads the saved project state. New records or changed project conditions can mark it as needing review. Preparation performs a fresh collection and bounded analysis. A missing or failed overview shows the available context and a recovery choice instead of exposing a raw response. Opening **What is this based on?** explains the available basis and its limits. **Inspect original records** deliberately opens source material separately.
 

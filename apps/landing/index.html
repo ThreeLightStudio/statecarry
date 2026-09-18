@@ -7,12 +7,12 @@
     <meta name="theme-color" content="#f7f8f3" />
     <meta
       name="description"
-      content="StateCarry helps you return to interrupted development work by checking codebase state, Git history, and optional connected Codex context."
+      content="StateCarry helps you return to interrupted development work, understand the current project state, and choose what to do next using project files, Git, and optional Codex conversations."
     />
     <meta property="og:title" content="StateCarry — Return to your work" />
     <meta
       property="og:description"
-      content="See where your project stands, what changed, and what to do next."
+      content="Return to a project, understand where it stands, and choose what to do next."
     />
     <meta property="og:type" content="website" />
     <link rel="icon" type="image/svg+xml" href="./statecarry-mark.svg" />
@@ -52,8 +52,9 @@
           <div class="eyebrow">For interrupted development work</div>
           <h1>Pick up where you left off.</h1>
           <p class="hero-lead">
-            StateCarry checks your codebase and Git state, then uses connected Codex conversations
-            as optional context so you can return to a project and choose the next useful action.
+            Return to a project, understand where it stands now, and choose what to do next.
+            StateCarry combines project files, Git, and optional Codex conversations into a compact
+            overview you can inspect.
           </p>
           <div class="hero-actions">
             <a
@@ -85,110 +86,157 @@
           </a>
         </div>
 
-        <div
-          class="product-visual"
-          role="img"
-          aria-label="StateCarry combines codebase, Git, and optional Codex context"
-        >
-          <div class="source-strip" aria-hidden="true">
-            <span>Codebase</span>
-            <span>Git</span>
-            <span>Codex</span>
-          </div>
-          <article class="resume-card">
-            <div class="resume-kicker">Project return</div>
-            <div class="resume-title-row">
-              <div>
-                <div class="resume-project">StateCarry</div>
-                <div class="resume-status">Context checked</div>
-              </div>
-              <span class="status-dot">Ready</span>
-            </div>
-            <div class="resume-block">
-              <span>Current state</span>
-              <strong>The requested implementation is present and ready for review.</strong>
-            </div>
-            <div class="resume-block resume-block-accent">
-              <span>Next useful action</span>
-              <strong
-                >Review the returned result and decide whether to continue or correct it.</strong
-              >
-              <small>Done when the result is accepted or the next correction is recorded.</small>
-            </div>
-            <div class="evidence-row">
-              <span>3 sources checked</span>
-              <span>Evidence stays reviewable</span>
-            </div>
-          </article>
-        </div>
+        <figure class="product-shot product-shot-hero">
+          <img
+            src="./screenshots/statecarry-current-decision.jpg"
+            alt="StateCarry project view showing a direction, current situation, and next choice"
+            width="1600"
+            height="1131"
+            fetchpriority="high"
+          />
+          <figcaption>
+            <strong>Current decision</strong>
+            <span>Direction, current situation, and the next choice stay in one return flow.</span>
+          </figcaption>
+        </figure>
       </section>
 
       <section class="problem-band" aria-label="The problem StateCarry addresses">
         <p>
-          AI can help write the code. Returning to yesterday's work still means reconstructing the
-          context yourself.
+          The hard part of interrupted coding work is not reopening the repo. It is figuring out
+          what the current state means and what to do next.
         </p>
       </section>
 
       <section class="section" id="how-it-works">
         <div class="section-heading">
           <div class="eyebrow">How it works</div>
-          <h2>Less reconstruction. More continuation.</h2>
+          <h2>Return with enough context to decide.</h2>
           <p>
-            StateCarry checks the evidence you already have and turns it into a compact return
-            point.
+            StateCarry keeps the ordinary return path focused on the decision in front of you, with
+            deeper context available when it changes that decision.
           </p>
         </div>
 
         <div class="steps-grid">
           <article class="step-card">
             <span class="step-number">01</span>
-            <h3>Observe</h3>
+            <h3>Choose a project</h3>
             <p>
-              Read bounded observations from the registered project folder, Git state, and the Codex
-              conversations you explicitly connect.
+              Keep up to three projects in focus on Home, or browse the full project list when you
+              need something else.
             </p>
-            <div class="step-tags" aria-label="Observed sources">
-              <span>Codebase</span><span>Git</span><span>Optional Codex</span>
+            <div class="step-tags" aria-label="Project navigation">
+              <span>Home focus</span><span>Projects</span>
             </div>
           </article>
           <article class="step-card">
             <span class="step-number">02</span>
-            <h3>Reconstruct</h3>
+            <h3>Read the current decision</h3>
             <p>
-              Separate reported progress from checked project state and keep the supporting evidence
-              available for review.
+              See the project direction, current situation, next choice, why it matters, and the
+              finish condition when one is available.
             </p>
-            <div class="mini-lines" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="step-tags" aria-label="Decision information">
+              <span>Direction</span><span>Current decision</span>
+            </div>
           </article>
           <article class="step-card">
             <span class="step-number">03</span>
-            <h3>Continue</h3>
+            <h3>Check context when needed</h3>
             <p>
-              See the current situation, the next useful action, why it matters, and what would
-              finish it.
+              Inspect changed Git work, supporting sources, other recorded work, or original records
+              when they can change what you do next.
             </p>
-            <div class="next-chip">One next choice</div>
+            <div class="step-tags" aria-label="Available context">
+              <span>Working tree</span><span>Basis</span><span>Other work</span>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section product-tour" aria-labelledby="product-tour-heading">
+        <div class="section-heading">
+          <div class="eyebrow">Inside StateCarry</div>
+          <h2 id="product-tour-heading">The return flow stays close to the project.</h2>
+          <p>
+            Start with the project you want to resume. Open deeper context only when it helps you
+            decide what comes next.
+          </p>
+        </div>
+        <div class="tour-grid">
+          <article class="tour-card tour-card-wide">
+            <img
+              src="./screenshots/statecarry-home-focus.jpg"
+              alt="StateCarry Home with two focused projects and an empty focus slot"
+              width="1600"
+              height="1131"
+              loading="lazy"
+            />
+            <div class="tour-copy">
+              <span class="eyebrow">Choose where to return</span>
+              <h3>Keep the projects you are actively returning to in focus.</h3>
+              <p>
+                Home holds up to three focus projects without turning recent activity into priority.
+              </p>
+            </div>
+          </article>
+          <article class="tour-card">
+            <img
+              src="./screenshots/statecarry-project-context.jpg"
+              alt="StateCarry project context with a changed working tree and other work"
+              width="1600"
+              height="1131"
+              loading="lazy"
+            />
+            <div class="tour-copy">
+              <span class="eyebrow">Check current context</span>
+              <h3>See when the working tree changed.</h3>
+              <p>
+                Review changed files and reconstructed work groups, then copy a handoff when you
+                want to continue in a new Codex session.
+              </p>
+            </div>
+          </article>
+          <article class="tour-card">
+            <img
+              src="./screenshots/statecarry-decision-basis.jpg"
+              alt="StateCarry decision basis with supporting Codex context and original record links"
+              width="1600"
+              height="1131"
+              loading="lazy"
+            />
+            <div class="tour-copy">
+              <span class="eyebrow">Inspect the basis</span>
+              <h3>Trace a suggestion back when the basis matters.</h3>
+              <p>
+                Supporting sources explain what they establish. Original records stay available for
+                deliberate inspection.
+              </p>
+            </div>
           </article>
         </div>
       </section>
 
       <section class="section signal-section">
         <div class="signal-copy">
-          <div class="eyebrow">Built for real project state</div>
-          <h2>Your conversation is context. Your codebase is evidence.</h2>
+          <div class="eyebrow">Built from current project state</div>
+          <h2>Your project state stays inspectable.</h2>
           <p>
-            StateCarry treats connected Codex history as useful context while checking the codebase
-            and Git state that can show what actually exists now.
+            StateCarry combines bounded observations from project files and Git with optional
+            selected Codex conversations. The prepared overview stays separate from original records
+            and from your acceptance.
           </p>
         </div>
         <div class="signal-list">
           <div>
-            <strong>Codebase</strong><span>Bounded file observations and project structure</span>
+            <strong>Project files</strong
+            ><span>Bounded file observations and project structure</span>
           </div>
           <div><strong>Git</strong><span>Branch, commit, changes, and recent history</span></div>
           <div>
-            <strong>Codex</strong><span>Selected conversations and their recorded decisions</span>
+            <strong>Codex conversations</strong
+            ><span>Optional selected conversations and their recorded decisions</span>
           </div>
         </div>
       </section>
@@ -206,6 +254,10 @@
               rel="noreferrer"
               >GitHub</a
             >.
+          </p>
+          <p>
+            Current v0.1.8 builds are Developer ID signed but not Apple-notarized, so macOS may ask
+            you to confirm opening StateCarry from Finder.
           </p>
           <div class="download-meta">
             <span>Apple Silicon macOS</span>
