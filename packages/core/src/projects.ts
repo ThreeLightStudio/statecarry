@@ -58,9 +58,14 @@ export class Projects {
   }
 
   private profile(work: Work): ProjectProfile {
-    return (
-      work.projectProfile ?? { title: this.connection(work).title, purpose: '', focused: false }
-    );
+    const profile = work.projectProfile;
+    return {
+      title: profile?.title ?? this.connection(work).title,
+      purpose: profile?.purpose ?? '',
+      focused: profile?.focused ?? false,
+      iconAsset: profile?.iconAsset ?? null,
+      bannerAsset: profile?.bannerAsset ?? null,
+    };
   }
 
   private revision(work: Work, command: Command) {
@@ -279,7 +284,13 @@ export class Projects {
         id: workId,
         projectId: connectionId,
         title: input.title,
-        projectProfile: { title: input.title, purpose: input.purpose, focused: false },
+        projectProfile: {
+          title: input.title,
+          purpose: input.purpose,
+          focused: false,
+          iconAsset: null,
+          bannerAsset: null,
+        },
         ...(input.goal
           ? { goal: { text: input.goal, origin: 'user-input' as const, confirmedAt: now } }
           : {}),

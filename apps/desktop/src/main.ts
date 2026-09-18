@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import Electrobun, { ApplicationMenu, BrowserWindow, PATHS, Utils } from 'electrobun/main';
 import { createServerRuntime } from '../../server/src/runtime';
 import { ElectrobunFolderPicker } from './folder-picker';
+import { ElectrobunProjectAssetPicker } from './project-asset-picker';
 import { ElectrobunUpdater } from './updater';
 
 const updater = new ElectrobunUpdater(() => Electrobun.app.quit());
@@ -9,6 +10,7 @@ const updater = new ElectrobunUpdater(() => Electrobun.app.quit());
 const runtime = createServerRuntime({
   webDir: join(PATHS.VIEWS_FOLDER, 'statecarry'),
   folderPicker: new ElectrobunFolderPicker(Utils.openFileDialog),
+  projectAssetPicker: new ElectrobunProjectAssetPicker(Utils.openFileDialog),
   updater,
   onServerError(error) {
     console.error(error);

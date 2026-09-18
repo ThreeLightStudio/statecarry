@@ -14,6 +14,7 @@ import {
 import type { StateCarry } from '@statecarry/core';
 import { canonicalProjectCommand } from './adapters/project-folder';
 import type { LocalFolderPicker } from './adapters/local-folder-picker';
+import type { ProjectAssetStore } from './adapters/local-project-assets';
 import type { LocalUpdater } from './adapters/local-updater';
 
 export class ChangeEvents extends EventEmitter {
@@ -63,7 +64,11 @@ export function createHttpServer(
   events: ChangeEvents,
   webDir: string,
   port = 4310,
-  local: { folderPicker?: LocalFolderPicker; updater?: LocalUpdater } = {},
+  local: {
+    folderPicker?: LocalFolderPicker;
+    projectAssetStore?: ProjectAssetStore;
+    updater?: LocalUpdater;
+  } = {},
 ) {
   const origins = new Set([`http://127.0.0.1:${port}`, 'http://127.0.0.1:4311']);
   return createServer(async (req, res) => {
@@ -117,6 +122,33 @@ export function createHttpServer(
       }
       if (path.startsWith('/api/v1/')) {
         const parts = path.slice('/api/v1/'.length).split('/').map(decodeURIComponent);
+        if (parts[0] === 'local' && parts[1] === 'project-assets') {
+          if (!local.projectAssetStore)
+            throw new DomainError(
+              'CAPABILITY_UNSUPPORTED',
+              'Project images are unavailable in this environment.',
+              501,
+            );
+          if (req.method === 'POST' && parts[2] === 'select' && parts.length === 3) {
+            const input = z
+              .object({ workId: z.string().min(1).max(250), kind: z.enum(['icon', 'banner']) })
+              .strict()
+              .parse(await body(req));
+            core.work(input.workId);
+            return json(res, 200, { assetRef: await local.projectAssetStore.select(input.kind) });
+          }
+          if (req.method === 'GET' && parts.length === 3) {
+            const asset = await local.projectAssetStore.read(parts[2]);
+            res.writeHead(200, {
+              'Content-Type': asset.contentType,
+              'Cache-Control': 'private, max-age=31536000, immutable',
+              'X-Content-Type-Options': 'nosniff',
+            });
+            res.end(asset.contents);
+            return;
+          }
+          throw new DomainError('NOT_FOUND', 'Project image route not found.', 404);
+        }
         if (parts[0] === 'local' && parts[1] === 'folder-picker' && parts.length === 2) {
           if (req.method !== 'POST') throw new DomainError('VALIDATION', 'POST required', 405);
           z.object({})

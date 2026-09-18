@@ -38,6 +38,7 @@ export interface ProjectGateway {
   registrations?(): Promise<ProjectRegistrations>;
   capabilities?(): Promise<Capabilities>;
   chooseFolder?(): Promise<{ path: string | null }>;
+  chooseProjectAsset?(id: string, kind: 'icon' | 'banner'): Promise<{ assetRef: string | null }>;
   appUpdate?(): Promise<AppUpdateState>;
   checkAppUpdate?(): Promise<AppUpdateState>;
   downloadAppUpdate?(): Promise<AppUpdateState>;
@@ -220,6 +221,8 @@ export type ProjectView = {
   cwd: string;
   purpose: string;
   focused: boolean;
+  iconAsset: string | null;
+  bannerAsset: string | null;
   disconnected: boolean;
   detailsLoading: boolean;
   revision: number;
@@ -515,6 +518,8 @@ export function presentProject(entry: ProjectWorkspaceEntry, online = true): Pro
     cwd: entry.cwd,
     purpose: entry.purpose,
     focused: entry.focused,
+    iconAsset: entry.iconAsset ?? null,
+    bannerAsset: entry.bannerAsset ?? null,
     disconnected,
     detailsLoading: false,
     revision: entry.revision,

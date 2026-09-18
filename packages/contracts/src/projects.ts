@@ -2,7 +2,13 @@ import { z } from 'zod';
 import { recordRangeSchema, type RecordRange } from './goals';
 import type { ResumeWork } from './resume';
 
-export type ProjectProfile = { title: string; purpose: string; focused: boolean };
+export type ProjectProfile = {
+  title: string;
+  purpose: string;
+  focused: boolean;
+  iconAsset?: string | null;
+  bannerAsset?: string | null;
+};
 
 export type ProjectWorkspaceEntry = {
   workId: string;
@@ -11,6 +17,8 @@ export type ProjectWorkspaceEntry = {
   cwd: string;
   purpose: string;
   focused: boolean;
+  iconAsset?: string | null;
+  bannerAsset?: string | null;
   revision: number;
   disconnectedAt: string | null;
   acceptedKeys: string[];
@@ -29,6 +37,8 @@ export type ProjectRegistration = {
   cwd: string;
   purpose: string;
   focused: boolean;
+  iconAsset?: string | null;
+  bannerAsset?: string | null;
   revision: number;
   disconnectedAt: string | null;
 };
@@ -66,6 +76,10 @@ export type ProjectDeletionPreview = {
 };
 
 const id = z.string().min(1).max(250);
+const projectAssetRef = z
+  .string()
+  .regex(/^[0-9a-f-]+\.(?:png|jpe?g|webp|gif)$/i)
+  .max(120);
 const sources = {
   threadIds: z.array(id).max(30),
   startTurnIds: z.record(id, id).default({}),
@@ -78,6 +92,8 @@ export const projectProfileSchema = z
     title: z.string().trim().min(1).max(120),
     purpose: z.string().trim().max(1200),
     focused: z.boolean(),
+    iconAsset: projectAssetRef.nullable().optional(),
+    bannerAsset: projectAssetRef.nullable().optional(),
   })
   .strict();
 

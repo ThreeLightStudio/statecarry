@@ -10,6 +10,7 @@ import type { LocalUpdater } from './adapters/local-updater';
 import { CodexNavigator } from './adapters/navigator';
 import { observationLog } from './adapters/observation-log';
 import { GitProjectInspector } from './adapters/project-inspector';
+import { ProjectAssetStore, type LocalProjectAssetPicker } from './adapters/local-project-assets';
 import { UnsupportedSessionExecutor } from './adapters/session-executor';
 import { settingsFromEnvironment } from './adapters/summary-settings';
 import { SQLiteRepository } from './adapters/sqlite';
@@ -25,6 +26,7 @@ export type ServerRuntimeOptions = {
   port?: number;
   webDir?: string;
   folderPicker?: LocalFolderPicker;
+  projectAssetPicker?: LocalProjectAssetPicker;
   updater?: LocalUpdater;
   reportBackgroundError?: (error: unknown) => void;
   onServerError?: (error: Error) => void;
@@ -46,6 +48,7 @@ export function createServerRuntime(options: ServerRuntimeOptions = {}) {
   const port = runtimePort(options.port ?? env.STATECARRY_PORT);
   const webDir = resolve(cwd, options.webDir ?? 'dist/web');
   const repo = new SQLiteRepository(dataDir);
+  const projectAssetStore = new ProjectAssetStore(dataDir, options.projectAssetPicker);
   const events = new ChangeEvents(observationLog(dataDir));
   const core = new StateCarry(
     repo,
@@ -60,6 +63,7 @@ export function createServerRuntime(options: ServerRuntimeOptions = {}) {
   );
   const server = createHttpServer(core, events, webDir, port, {
     folderPicker: options.folderPicker ?? new MacLocalFolderPicker(),
+    projectAssetStore,
     updater: options.updater,
   });
   const background = new BackgroundLoop(

@@ -116,6 +116,12 @@ export function projectUiFixture(entries = [projectEntry()]) {
   const projectGateway: ProjectGateway = {
     capabilities: vi.fn(async () => capabilities),
     chooseFolder: vi.fn(async () => ({ path: null })),
+    chooseProjectAsset: vi.fn(async (_id, kind) => ({
+      assetRef:
+        kind === 'icon'
+          ? '11111111-1111-1111-1111-111111111111.png'
+          : '22222222-2222-2222-2222-222222222222.jpg',
+    })),
     list: vi.fn(async () => structuredClone(rows)),
     create: vi.fn(async () => testReceipt('new-project')),
     settings: vi.fn(async (id) => testReceipt(id)),

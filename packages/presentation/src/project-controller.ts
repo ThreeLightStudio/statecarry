@@ -842,7 +842,13 @@ export class ProjectController {
   }
   setFocused(id: string, focused: boolean) {
     const project = this.entry(id);
-    const profile = { title: project.title, purpose: project.purpose, focused: project.focused };
+    const profile = {
+      title: project.title,
+      purpose: project.purpose,
+      focused: project.focused,
+      iconAsset: project.iconAsset,
+      bannerAsset: project.bannerAsset,
+    };
     return this.mutate(
       id,
       () => this.gateway.settings(id, project.revision, { ...profile, focused }),
@@ -850,6 +856,11 @@ export class ProjectController {
         ? 'This project is now your Home focus.'
         : 'This project was removed from your Home focus.',
     );
+  }
+  async chooseProjectAsset(id: string, kind: 'icon' | 'banner') {
+    if (!this.gateway.chooseProjectAsset)
+      throw new Error('The local image picker is unavailable in this environment.');
+    return (await this.gateway.chooseProjectAsset(id, kind)).assetRef;
   }
   sources(id: string, input: ProjectSourcesInput, revision = this.entry(id).revision) {
     return this.mutate(

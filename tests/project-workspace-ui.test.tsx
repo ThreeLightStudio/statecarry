@@ -387,6 +387,8 @@ it('preserves exact source boundaries and submits source/profile changes with th
       title: 'Project alpha',
       purpose: 'A clearer project purpose.',
       focused: true,
+      iconAsset: null,
+      bannerAsset: null,
     });
     expect(h.resumeGateway.refresh).not.toHaveBeenCalled();
   } finally {

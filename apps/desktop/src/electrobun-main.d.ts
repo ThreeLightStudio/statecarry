@@ -22,8 +22,10 @@ declare module 'electrobun/main' {
   export const ApplicationMenu: { setApplicationMenu(menu: ApplicationMenuItemConfig[]): void };
   export const Utils: {
     openFileDialog(options: {
-      canChooseFiles: false;
-      canChooseDirectory: true;
+      startingFolder?: string;
+      allowedFileTypes?: string;
+      canChooseFiles: boolean;
+      canChooseDirectory: boolean;
       allowsMultipleSelection: false;
     }): Promise<string[]>;
     openExternal(url: string): boolean;

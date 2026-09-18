@@ -324,6 +324,10 @@ function Badge({ children, kind = '' }: { children: ReactNode; kind?: string }) 
   );
 }
 
+function projectAssetUrl(ref: string | null): string | undefined {
+  return ref ? `/api/v1/local/project-assets/${encodeURIComponent(ref)}` : undefined;
+}
+
 function OverviewDate({ value }: { value: string | null }) {
   const date = value ? new Date(value) : null;
   return (
@@ -926,6 +930,8 @@ function GlobalSettings({
 }
 
 function FocusProjectCard({ project, onNavigate }: { project: ProjectView; onNavigate: Navigate }) {
+  const bannerUrl = projectAssetUrl(project.bannerAsset);
+  const iconUrl = projectAssetUrl(project.iconAsset);
   return (
     <RouteLink
       href={projectHref(project.id)}
@@ -933,10 +939,12 @@ function FocusProjectCard({ project, onNavigate }: { project: ProjectView; onNav
       className="pw-focus-card"
       current={undefined}
     >
-      <span className="pw-focus-card-banner" aria-hidden="true" />
+      <span className="pw-focus-card-banner" aria-hidden="true">
+        {bannerUrl && <img className="pw-focus-card-banner-image" src={bannerUrl} alt="" />}
+      </span>
       <span className="pw-focus-card-body">
         <span className="pw-focus-card-icon" aria-hidden="true">
-          <Folder />
+          {iconUrl ? <img src={iconUrl} alt="" /> : <Folder />}
         </span>
         <span className="pw-focus-card-copy">
           <strong>{project.title}</strong>
@@ -1101,7 +1109,7 @@ function Projects({ state, controller, onNavigate }: WorkspaceProps & { state: W
       className={cn(cardSurface, 'pw-card pw-card--quiet pw-project-card pw-project-list-card')}
     >
       <span className="pw-project-list-icon" aria-hidden="true">
-        <Folder />
+        {project.iconAsset ? <img src={projectAssetUrl(project.iconAsset)} alt="" /> : <Folder />}
       </span>
       <div className="pw-project-list-copy">
         <div className="pw-project-list-title">
@@ -1153,7 +1161,7 @@ function Projects({ state, controller, onNavigate }: WorkspaceProps & { state: W
   ));
   return (
     <>
-      <header className="pw-hero">
+      <header className="pw-hero pw-project-hero">
         <div className="pw-hero-copy">
           <span className="pw-eyebrow">Projects</span>
           <h1 tabIndex={-1}>Projects</h1>
@@ -1500,10 +1508,25 @@ function ProjectPage({
   }, [controller, project.id, selectedKey, selected?.key]);
   return (
     <>
+      {project.bannerAsset && (
+        <div className="pw-project-cover" aria-hidden="true">
+          <img src={projectAssetUrl(project.bannerAsset)} alt="" />
+        </div>
+      )}
       <header className="pw-hero">
         <div className="pw-hero-copy">
           <div className="pw-card-meta">{project.focused && <Badge>Your focus</Badge>}</div>
-          <h1 tabIndex={-1}>{project.title}</h1>
+          <div className="pw-project-title-row">
+            {project.iconAsset && (
+              <img
+                className="pw-project-title-icon"
+                src={projectAssetUrl(project.iconAsset)}
+                alt=""
+                aria-hidden="true"
+              />
+            )}
+            <h1 tabIndex={-1}>{project.title}</h1>
+          </div>
         </div>
       </header>
       {project.disconnected ? (
@@ -2780,6 +2803,8 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
     title: project.title,
     purpose: project.purpose,
     focused: project.focused,
+    iconAsset: project.iconAsset,
+    bannerAsset: project.bannerAsset,
     revision: project.revision,
   });
   const [sourceDraft, setSourceDraft] = useState<{
@@ -2792,6 +2817,8 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
   const [loadingSources, setLoadingSources] = useState(false);
   const [confirmRemoval, setConfirmRemoval] = useState(false);
   const [previewing, setPreviewing] = useState(false);
+  const [assetBusy, setAssetBusy] = useState<'icon' | 'banner' | null>(null);
+  const [assetError, setAssetError] = useState('');
   const mounted = useRef(true);
   const sourceRequest = useRef(0);
   const preview = state.deletion?.workId === project.id ? state.deletion : null;
@@ -2853,6 +2880,8 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
         title: submitted.title.trim(),
         purpose: submitted.purpose.trim(),
         focused: submitted.focused,
+        iconAsset: submitted.iconAsset,
+        bannerAsset: submitted.bannerAsset,
       },
       submitted.revision,
     );
@@ -2867,6 +2896,24 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
             }
           : current,
       );
+  };
+  const chooseAsset = async (kind: 'icon' | 'banner') => {
+    if (assetBusy) return;
+    setAssetBusy(kind);
+    setAssetError('');
+    try {
+      const assetRef = await controller.chooseProjectAsset(project.id, kind);
+      if (!mounted.current || !assetRef) return;
+      setProfile((current) => ({
+        ...current,
+        ...(kind === 'icon' ? { iconAsset: assetRef } : { bannerAsset: assetRef }),
+      }));
+    } catch {
+      if (mounted.current)
+        setAssetError('The selected image could not be added. Try another file.');
+    } finally {
+      if (mounted.current) setAssetBusy(null);
+    }
   };
   const saveSources = async () => {
     const submitted = sourceDraft;
@@ -2949,6 +2996,87 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
                 onChange={(event) => setProfile({ ...profile, purpose: event.target.value })}
               />
             </label>
+            <div className="pw-project-assets">
+              <div className="pw-project-asset-setting">
+                <div className="pw-project-asset-preview pw-project-asset-preview--icon">
+                  {profile.iconAsset ? (
+                    <img src={projectAssetUrl(profile.iconAsset)} alt="Project icon preview" />
+                  ) : (
+                    <Folder aria-hidden="true" />
+                  )}
+                </div>
+                <div className="pw-setting-copy">
+                  <strong>Project icon</strong>
+                  <span className="pw-small">Shown with this project across StateCarry.</span>
+                </div>
+                <div className="pw-actions">
+                  <Button
+                    type="button"
+                    className="pw-button"
+                    disabled={!!assetBusy}
+                    onClick={() => void chooseAsset('icon')}
+                  >
+                    {assetBusy === 'icon'
+                      ? 'Choosing…'
+                      : profile.iconAsset
+                        ? 'Replace'
+                        : 'Choose image'}
+                  </Button>
+                  {profile.iconAsset && (
+                    <Button
+                      type="button"
+                      className="pw-button pw-button--quiet"
+                      disabled={!!assetBusy}
+                      onClick={() => setProfile({ ...profile, iconAsset: null })}
+                    >
+                      Remove
+                    </Button>
+                  )}
+                </div>
+              </div>
+              <div className="pw-project-asset-setting">
+                <div className="pw-project-asset-preview pw-project-asset-preview--banner">
+                  {profile.bannerAsset ? (
+                    <img src={projectAssetUrl(profile.bannerAsset)} alt="Project banner preview" />
+                  ) : (
+                    <span className="pw-small">No banner</span>
+                  )}
+                </div>
+                <div className="pw-setting-copy">
+                  <strong>Project banner</strong>
+                  <span className="pw-small">Used as the visual banner for this project.</span>
+                </div>
+                <div className="pw-actions">
+                  <Button
+                    type="button"
+                    className="pw-button"
+                    disabled={!!assetBusy}
+                    onClick={() => void chooseAsset('banner')}
+                  >
+                    {assetBusy === 'banner'
+                      ? 'Choosing…'
+                      : profile.bannerAsset
+                        ? 'Replace'
+                        : 'Choose image'}
+                  </Button>
+                  {profile.bannerAsset && (
+                    <Button
+                      type="button"
+                      className="pw-button pw-button--quiet"
+                      disabled={!!assetBusy}
+                      onClick={() => setProfile({ ...profile, bannerAsset: null })}
+                    >
+                      Remove
+                    </Button>
+                  )}
+                </div>
+              </div>
+              {assetError && (
+                <p className="pw-notice" role="alert">
+                  {assetError}
+                </p>
+              )}
+            </div>
             <div className="pw-setting-row">
               <div className="pw-setting-copy">
                 <strong>Home focus</strong>

@@ -68,6 +68,12 @@ export class HttpProjectGateway implements ProjectGateway {
   chooseFolder() {
     return this.request<{ path: string | null }>('/local/folder-picker', {});
   }
+  chooseProjectAsset(id: string, kind: 'icon' | 'banner') {
+    return this.request<{ assetRef: string | null }>('/local/project-assets/select', {
+      workId: id,
+      kind,
+    });
+  }
   appUpdate() {
     return this.request<AppUpdateState>('/local/updater');
   }
