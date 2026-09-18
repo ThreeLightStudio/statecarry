@@ -41,6 +41,7 @@ it('uses the real Root and Core to disconnect, restore the same registration, an
     expect(h.projectGateway.connections).toHaveBeenCalled();
     await press(mounted.host, 'Disconnect project');
     expect(window.location.hash).toBe('#/home');
+    await go('#/projects');
     expect(mounted.host.textContent).toContain('Disconnected');
     expect(core.core.projects.list().projects).toEqual([
       expect.objectContaining({ workId: id, disconnectedAt: expect.any(String) }),
@@ -49,7 +50,7 @@ it('uses the real Root and Core to disconnect, restore the same registration, an
     expect(h.projectGateway.delete).not.toHaveBeenCalled();
 
     await press(mounted.host, 'Reconnect project');
-    expect(window.location.hash).toBe('#/home');
+    expect(window.location.hash).toBe('#/projects');
     expect(core.core.projects.list().projects).toEqual([
       expect.objectContaining({ workId: id, disconnectedAt: null, connectionId }),
     ]);

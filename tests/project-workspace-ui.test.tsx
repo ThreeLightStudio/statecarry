@@ -26,7 +26,7 @@ import type { Connection, ProjectDeletionPreview } from '@statecarry/contracts';
 beforeEach(installBrowser);
 afterEach(() => vi.unstubAllGlobals());
 
-it('shows the StateCarry brand mark and beta preview popover before the workspace breadcrumb', async () => {
+it('shows the StateCarry brand mark and inline beta preview in the single app header', async () => {
   const h = projectUiFixture();
   window.history.replaceState(null, '', '#/home');
   const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
@@ -36,11 +36,11 @@ it('shows the StateCarry brand mark and beta preview popover before the workspac
     expect(brand?.querySelector('.pw-brand-mark')).toBeTruthy();
     expect(brand?.querySelector('.pw-brand-name')?.textContent).toBe('StateCarry');
     expect(brand?.querySelector('.pw-beta-badge')).toBeNull();
-    const breadcrumb = mounted.host.querySelector<HTMLElement>('.pw-breadcrumb');
-    expect(breadcrumb?.querySelector('.pw-beta-badge')?.textContent).toBe('Beta');
-    expect(breadcrumb?.children[0]?.classList.contains('pw-beta-wrap')).toBe(true);
-    expect(breadcrumb?.children[1]?.textContent?.trim()).toBe('Workspace');
-    const beta = breadcrumb?.querySelector<HTMLElement>('.pw-beta-wrap');
+    const header = mounted.host.querySelector<HTMLElement>('.pw-app-header')!;
+    expect(header.querySelector('.pw-app-header-title')?.textContent).toBe('Home');
+    expect(header.querySelector('.pw-beta-badge')?.textContent).toBe('Beta');
+    expect(mounted.host.querySelector('.pw-breadcrumb')).toBeNull();
+    const beta = header.querySelector<HTMLElement>('.pw-beta-wrap');
     const popover = beta?.querySelector<HTMLElement>('.pw-beta-popover');
     expect(beta?.getAttribute('aria-describedby')).toBe('beta-preview-detail');
     expect(popover?.getAttribute('role')).toBe('tooltip');
@@ -50,37 +50,48 @@ it('shows the StateCarry brand mark and beta preview popover before the workspac
   }
 });
 
-it('compares projects with explicit focus, search and exact task navigation', async () => {
+it('shows up to three Home focus slots and moves full project browsing to Projects', async () => {
   const alpha = projectEntry('alpha');
+  alpha.focused = true;
   const beta = projectEntry('beta');
   beta.focused = true;
   beta.resume!.generatedAt = '2025-01-01T00:00:00Z';
+  const gamma = projectEntry('gamma');
+  const delta = projectEntry('delta');
   const disconnected = projectEntry('disconnected');
   disconnected.disconnectedAt = now;
   disconnected.resume = null;
   const stale = projectEntry('stale');
   stale.resume!.stale = true;
   stale.resume!.state = 'limited';
-  const h = projectUiFixture([alpha, beta, disconnected, stale]);
+  const h = projectUiFixture([alpha, beta, gamma, delta, disconnected, stale]);
   window.history.replaceState(null, '', '#/home');
   const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
   try {
-    const pending = mounted.host.querySelector('section[aria-labelledby="pending-heading"]')!;
-    expect(pending.querySelector('a')?.getAttribute('href')).toBe('#/project/beta?task=first');
-    expect(pending.textContent).not.toContain('Project disconnected');
-    expect(pending.textContent).toContain('Some project information could not be confirmed');
+    const focus = mounted.host.querySelector('section[aria-labelledby="home-focus-heading"]')!;
+    expect(focus.querySelectorAll('.pw-focus-card')).toHaveLength(2);
+    expect(focus.querySelectorAll('.pw-focus-slot')).toHaveLength(1);
+    expect(focus.textContent).toContain('2 of 3 focus slots used');
+    expect(focus.querySelector('a[href="#/project/alpha"]')).toBeTruthy();
+    expect(focus.querySelector('a[href="#/project/beta"]')).toBeTruthy();
+    expect(focus.textContent).not.toContain('Project disconnected');
+    expect(mounted.host.querySelector('[aria-labelledby="active-projects-heading"]')).toBeNull();
+    await follow(mounted.host, '#/projects');
+    expect(mounted.host.querySelector('h1')?.textContent).toBe('Projects');
+    expect(mounted.host.querySelector('select[name="project-filter"]')).toBeNull();
+    expect(mounted.host.querySelector('input[name="workspace-search"]')).toBeTruthy();
     expect(
-      mounted.host.querySelector('section[aria-labelledby="all-projects-heading"]')?.textContent,
-    ).toContain('4 shown · 4 projects');
-    const disconnectedFocus = mounted.host.querySelector<HTMLButtonElement>(
-      'button[aria-label="Make Project disconnected my Home focus"]',
-    );
-    expect(disconnectedFocus).toBeTruthy();
+      mounted.host.querySelector('section[aria-labelledby="active-projects-heading"]')?.textContent,
+    ).toContain('5 shown');
+    expect(
+      mounted.host.querySelector('section[aria-labelledby="disconnected-projects-heading"]')
+        ?.textContent,
+    ).toContain('Project disconnected');
     await typeField(mounted.host, 'input[name="workspace-search"]', 'beta');
-    expect(pending.querySelectorAll('a')).toHaveLength(2);
     expect(
-      mounted.host.querySelector('section[aria-labelledby="all-projects-heading"]')?.textContent,
-    ).toContain('1 shown · 4 projects');
+      mounted.host.querySelector('section[aria-labelledby="active-projects-heading"]')?.textContent,
+    ).toContain('1 shown');
+    await go('#/project/beta');
     await follow(mounted.host, '#/project/beta?task=second');
     expect(mounted.host.querySelector('h1')?.textContent).toBe('Project beta');
     expect(mounted.host.querySelector('[aria-label="Selected task"] h2')?.textContent).toBe(
@@ -91,6 +102,81 @@ it('compares projects with explicit focus, search and exact task navigation', as
         ?.textContent,
     ).toMatch(/Open Codex conversation|Copy task context/);
     expect(h.resumeGateway.refresh).not.toHaveBeenCalled();
+  } finally {
+    await mounted.unmount();
+  }
+});
+
+it('keeps project search hidden below six projects and adds focus immediately when a slot is free', async () => {
+  const alpha = projectEntry('alpha');
+  alpha.focused = true;
+  const beta = projectEntry('beta');
+  const h = projectUiFixture([alpha, beta]);
+  window.history.replaceState(null, '', '#/projects');
+  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  try {
+    expect(mounted.host.querySelector('input[name="workspace-search"]')).toBeNull();
+    const betaCard = [...mounted.host.querySelectorAll<HTMLElement>('.pw-project-list-card')].find(
+      (card) => card.textContent?.includes('Project beta'),
+    )!;
+    const add = [...betaCard.querySelectorAll<HTMLButtonElement>('button')].find(
+      (item) => item.textContent?.trim() === 'Add to focus',
+    )!;
+    await act(async () => {
+      add.click();
+    });
+    expect(h.projectGateway.settings).toHaveBeenCalledWith('beta', 7, {
+      title: 'Project beta',
+      purpose: 'Make exported work understandable when returning.',
+      focused: true,
+    });
+    expect(mounted.host.querySelector('[role="dialog"]')).toBeNull();
+  } finally {
+    await mounted.unmount();
+  }
+});
+
+it('opens a replacement modal when all three focus slots are full', async () => {
+  const alpha = projectEntry('alpha');
+  const beta = projectEntry('beta');
+  const gamma = projectEntry('gamma');
+  const delta = projectEntry('delta');
+  alpha.focused = true;
+  beta.focused = true;
+  gamma.focused = true;
+  const h = projectUiFixture([alpha, beta, gamma, delta]);
+  window.history.replaceState(null, '', '#/projects');
+  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  try {
+    const deltaCard = [...mounted.host.querySelectorAll<HTMLElement>('.pw-project-list-card')].find(
+      (card) => card.textContent?.includes('Project delta'),
+    )!;
+    const add = [...deltaCard.querySelectorAll<HTMLButtonElement>('button')].find(
+      (item) => item.textContent?.trim() === 'Add to focus',
+    )!;
+    await act(async () => {
+      add.click();
+    });
+    const dialog = mounted.host.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog).toBeTruthy();
+    expect(dialog.textContent).toContain('Focus is full');
+    expect(dialog.textContent).toContain('Project delta will take its place in Home focus.');
+    expect(dialog.querySelectorAll('.pw-focus-replace-option')).toHaveLength(3);
+    const first = dialog.querySelector<HTMLButtonElement>('.pw-focus-replace-option')!;
+    await act(async () => {
+      first.click();
+    });
+    expect(h.projectGateway.settings).toHaveBeenNthCalledWith(1, 'alpha', 7, {
+      title: 'Project alpha',
+      purpose: 'Make exported work understandable when returning.',
+      focused: false,
+    });
+    expect(h.projectGateway.settings).toHaveBeenNthCalledWith(2, 'delta', 7, {
+      title: 'Project delta',
+      purpose: 'Make exported work understandable when returning.',
+      focused: true,
+    });
+    expect(mounted.host.querySelector('[role="dialog"]')).toBeNull();
   } finally {
     await mounted.unmount();
   }
@@ -165,6 +251,14 @@ it.each([
     window.history.replaceState(null, '', '#/project/alpha?task=first');
     const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
     try {
+      if (status === 'accepted') {
+        expect(mounted.host.querySelector('[aria-label="Selected task"]')).toBeNull();
+        expect(mounted.host.textContent).toContain('No next work has been chosen.');
+        expect(mounted.host.textContent).toContain('The recorded work is complete.');
+        expect(button(mounted.host, 'Set a new direction')).toBeTruthy();
+        expect(h.resumeGateway.correct).not.toHaveBeenCalled();
+        return;
+      }
       const task = mounted.host.querySelector('[aria-label="Selected task"]')!;
       expect(task.querySelector('.pw-badge')?.textContent).toBe(label);
       expect(task.querySelector('.pw-decision-main')?.textContent).toContain(decision);
@@ -182,8 +276,6 @@ it.each([
         );
         expect(task.textContent).toContain('acceptance has not been recorded');
       }
-      if (status === 'accepted')
-        expect(mounted.host.textContent).toContain('No next goal has been chosen');
       expect(h.resumeGateway.correct).not.toHaveBeenCalled();
     } finally {
       await mounted.unmount();
@@ -225,11 +317,9 @@ it('registers a no-session project, opens it, and requests its project-first ove
       resume: { sessionCount: 0, goalText: 'Record the first experiment question.' },
     });
     expect(window.location.hash).toBe(`#/project/${entry.workId}`);
-    expect(mounted.host.textContent).toContain('Keep research decisions understandable over time.');
     expect(mounted.host.textContent).toContain('Record the first experiment question.');
-    expect(mounted.host.textContent).toContain('checks project files and Git automatically');
-    expect(mounted.host.textContent).toContain('No Codex conversations added');
-    expect(button(mounted.host, 'Create overview').disabled).toBe(false);
+    expect(mounted.host.textContent).toContain('No current work is available.');
+    expect(button(mounted.host, 'Update overview').disabled).toBe(false);
     expect(h.projectGateway.create).toHaveBeenCalledWith(
       expect.objectContaining({ threadIds: [], discover: false }),
     );
@@ -374,12 +464,12 @@ it('keeps newer input and the destination project when a previous project save c
   window.history.replaceState(null, '', '#/project/alpha?task=second');
   const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway, drafts.memory());
   try {
-    await press(mounted.host, 'Edit goal');
+    await press(mounted.host, 'Edit direction');
     await typeField(mounted.host, 'textarea[name="goal"]', 'Submitted alpha goal');
     await press(mounted.host, 'Save goal');
     await typeField(mounted.host, 'textarea[name="goal"]', 'Newer alpha draft');
-    await follow(mounted.host, '#/project/beta');
-    await press(mounted.host, 'Edit goal');
+    await go('#/project/beta');
+    await press(mounted.host, 'Edit direction');
     await typeField(mounted.host, 'textarea[name="goal"]', 'Independent beta draft');
     await act(async () => {
       saved.resolve();
@@ -396,7 +486,7 @@ it('keeps newer input and the destination project when a previous project save c
     );
     expect(drafts.memory().read('alpha')?.goalDraft?.text).toBe('Newer alpha draft');
     expect(drafts.memory().read('beta')?.goalDraft?.text).toBe('Independent beta draft');
-    await follow(mounted.host, '#/project/alpha');
+    await go('#/project/alpha');
     expect(mounted.host.querySelector<HTMLTextAreaElement>('textarea[name="goal"]')?.value).toBe(
       'Newer alpha draft',
     );
@@ -411,7 +501,7 @@ it('does not offer a save when the current goal text has not changed', async () 
   window.history.replaceState(null, '', '#/project/alpha');
   const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
   try {
-    await press(mounted.host, 'Edit goal');
+    await press(mounted.host, 'Edit direction');
     expect(button(mounted.host, 'Save goal').disabled).toBe(true);
     expect(mounted.host.textContent).toContain('No goal changes to save.');
     expect(h.resumeGateway.setGoal).not.toHaveBeenCalled();

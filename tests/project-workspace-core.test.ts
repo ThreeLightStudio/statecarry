@@ -127,26 +127,40 @@ describe('project workspace registration and decisions', () => {
     expect(restarted.projects.list()).toEqual(workspace);
   });
 
-  it('saves one explicit focus with revisions and keeps project purpose and title independent of goal', () => {
+  it('keeps up to three explicit Home focus projects and keeps project purpose and title independent of goal', () => {
     const h = harness();
     const a = registerProject(h, { goal: 'First goal.' }).receipt.workId;
     const b = registerProject(h, { title: 'Second project', cwd: '/tmp/second-project' }).receipt
       .workId;
+    const c = registerProject(h, { title: 'Third project', cwd: '/tmp/third-project' }).receipt
+      .workId;
+    const d = registerProject(h, { title: 'Fourth project', cwd: '/tmp/fourth-project' }).receipt
+      .workId;
     const profileA = { title: 'Export tool', purpose: 'Reusable exports.', focused: true };
     const focusA = h.command(a, profileA);
     h.core.projects.settings(a, focusA);
-    const formerRevision = h.core.work(a).revision;
     h.core.projects.settings(
       b,
       h.command(b, { title: 'Second project', purpose: '', focused: true }),
     );
-    expect(h.core.work(a).revision).toBe(formerRevision + 1);
+    h.core.projects.settings(
+      c,
+      h.command(c, { title: 'Third project', purpose: '', focused: true }),
+    );
     expect(
       h.core.projects.list().projects.map((project) => [project.workId, project.focused]),
     ).toEqual([
-      [a, false],
+      [a, true],
       [b, true],
+      [c, true],
+      [d, false],
     ]);
+    expect(() =>
+      h.core.projects.settings(
+        d,
+        h.command(d, { title: 'Fourth project', purpose: '', focused: true }),
+      ),
+    ).toThrowError(expect.objectContaining({ code: 'VALIDATION' }));
     expect(() => h.core.projects.settings(a, { ...focusA, requestId: 'stale-focus' })).toThrowError(
       expect.objectContaining({ code: 'REVISION_CONFLICT' }),
     );
@@ -154,12 +168,12 @@ describe('project workspace registration and decisions', () => {
     expect(h.core.projects.list().projects[0]).toMatchObject({
       title: 'Export tool',
       purpose: 'Reusable exports.',
-      focused: false,
+      focused: true,
       resume: { goalText: 'A different current goal.' },
     });
     expect(h.core.connection(h.core.work(a).projectId).title).toBe('Export tool');
     expect(h.core.projects.settings(a, focusA).command).toBe('project-settings');
-    expect(h.core.work(a).projectProfile?.focused).toBe(false);
+    expect(h.core.work(a).projectProfile?.focused).toBe(true);
   });
 
   it('preserves unspecified record ranges and supports explicitly removing every source', async () => {

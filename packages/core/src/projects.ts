@@ -309,14 +309,17 @@ export class Projects {
   settings(workId: string, command: Command): Receipt {
     const profile = projectProfileSchema.parse(command.payload);
     const result = this.commit(workId, 'project-settings', command, (work, connection) => {
-      if (profile.focused)
-        for (const other of this.core.repo.list('work'))
-          if (other.id !== workId && other.projectProfile?.focused)
-            this.core.repo.put('work', {
-              ...other,
-              projectProfile: { ...other.projectProfile, focused: false },
-              revision: other.revision + 1,
-            });
+      if (profile.focused && !this.profile(work).focused) {
+        const focused = this.core.repo
+          .list('work')
+          .filter((other) => other.id !== workId && other.projectProfile?.focused);
+        if (focused.length >= 3)
+          throw new DomainError(
+            'VALIDATION',
+            'Home focus already contains three projects. Remove one before adding another.',
+            409,
+          );
+      }
       this.core.repo.put('work', {
         ...work,
         title: profile.title,
@@ -325,8 +328,7 @@ export class Projects {
       });
       this.core.repo.put('connection', { ...connection, title: profile.title });
     });
-    // Other projects may have lost focus in the same transaction.
-    this.core.events.changed(null);
+    this.core.events.changed(workId);
     return result;
   }
 

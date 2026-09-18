@@ -26,10 +26,9 @@ it('preserves the exact task and original edit versions through real Root Home/o
   window.history.replaceState(null, '', '#/resume/alpha');
   let mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway, drafts.memory());
   const expectDraft = () => {
-    expect(
-      mounted.host.querySelector('nav[aria-label="Choose a task"] a[aria-current="true"]')
-        ?.textContent,
-    ).toContain('Ship second alpha export');
+    expect(mounted.host.querySelector('[aria-label="Selected task"] h2')?.textContent).toContain(
+      'Ship second alpha export',
+    );
     expect(mounted.host.querySelector<HTMLTextAreaElement>('textarea[name="goal"]')?.value).toBe(
       'Unsaved root goal',
     );
@@ -43,7 +42,7 @@ it('preserves the exact task and original edit versions through real Root Home/o
   try {
     expect(window.location.hash).toBe('#/project/alpha');
     await follow(mounted.host, '#/project/alpha?task=second');
-    await press(mounted.host, 'Edit goal');
+    await press(mounted.host, 'Edit direction');
     await typeField(mounted.host, 'textarea[name="goal"]', 'Unsaved root goal');
     await press(mounted.host, 'Edit next step');
     await typeField(mounted.host, 'textarea[name="next-action"]', 'Unsaved root action');
@@ -81,7 +80,7 @@ it('preserves the exact task and original edit versions through real Root Home/o
     await follow(mounted.host, '#/home');
     expect(mounted.host.querySelector('textarea')).toBeNull();
     h.rows.projects[0].resume!.version = 'resume-v2';
-    await follow(mounted.host, '#/project/alpha');
+    await go('#/project/alpha');
     expectDraft();
     expect(button(mounted.host, 'Save goal').disabled).toBe(true);
     expect(button(mounted.host, 'Save next step').disabled).toBe(true);
@@ -98,10 +97,10 @@ it('preserves the exact task and original edit versions through real Root Home/o
     await go('#/project/alpha?task=second');
     expectDraft();
     expect(mounted.host.textContent).toContain("StateCarry can't connect to its local service.");
-    expect(mounted.host.querySelector('.pw-topbar .pw-workspace-status')?.textContent).toBe(
+    expect(mounted.host.querySelector('.pw-app-header .pw-workspace-status')?.textContent).toBe(
       "StateCarry can't connect to its local service.",
     );
-    expect(mounted.host.querySelector('.pw-app-header')?.textContent).not.toContain(
+    expect(mounted.host.querySelector('.pw-app-header')?.textContent).toContain(
       "StateCarry can't connect to its local service.",
     );
     expect(mounted.host.textContent).not.toContain(RAW_ERROR);
@@ -112,10 +111,10 @@ it('preserves the exact task and original edit versions through real Root Home/o
 
     await follow(mounted.host, '#/home');
     h.rows.projects[0].resume!.candidates = [];
-    await follow(mounted.host, '#/project/alpha');
+    await go('#/project/alpha');
     expect(mounted.host.querySelector('[aria-label="Selected task"]')).toBeNull();
     expect(mounted.host.querySelector('textarea[name="next-action"]')).toBeNull();
-    expect(mounted.host.textContent).toContain('The selected task is no longer available');
+    expect(mounted.host.textContent).toContain('The selected work is no longer available');
     expect(drafts.memory().read('alpha')!.selectedKey).toBe('second');
     expect(h.projectGateway.list).toHaveBeenCalled();
     expect(h.resumeGateway.list).not.toHaveBeenCalled();

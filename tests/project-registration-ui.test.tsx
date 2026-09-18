@@ -7,6 +7,7 @@ import {
   act,
   button,
   follow,
+  go,
   installBrowser,
   mountProjectRoot,
   now,
@@ -106,7 +107,6 @@ it.each([
       expect(h.projectGateway.create).not.toHaveBeenCalled();
       await follow(mounted.host, '#/project/alpha');
       expect(h.rows.projects).toEqual([before]);
-      expect(mounted.host.textContent).toContain(before.purpose);
       expect(mounted.host.textContent).toContain(before.resume!.goalText);
       expect(h.projectGateway.settings).not.toHaveBeenCalled();
       expect(h.projectGateway.sources).not.toHaveBeenCalled();
@@ -284,7 +284,6 @@ it('uses the real server reuse receipt when another registration was absent from
     expect(core.core.work(original.workId)).toEqual(beforeWork);
     expect(core.core.connection(original.resultId)).toEqual(beforeConnection);
     await follow(mounted.host, `#/project/${original.workId}`);
-    expect(mounted.host.textContent).toContain('Keep original purpose');
     expect(mounted.host.textContent).toContain('Keep original goal');
     expect(core.core.projects.list().projects).toHaveLength(1);
     expect(h.resumeGateway.refresh).not.toHaveBeenCalled();
@@ -320,10 +319,9 @@ it('prunes old browser IDs on the successful full list and starts the new projec
     expect(mounted.host.textContent).not.toContain('obsolete');
     expect(mounted.host.querySelector('[aria-label="Selected task"]')).toBeNull();
     expect(mounted.host.textContent).not.toContain('No next task has been chosen');
-    expect(mounted.host.textContent).toContain('checks project files and Git automatically');
-    expect(mounted.host.textContent).toContain('No Codex conversations added');
-    expect(button(mounted.host, 'Create overview').disabled).toBe(false);
-    await press(mounted.host, 'Set goal');
+    expect(mounted.host.textContent).toContain('Choose a direction first.');
+    expect(button(mounted.host, 'Set direction')).toBeTruthy();
+    await press(mounted.host, 'Set direction');
     expect(mounted.host.querySelector<HTMLTextAreaElement>('textarea[name="goal"]')?.value).toBe(
       '',
     );
@@ -358,7 +356,7 @@ it('does not recreate a pruned old key when the displayed project disappears dur
     expect(data.memory().read('alpha')).toBeNull();
     expect(data.storage.getItem('statecarry.work.v1.alpha')).toBeNull();
     await follow(mounted.host, '#/home');
-    await follow(mounted.host, '#/project/new-statecarry');
+    await go('#/project/new-statecarry');
     expect(mounted.host.textContent).not.toContain('obsolete');
     expect(data.memory().read('new-statecarry')).toBeNull();
     expect(h.resumeGateway.refresh).not.toHaveBeenCalled();
@@ -384,7 +382,7 @@ it('preserves old keys when the full-list read fails and reports a subsequent st
     expect(mounted.host.textContent).toContain('Old browser drafts could not be cleared');
     expect(mounted.host.textContent).not.toContain('RAW_PRUNE_FAILURE');
     expect(mounted.host.textContent).not.toContain('RAW_LIST_FAILURE');
-    await follow(mounted.host, '#/project/new-statecarry');
+    await go('#/project/new-statecarry');
     expect(mounted.host.textContent).not.toContain('An obsolete draft goal');
     expect(data.memory().read('new-statecarry')).toBeNull();
   } finally {
@@ -422,9 +420,8 @@ it('keeps Codex context optional before an explicit first analysis, with no infe
   window.history.replaceState(null, '', '#/project/new-statecarry');
   const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
   try {
-    expect(mounted.host.textContent).toContain('No goal has been recorded');
-    expect(button(mounted.host, 'Create overview').disabled).toBe(false);
-    expect(mounted.host.textContent).toContain('No Codex conversations added');
+    expect(mounted.host.textContent).toContain('Choose a direction first.');
+    expect(button(mounted.host, 'Set direction')).toBeTruthy();
     await follow(mounted.host, '#/project/new-statecarry/settings');
     expect(mounted.host.textContent).toContain('Codex conversations');
     await press(mounted.host, 'Find related conversations');
@@ -436,12 +433,8 @@ it('keeps Codex context optional before an explicit first analysis, with no infe
     expect(h.resumeGateway.refresh).not.toHaveBeenCalled();
     await follow(mounted.host, '#/project/new-statecarry');
     expect(mounted.host.querySelector('[aria-label="Selected task"]')).toBeNull();
-    expect(button(mounted.host, 'Create overview').disabled).toBe(false);
-    await press(mounted.host, 'Create overview');
-    expect(h.resumeGateway.refresh).toHaveBeenCalledExactlyOnceWith('new-statecarry');
-    expect(mounted.host.textContent).toContain(
-      'Overview update started. You can keep reading while StateCarry checks the project.',
-    );
+    expect(button(mounted.host, 'Set direction')).toBeTruthy();
+    expect(h.resumeGateway.refresh).not.toHaveBeenCalled();
     expect(h.resumeGateway.setGoal).not.toHaveBeenCalled();
     expect(entry.resume!.goalText).toBeNull();
   } finally {

@@ -29,7 +29,7 @@ it('keeps the real project explanation and editor stable while a burst of change
   window.history.replaceState(null, '', '#/project/alpha');
   const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
   try {
-    await press(mounted.host, 'Edit goal');
+    await press(mounted.host, 'Edit direction');
     await typeField(mounted.host, 'textarea[name="goal"]', 'Keep my unfinished goal');
     const goal = mounted.host.querySelector<HTMLTextAreaElement>('textarea[name="goal"]')!;
     goal.focus();
@@ -42,9 +42,7 @@ it('keeps the real project explanation and editor stable while a burst of change
       for (let count = 0; count < 20; count++) changed({ workId: 'alpha' });
     });
     expect(mounted.host.querySelector('.pw-decision-main')!.textContent).toBe(nextChoice);
-    expect(mounted.host.querySelector('[aria-label="Current overview status"]')?.className).toBe(
-      'pw-overview-meta',
-    );
+    expect(mounted.host.querySelector('[aria-labelledby="project-context-heading"]')).toBeTruthy();
     expect(mounted.host.textContent).not.toContain('Reading saved state…');
     expect(goal.value).toBe('Keep my unfinished goal');
     expect(document.activeElement).toBe(goal);
@@ -99,7 +97,7 @@ it('checks once on app return, with no periodic read or analysis', async () => {
       document.dispatchEvent(new Event('visibilitychange'));
     });
     expect(h.projectGateway.list).toHaveBeenCalledTimes(2);
-    expect(mounted.host.querySelector('.pw-topbar .pw-workspace-status')?.textContent).toBe(
+    expect(mounted.host.querySelector('.pw-app-header .pw-workspace-status')?.textContent).toBe(
       'Checking for changes…',
     );
     expect(mounted.host.querySelector('.pw-app-header')?.textContent).toContain('Send feedback');

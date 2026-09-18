@@ -1004,7 +1004,7 @@ describe('project-oriented presentation and return memory', () => {
     expect(projectRouteHref(parseProjectRoute('#/resume/a?task=second'))).toBe(
       '#/project/a?task=second',
     );
-    expect(projectRouteHref(parseProjectRoute('#/projects'))).toBe('#/home');
+    expect(projectRouteHref(parseProjectRoute('#/projects'))).toBe('#/projects');
     expect(projectRouteHref(parseProjectRoute('#/project/%ZZ'))).toBe('#/home');
   });
 });

@@ -52,7 +52,7 @@
 }
 
 .pw-rail {
-  @apply sticky flex flex-col gap-8 overflow-y-auto border-r border-border bg-secondary px-5 pt-8 pb-6;
+  @apply sticky flex flex-col gap-6 overflow-y-auto border-r border-border bg-secondary px-5 pt-6 pb-6;
   grid-area: rail;
   top: 40px;
   height: calc(100dvh - 40px);
@@ -219,27 +219,13 @@
   @apply font-semibold text-accent-foreground;
 }
 
-.pw-nav-label,
 .pw-eyebrow {
   @apply block text-[11px] leading-6 tracking-[0.12em] text-muted-foreground uppercase;
   font-weight: 650;
 }
 
-.pw-nav-label {
-  @apply px-3 pb-2;
-}
-
 .pw-rail-foot {
   @apply mt-auto grid gap-3 text-xs text-muted-foreground;
-}
-
-.pw-product-hunt-badge {
-  @apply block cursor-pointer overflow-hidden rounded-md leading-none no-underline select-none;
-}
-
-.pw-product-hunt-badge img {
-  @apply block h-auto w-full select-none;
-  -webkit-user-drag: none;
 }
 
 .pw-settings-link {
@@ -287,42 +273,29 @@
 .pw-main {
   @apply mx-auto w-full min-w-0 max-w-[1320px] pb-[72px];
   grid-area: main;
-  padding-top: 28px;
+  padding-top: 22px;
   padding-inline: clamp(24px, 4.5vw, 72px);
 }
 
-.pw-topbar,
 .pw-hero,
 .pw-section-head,
 .pw-actions,
 .pw-card-meta,
-.pw-checkbox,
-.pw-breadcrumb {
+.pw-checkbox {
   @apply flex;
 }
 
-.pw-topbar,
 .pw-hero,
 .pw-section-head {
   @apply justify-between;
 }
-
-.pw-topbar {
-  @apply mb-12 min-h-[30px] items-center gap-4 text-[13px] text-muted-foreground;
-}
-
-.pw-breadcrumb,
 .pw-actions,
 .pw-card-meta {
   @apply flex-wrap items-center gap-2.5;
 }
 
-.pw-breadcrumb {
-  @apply gap-3;
-}
-
 .pw-workspace-status {
-  @apply ml-auto max-w-[48%] text-right text-[13px] leading-5 text-muted-foreground;
+  @apply max-w-[48vw] truncate text-right text-[13px] leading-5 text-muted-foreground;
 }
 
 .pw-feedback-link {
@@ -381,13 +354,114 @@
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
 }
 
-.pw-project-layout {
-  @apply grid items-start gap-[26px];
-  grid-template-columns: minmax(0, 1fr) 260px;
+.pw-home-hero {
+  @apply mb-8;
 }
 
-.pw-settings-project {
-  @apply grid gap-4 border-t border-border pt-4 first:border-t-0 first:pt-0;
+.pw-focus-section {
+  @apply grid gap-5;
+}
+
+.pw-focus-grid {
+  @apply grid gap-[18px];
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.pw-focus-card,
+.pw-focus-slot {
+  @apply min-h-[300px] overflow-hidden rounded-xl border border-border bg-card no-underline;
+}
+
+.pw-focus-card {
+  @apply grid transition-[transform,box-shadow,border-color] duration-150;
+  grid-template-rows: minmax(168px, 1fr) auto;
+}
+
+.pw-focus-card:hover {
+  @apply border-primary/40 shadow-md;
+  transform: translateY(-2px);
+}
+
+.pw-focus-card-banner {
+  @apply block min-h-[168px];
+  background:
+    radial-gradient(circle at 18% 22%, rgb(255 255 255 / 0.75), transparent 24%),
+    radial-gradient(circle at 78% 32%, rgb(255 255 255 / 0.42), transparent 30%),
+    linear-gradient(145deg, #dce9fb 0%, #e7e6fb 46%, #d8f0ed 100%);
+}
+
+.pw-focus-card:nth-child(3n + 2) .pw-focus-card-banner {
+  background:
+    radial-gradient(circle at 24% 70%, rgb(255 255 255 / 0.64), transparent 28%),
+    radial-gradient(circle at 78% 18%, rgb(255 255 255 / 0.44), transparent 26%),
+    linear-gradient(145deg, #e5ebf7 0%, #d9edf0 45%, #ece7f7 100%);
+}
+
+.pw-focus-card:nth-child(3n + 3) .pw-focus-card-banner {
+  background:
+    radial-gradient(circle at 70% 66%, rgb(255 255 255 / 0.58), transparent 27%),
+    radial-gradient(circle at 18% 18%, rgb(255 255 255 / 0.48), transparent 22%),
+    linear-gradient(145deg, #e4e7f8 0%, #eee7f4 48%, #dcecf4 100%);
+}
+
+.pw-focus-card-body {
+  @apply flex min-w-0 items-center gap-3.5 border-t border-border px-5 py-[18px];
+}
+
+.pw-focus-card-icon {
+  @apply flex size-11 shrink-0 items-center justify-center rounded-[12px] border border-border bg-background text-muted-foreground;
+}
+
+.pw-focus-card-icon svg {
+  @apply size-5;
+}
+
+.pw-focus-card-copy {
+  @apply grid min-w-0 gap-1;
+}
+
+.pw-focus-card-copy strong {
+  @apply truncate text-base font-semibold text-foreground;
+}
+
+.pw-focus-card-status {
+  @apply truncate text-[13px] text-muted-foreground;
+}
+
+.pw-focus-slot {
+  @apply grid place-items-center border-dashed bg-muted/40 text-muted-foreground;
+}
+
+.pw-focus-slot--empty {
+  @apply px-6 text-center text-sm;
+}
+
+.pw-focus-slot--add {
+  @apply content-center justify-items-center gap-2 px-6 text-center transition-[border-color,background-color] duration-150;
+}
+
+.pw-focus-slot--add:hover {
+  @apply border-primary/40 bg-muted/60;
+}
+
+.pw-focus-slot--add strong {
+  @apply text-base font-semibold text-foreground;
+}
+
+.pw-focus-slot--add > span:last-child {
+  @apply text-[13px] text-muted-foreground;
+}
+
+.pw-focus-slot-plus {
+  @apply flex size-11 items-center justify-center rounded-full border border-border bg-card text-2xl leading-none text-foreground;
+}
+
+.pw-focus-footer {
+  @apply flex justify-end;
+}
+
+.pw-project-picker-link {
+  @apply text-sm font-medium;
 }
 
 .pw-card--focused {
@@ -401,6 +475,83 @@
 
 .pw-project-card {
   @apply relative;
+}
+
+.pw-project-search {
+  @apply max-w-[520px];
+}
+
+.pw-project-list {
+  @apply grid gap-3;
+}
+
+.pw-project-list-card {
+  @apply grid items-center gap-4 p-4;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.pw-project-list-icon {
+  @apply flex size-11 shrink-0 items-center justify-center rounded-[12px] border border-border bg-background text-muted-foreground;
+}
+
+.pw-project-list-icon svg {
+  @apply size-5;
+}
+
+.pw-project-list-copy {
+  @apply grid min-w-0 gap-1;
+}
+
+.pw-project-list-title {
+  @apply flex min-w-0 items-center gap-2.5;
+}
+
+.pw-project-list-title h3 {
+  @apply min-w-0;
+}
+
+.pw-project-list-title a {
+  @apply block truncate;
+}
+
+.pw-project-list-purpose {
+  @apply line-clamp-1 text-sm text-muted-foreground;
+}
+
+.pw-project-list-status {
+  @apply text-xs font-medium text-muted-foreground;
+}
+
+.pw-project-list-action {
+  @apply relative z-10 flex shrink-0 items-center;
+}
+
+.pw-modal-layer {
+  @apply fixed inset-0 z-50 grid place-items-center bg-foreground/20 p-5;
+}
+
+.pw-focus-replace-modal {
+  @apply grid w-[min(520px,calc(100vw-40px))] gap-6 rounded-xl border border-border bg-background p-6 shadow-xl;
+}
+
+.pw-focus-replace-list {
+  @apply grid gap-2.5;
+}
+
+.pw-focus-replace-option {
+  @apply h-auto min-h-0 justify-between gap-4 px-4 py-3.5 text-left;
+}
+
+.pw-focus-replace-project {
+  @apply flex min-w-0 items-center gap-3;
+}
+
+.pw-focus-replace-project > span:last-child {
+  @apply grid min-w-0 gap-0.5;
+}
+
+.pw-focus-replace-project strong {
+  @apply truncate;
 }
 
 .pw-focus-toggle {
@@ -469,18 +620,76 @@
   @apply text-primary;
 }
 
-.pw-goal {
-  @apply mb-7 grid gap-2.5 rounded-r-md px-[26px] py-[22px];
+.pw-direction {
+  @apply mb-8 grid gap-2.5 rounded-r-md px-[26px] py-[22px];
   border-left: 3px solid color-mix(in oklab, var(--primary) 45%, var(--border));
   background: color-mix(in oklab, var(--accent) 65%, white);
 }
 
-.pw-goal--suggested {
-  @apply gap-1.5 bg-transparent px-5 py-3.5;
-}
-
 .pw-overview-meta {
   @apply px-1;
+}
+
+.pw-current-decision,
+.pw-context-section,
+.pw-other-work {
+  @apply mt-8 grid gap-4;
+}
+
+.pw-current-decision-card {
+  @apply grid gap-4;
+}
+
+.pw-current-situation {
+  @apply grid gap-1.5;
+}
+
+.pw-context-list {
+  @apply grid gap-3;
+}
+
+.pw-context-item {
+  @apply grid gap-2 rounded-lg border border-border bg-card px-4 py-3.5;
+}
+
+.pw-context-item summary {
+  @apply cursor-pointer list-none;
+}
+
+.pw-context-item summary::-webkit-details-marker {
+  display: none;
+}
+
+.pw-context-item > summary {
+  @apply grid gap-1;
+}
+
+.pw-context-item[open] > summary {
+  @apply mb-3;
+}
+
+.pw-context-item .pw-uncommitted-work {
+  @apply mb-0;
+}
+
+.pw-other-work > details {
+  @apply rounded-lg border border-border bg-card px-4 py-3.5;
+}
+
+.pw-other-work > details > summary {
+  @apply cursor-pointer font-semibold;
+}
+
+.pw-other-work-list {
+  @apply mt-4 grid gap-2.5;
+}
+
+.pw-other-work-list a {
+  @apply flex items-center gap-3 rounded-md border border-border bg-background px-4 py-3 text-sm no-underline;
+}
+
+.pw-other-work-list a:hover {
+  @apply bg-muted/50;
 }
 
 .pw-decision,
@@ -524,10 +733,6 @@
 .pw-facts dd,
 .pw-state-grid dd {
   @apply m-0;
-}
-
-.pw-project-state {
-  @apply mb-6;
 }
 
 .pw-uncommitted-work {
@@ -788,10 +993,6 @@
   .pw-shell {
     grid-template-columns: 192px minmax(0, 1fr);
   }
-
-  .pw-project-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 @media (max-width: 720px) {
@@ -815,10 +1016,6 @@
     @apply flex flex-row overflow-x-auto;
   }
 
-  .pw-nav-label {
-    @apply hidden;
-  }
-
   .pw-rail-foot p {
     @apply hidden;
   }
@@ -831,13 +1028,8 @@
     @apply px-5 pt-5 pb-12;
   }
 
-  .pw-topbar,
   .pw-hero {
     @apply items-start;
-  }
-
-  .pw-topbar {
-    @apply mb-[26px];
   }
 
   .pw-hero {
@@ -845,10 +1037,19 @@
   }
 
   .pw-grid,
+  .pw-focus-grid,
   .pw-task-nav,
   .pw-state-grid,
   .pw-source-summary {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pw-project-list-card {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .pw-project-list-action {
+    @apply col-span-2 justify-end;
   }
 
   .pw-setting-row {

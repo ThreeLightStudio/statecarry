@@ -139,7 +139,7 @@ export function presentWorkingTree(snapshot: WorkspaceSnapshot): WorkingTreeView
 }
 
 export type ProjectRoute = {
-  page: 'home' | 'project' | 'new' | 'global-settings' | 'settings' | 'original';
+  page: 'home' | 'projects' | 'project' | 'new' | 'global-settings' | 'settings' | 'original';
   workId?: string;
   candidateKey?: string;
   sourceId?: string;
@@ -151,6 +151,7 @@ export function parseProjectRoute(hash: string): ProjectRoute {
   try {
     const [path, search = ''] = hash.replace(/^#/, '').split('?');
     const parts = path.split('/').filter(Boolean).map(decodeURIComponent);
+    if (parts[0] === 'projects' && parts.length === 1) return { page: 'projects' };
     if (parts[0] === 'new' || parts[0] === 'connect') return { page: 'new' };
     if (parts[0] === 'settings' && parts.length === 1) return { page: 'global-settings' };
     if (['project', 'resume', 'work', 'details'].includes(parts[0]) && parts[1]) {
@@ -173,6 +174,7 @@ export function parseProjectRoute(hash: string): ProjectRoute {
 }
 export function projectRouteHref(route: ProjectRoute): string {
   if (route.page === 'home') return '#/home';
+  if (route.page === 'projects') return '#/projects';
   if (route.page === 'new') return '#/new';
   if (route.page === 'global-settings') return '#/settings';
   const base = `#/project/${encodeURIComponent(route.workId ?? '')}`;

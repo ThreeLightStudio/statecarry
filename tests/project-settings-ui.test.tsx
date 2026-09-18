@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   act,
   follow,
+  go,
   installBrowser,
   mountProjectRoot,
   press,
@@ -63,7 +64,7 @@ it('renders mutation notices in a fixed toast layer without replacing inline err
 
 it('keeps primary RouteLink controls as real anchors with the shadcn foreground class', async () => {
   const h = projectUiFixture();
-  window.history.replaceState(null, '', '#/home');
+  window.history.replaceState(null, '', '#/projects');
   const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
   try {
     const link = [...mounted.host.querySelectorAll<HTMLAnchorElement>('a[href="#/new"]')].find(
@@ -93,8 +94,8 @@ it('shows global integration settings, persists Korean responses, and uses them 
     expect(mounted.host.textContent).toContain(
       'StateCarry can use Codex when creating or updating overviews.',
     );
-    expect(mounted.host.textContent).toContain('Branch main');
-    expect(mounted.host.textContent).toContain('Project files were checked for this overview.');
+    expect(mounted.host.textContent).not.toContain('Project sources');
+    expect(mounted.host.textContent).not.toContain('Edit Codex conversations');
     expect(h.projectGateway.capabilities).toHaveBeenCalledTimes(1);
 
     await press(mounted.host, 'Check again');
@@ -111,7 +112,7 @@ it('shows global integration settings, persists Korean responses, and uses them 
       mounted.host.querySelector<HTMLSelectElement>('select[name="response-language"]')?.value,
     ).toBe('ko');
 
-    await follow(mounted.host, '#/project/alpha');
+    await go('#/project/alpha');
     await press(mounted.host, 'Update overview');
     expect(h.resumeGateway.refresh).toHaveBeenLastCalledWith('alpha', 'ko');
   } finally {
@@ -204,7 +205,7 @@ it('previews hard-coded uncommitted work scenarios from Advanced settings in dev
 
     await typeField(mounted.host, 'select[name="preview-dirty-work"]', 'mixed');
     expect(window.localStorage.getItem('statecarry.developer.dirty-work-preview.v1')).toBe('mixed');
-    await follow(mounted.host, '#/project/alpha');
+    await go('#/project/alpha');
 
     const preview = mounted.host.querySelector('[aria-label="Uncommitted work developer preview"]');
     expect(preview).toBeTruthy();
@@ -226,7 +227,7 @@ it('previews hard-coded uncommitted work scenarios from Advanced settings in dev
     await follow(mounted.host, '#/settings');
     await typeField(mounted.host, 'select[name="preview-dirty-work"]', 'off');
     expect(window.localStorage.getItem('statecarry.developer.dirty-work-preview.v1')).toBeNull();
-    await follow(mounted.host, '#/project/alpha');
+    await go('#/project/alpha');
     expect(
       mounted.host.querySelector('[aria-label="Uncommitted work developer preview"]'),
     ).toBeNull();
@@ -235,7 +236,7 @@ it('previews hard-coded uncommitted work scenarios from Advanced settings in dev
   }
 });
 
-it('shows readable non-Git projects as codebase-ready while Git stays unavailable', async () => {
+it('keeps project-specific source diagnostics out of global settings', async () => {
   const entry = projectEntry();
   Object.assign(entry.resume!.workspace!, {
     status: 'checked',
@@ -250,11 +251,11 @@ it('shows readable non-Git projects as codebase-ready while Git stays unavailabl
   window.history.replaceState(null, '', '#/settings');
   const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
   try {
-    const integration = mounted.host.querySelector(
-      '[aria-label="Integration status for Project alpha"]',
-    );
-    expect(integration?.textContent).toContain('StateCarry inspected 1 selected project file');
-    expect(integration?.textContent).toContain(
+    expect(
+      mounted.host.querySelector('[aria-label="Integration status for Project alpha"]'),
+    ).toBeNull();
+    expect(mounted.host.textContent).not.toContain('StateCarry inspected 1 selected project file');
+    expect(mounted.host.textContent).not.toContain(
       'Git is unavailable for this folder. Project files can still be checked.',
     );
   } finally {
