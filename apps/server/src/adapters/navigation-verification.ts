@@ -67,7 +67,7 @@ export function inspectNavigationEvidence(
         raw &&
         typeof raw === 'object' &&
         (raw as { dispatch?: unknown }).dispatch === 'rtk proxy open'
-          ? 'Navigation was verified through an earlier launch method. Check it again before opening Codex conversations.'
+          ? 'Navigation was verified through an earlier launch method, so StateCarry cannot open Codex conversations automatically. The existing verification record was kept unchanged.'
           : 'Navigation evidence is incomplete or invalid. Check the existing file using the local CLI.',
     };
   return {
