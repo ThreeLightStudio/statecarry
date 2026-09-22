@@ -2,7 +2,9 @@
 
 This document is the durable UI/UX contract for StateCarry. It defines how product intent becomes information architecture, interaction, component composition and visual treatment, and how future UI changes are reviewed before they are accepted.
 
-Use this document before changing layout, navigation, hierarchy, interaction, loading behavior, component composition or visual emphasis. Use [ux-writing.md](ux-writing.md) alongside it for labels, statuses, helper text and other user-facing copy.
+The upstream product behavior contract is [product-behavior-contract.md](product-behavior-contract.md). Use that contract to determine which work, decision, interruption, dependency, completion or delivery state should be shown. Use this document to determine how that behavior becomes a coherent interface. Use [ux-writing.md](ux-writing.md) alongside it for labels, statuses, helper text and other user-facing copy.
+
+Use this document before changing layout, navigation, hierarchy, interaction, loading behavior, component composition or visual emphasis.
 
 The purpose is not to freeze the current screenshots. It is to preserve the product logic that makes the interface understandable while allowing the implementation and visual system to evolve.
 
@@ -120,7 +122,8 @@ Home is not an all-project dashboard.
 The primary model is **Home focus**:
 
 - the user explicitly chooses up to three Focus projects;
-- StateCarry does not rank projects automatically;
+- StateCarry does not reorder Focus projects automatically; it may mark one Project as a recommended
+  return choice when the product behavior contract supplies a reason;
 - recency is not priority;
 - creating a project does not automatically place it in Focus;
 - when Focus is full, replacement is an explicit user choice.
@@ -147,9 +150,10 @@ The primary hierarchy is:
 
 1. **Project identity**
 2. **Direction**
-3. **Current decision**
-4. **Context**
-5. **Other work**
+3. **Current work**
+4. **Current state → Still to check → Next**
+5. **Context**
+6. **Other work**
 
 These are responsibilities, not a requirement that every item be a card.
 
@@ -171,17 +175,51 @@ Direction should be visually quieter than Current decision. It must not look lik
 
 The project purpose remains a durable identity statement distinct from the current goal. It may appear as quiet project context where useful, while Project settings remains the editing surface.
 
-#### Current decision
+#### Current work and next action
 
-Current decision is the strongest region on the Project screen.
+The current Work is the strongest region on the Project screen. Its concrete Work title is the largest
+textual heading in the normal Project reading flow.
 
-It answers: **What should I decide or do now?**
+It answers: **What am I in, where does it stand, and what should I do next?**
 
-The selected task is authoritative for this region. Do not place a parallel project-level next-step recommendation beside it.
+Core `ProjectNow` is authoritative for which Work, notice and next action appear here. Presentation and
+UI must not create a parallel priority resolver from raw Git state, generated candidates or recency.
 
 The default state should expose the smallest set of meaningful actions. Aim for no more than three meaningful choices in one state; place infrequent recovery or management actions under progressive disclosure when appropriate.
 
-Do not invent an executable next step for waiting, accepted, completed or unclear work.
+Read the default Work body in this order: one current-state sentence, one decision-relevant uncertainty
+when needed, then one `Next` sentence. Show one primary action and at most two ordinary secondary
+actions. Do not invent an executable next step for accepted, completed or unclear work. Waiting Work
+may show one independent low-restart-cost alternative when the Core resolver supplied it.
+
+Generated Resume candidates and working-tree groups are Work proposals or evidence until they are
+matched to durable Work. If migration has no confirmed current Work, show the proposal as a choice and
+persist it only after the user selects it.
+
+Detailed execution, change review, result review and discussion are modes inside the current Work.
+Entering a mode does not replace the Project's durable current Work. Leaving it returns to the same
+ProjectNow surface.
+
+Discussion is attached to the current task. Opening or asking in that discussion does not change the
+goal, accept a result, stop work or start external execution. Keep the discussion with that task when
+the user leaves and returns. If the project changes, keep earlier answers readable as answers from
+their earlier basis and require the user to continue against the current state before asking more.
+
+Project detail uses one reading column with a compact project name and direction. The current work
+is a narrative surface, not a large enclosing card. Its ordinary choices are stacked: continue or
+review, discuss, and stop. Put the short current understanding between the narrative and choices;
+keep original records behind deliberate inspection.
+
+Discussion replaces the work's ordinary choices and evidence controls while it is open. Keep the
+work title and a short context sentence, then give the conversation the primary position. Closing
+discussion returns to the same work. Repository-derived work uses this same flow and retains the
+selected work group across navigation. A stopped state puts the treatment of remaining changes
+first and still allows discussion without restoring the task.
+
+Stopping a task records a task decision only. It does not revert project files. When repository
+changes remain, make their treatment a separate choice: keep them and move on, or review them before
+deciding. A change set the user explicitly chose to keep should not become the default current
+decision again until the observed repository state changes.
 
 #### Context
 
@@ -195,6 +233,21 @@ Examples include:
 - limits that could change the user's decision.
 
 Working-tree analysis is supporting evidence. It is not a parallel top-level task planner.
+
+When repository changes become the current decision, present the inferred work in the same interaction
+model as a task: explain what the work appears to be, where it stands, what outcome would finish it,
+what is still uncertain, and what the user can do next. Git counts, diff size, branch, commit, file
+lists and raw diffs belong behind deliberate review unless one short fact materially changes the
+decision.
+
+When one working tree contains several reconstructed work groups, require the user to select the
+piece of work they want to make current before offering continuation. A scoped handoff includes only
+the selected work and treats the remaining uncommitted changes as out of scope. The selection should
+read as choosing work, not filtering files.
+
+If StateCarry cannot explain the current changes as coherent work, say that in user terms and route
+the user toward review or discussion. Do not surface internal reconstruction terminology on the
+primary path.
 
 Context should remain readable on demand. Technical detail should become deeper only when the user deliberately asks for it.
 
@@ -329,6 +382,22 @@ The StateCarry design system includes:
 A UI can use the correct colors and components and still violate the design system if it changes these interaction or IA principles.
 
 ## State preservation and refresh
+
+Project decisions use stable work identities independently of the evidence version. A renamed or
+regrouped analysis must not delete an earlier discussion. If correspondence is ambiguous, retain the
+earlier discussion and ask the user to connect it to current work.
+
+Reviewing a request, preparing it, sending it, receiving an agent report, comparing the project,
+and accepting the result are separate transitions. Once a request is prepared, its exact reviewed
+text replaces the editable request form. Editing again requires a new scope confirmation. A result
+waiting for review takes priority over another execution request.
+
+Leave decisions apply to explicitly selected change sections, including the staged or unstaged
+layer. Unrelated changes do not erase them. Execution and copying a prepared request must validate
+the reviewed scope on the server; a browser's last observation alone is insufficient.
+
+An externally executed request can have a user-recorded result. Keep that report distinct from a
+Codex report and from current project observations. Neither report automatically accepts the work.
 
 A refresh must not casually erase the user's orientation.
 

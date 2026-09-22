@@ -1,0 +1,98 @@
+{
+  "notice": "Historical local StateCarry analysis, not a fresh analysis or user intent. Export limited to this project.",
+  "analysis": {
+    "id": "f41f0cbd4f7223672e0866e8b8fd2ddecd5db69a7475e7d7aceaf789818aef34",
+    "workId": "cd6543dc-8a4f-4d93-8ba1-c0830afa824d",
+    "semanticKey": "c09d7d641004dc1fd894175d4e8a07cd59a6db9ad3b28cc4af751ad83a18a495",
+    "outputLanguage": "en",
+    "result": {
+      "summary": "The changes add evidence-based working-tree recovery, richer project decisions, and resumable discussion flows.",
+      "groups": [
+        {
+          "title": "Working-tree recovery and decision flow",
+          "summary": "StateCarry now interprets uncommitted changes as selectable work and guides users through review, continuation, discussion, or stopping.",
+          "currentState": "The project workspace presents semantic change groups, preserves selected work across refreshes, and offers scoped handoff copying without starting work. Missing or stopped tasks now retain context and provide explicit next choices.",
+          "openItems": [
+            "The untracked discussion UI file is part of the new flow but is not yet tracked in Git metadata."
+          ],
+          "suggestedNextStep": "Review the complete working-tree decision flow in the workspace UI.",
+          "reason": "The diff substantially changes selection, stopped-work recovery, context disclosure, and scoped handoff behavior in one user-facing path.",
+          "doneWhen": "The workspace UI code and its supplied tests clearly cover grouped changes, missing selections, stopped work, and scoped continuation.",
+          "files": [
+            "apps/web/src/ui/ProjectWorkspace.tsx",
+            "apps/web/src/ui/project-workspace.css",
+            "apps/web/src/ui/WorkDiscussion.tsx",
+            "packages/presentation/src/project-controller.ts",
+            "packages/presentation/src/projects.ts",
+            "packages/contracts/src/resume.ts",
+            "tests/project-refresh-ui.test.tsx",
+            "tests/project-registration-ui.test.tsx",
+            "tests/project-settings-ui.test.tsx",
+            "tests/project-workspace-core.test.ts",
+            "tests/project-workspace-ui.test.tsx",
+            "tests/working-tree-presentation.test.ts",
+            "docs/ui-principles.md",
+            "docs/ux-writing.md"
+          ]
+        },
+        {
+          "title": "Task and goal discussion handoffs",
+          "summary": "The application adds explicit task and goal discussion preparation with validated local persistence and HTTP gateway support.",
+          "currentState": "Users can prepare, edit, copy, and retain task or goal discussion context without automatically starting work. Saved discussion data is bounded, validated, copied through an allowlist, and exposed through the resume API.",
+          "openItems": [
+            "The supplied diff shows the discussion endpoint and client gateway, but does not establish end-to-end server response behavior beyond the route wiring."
+          ],
+          "suggestedNextStep": "Review the discussion contract and endpoint path together.",
+          "reason": "The feature crosses contracts, presentation state, browser persistence, gateway calls, and HTTP routing, so consistency is the main immediate risk.",
+          "doneWhen": "The request and response shapes, route wiring, controller calls, and persistence validation agree for both task and goal discussion flows.",
+          "files": [
+            "apps/server/src/http.ts",
+            "apps/web/src/adapters/resume-gateway.ts",
+            "apps/web/src/adapters/resume-memory.ts",
+            "packages/contracts/src/resume.ts",
+            "packages/core/src/resumes.ts",
+            "packages/presentation/src/project-controller.ts",
+            "packages/presentation/src/projects.ts",
+            "packages/presentation/src/resume-memory.ts",
+            "packages/presentation/src/resume.ts",
+            "tests/project-controller.test.ts",
+            "tests/resume-memory.test.ts",
+            "tests/resume-root-lifecycle.test.tsx",
+            "tests/resume.test.ts"
+          ]
+        },
+        {
+          "title": "Incremental startup and source observation",
+          "summary": "Server startup and Codex reading now defer existing work and prefer metadata plus streamed local JSONL evidence.",
+          "currentState": "Existing connections are scheduled instead of processed immediately, and rollout files are parsed incrementally while provider turn bodies are skipped when local evidence is sufficient. Source manifests now record whether evidence came from provider turns, local JSONL, or fallback behavior.",
+          "openItems": [
+            "The streamed reader’s handling of byte counts and incomplete final lines should be checked against the supported JSONL line endings."
+          ],
+          "suggestedNextStep": "Review the incremental Codex reader fallback conditions.",
+          "reason": "The change alters evidence coverage and limitation reporting while also changing startup scheduling, so the safest first check is whether each read mode remains accurately described.",
+          "doneWhen": "Each provider/local/fallback path has a clear coverage label and limitation set, and startup scheduling preserves existing connections without immediate collection.",
+          "files": [
+            "apps/server/src/adapters/codex-reader.ts",
+            "apps/server/src/background.ts",
+            "apps/server/src/runtime.ts",
+            "tests/server-runtime.test.ts"
+          ]
+        }
+      ]
+    },
+    "generatedAt": "2026-09-20T10:54:25.955Z"
+  },
+  "observation": {
+    "checkedAt": "2026-09-20T11:22:05.223Z",
+    "semanticKey": "8729de8e6837c26239a083e1e4336fcd48ca0e1b5010de7a55ab4d696f77a75d",
+    "changedFileCount": 29,
+    "status": "checked",
+    "limitations": [
+      "Related-file matching was limited to 600 readable files; unmatched files were not treated as absent.",
+      "File observations were limited to 120 selected files; 697 discovered files were not read.",
+      "Some related files were outside the 120 file observation limit.",
+      "Skipped pnpm-lock.yaml: file is larger than the 98304 byte read limit."
+    ]
+  },
+  "sourceDocument": "../../project-detail-entry-flow.md"
+}

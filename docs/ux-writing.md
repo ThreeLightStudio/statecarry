@@ -4,7 +4,7 @@ This document defines the writing rules for active StateCarry product copy. It a
 
 Use it when adding or changing user-facing copy. Product behavior remains the source of truth: copy must describe what StateCarry actually does, not what a future design intends to do.
 
-Related product context lives in [problem-definition.md](problem-definition.md) and [return-content-contract.md](return-content-contract.md). The structural UI and interaction contract lives in [ui-principles.md](ui-principles.md). Those documents explain the larger product problem, evidence boundary, screen responsibility and interaction hierarchy. This document is the day-to-day writing contract.
+The upstream product behavior contract lives in [product-behavior-contract.md](product-behavior-contract.md). Related product context lives in [problem-definition.md](problem-definition.md) and [return-content-contract.md](return-content-contract.md). The structural UI and interaction contract lives in [ui-principles.md](ui-principles.md). Those documents explain the larger product problem, evidence boundary, screen responsibility and interaction hierarchy. This document is the day-to-day writing contract.
 
 ## Product sentence
 
@@ -19,14 +19,21 @@ Write for a person who remembers the project better than StateCarry's internal m
 The ordinary mental model is:
 
 1. A **project** is the work environment the user recognizes and returns to.
-2. The project has a **purpose** and may have a current **goal**.
-3. StateCarry creates an **overview** of the current project state from available project evidence.
-4. An overview can contain one or more **tasks** that need a decision, review, continuation, or deliberate pause.
-5. **Project files**, Git, and optional **Codex conversations** can support the overview.
-6. StateCarry can suggest a next step, but the user decides whether it is correct, complete, or worth doing.
+2. The project has one or more **purposes** and may have a current primary **direction**.
+3. A **work** item is a durable piece of effort the user can leave and return to. Generated analysis can propose or explain work, but does not become user intent by itself.
+4. The Project screen shows the current work's **current state**, the most important thing **still to check**, and one **Next** action.
+5. **Project files**, Git, and optional **Codex conversations** support those conclusions without becoming the normal reading surface.
+6. Execution reports, verification and user acceptance remain different states. StateCarry can recommend a next action, but the user decides whether the work is correct, complete, or worth continuing.
 7. An **original record** is source material opened deliberately for verification. It is not the normal explanation layer.
 
 For the minimum uncommitted-work flow, treat the current repository state as the source of truth. Do not require prior Codex conversations to explain or continue dirty work. StateCarry should inspect the current Git diff and codebase first, reconstruct meaningful work groups, and show that interpretation before continuation. It may also suggest one conservative next step, why that step follows from the current diff, and an observable Done when condition. These are repository-state suggestions, never claims about the user's prior intent. A handoff to a new Codex session should carry that reconstructed state and suggested first action forward; it should not ask the new session to redo broad repository reconstruction unless the current files contradict the handoff.
+
+When that unfinished repository work is the current decision, lead with the user-visible work rather
+than Git terminology. Describe what the changes appear to be for, where the work stands, what remains
+uncertain, and the next available choices. Put file counts, diff size, branch, commit, changed paths
+and raw diff behind review. If several work groups are present, ask which work to continue; do not
+describe that choice as selecting files for a handoff. If the grouping is unclear, say that StateCarry
+cannot yet explain which piece of work the changes belong to and offer review or discussion.
 
 Do not require the user to understand connections, revisions, candidate keys, checkpoints, source IDs, turn IDs, collection jobs, model settings, or other implementation structures to use the main flow.
 
@@ -34,27 +41,28 @@ Do not require the user to understand connections, revisions, candidate keys, ch
 
 Use one term for one user concept. Prefer the terms below unless the interface is explicitly exposing a different technical object for an advanced task.
 
-| Use                                  | Meaning                                                                                                                                    | Avoid in ordinary copy                                                                     |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| **project**                          | The registered work environment the user recognizes                                                                                        | work registration, connection, workspace entry                                             |
-| **project folder**                   | The local folder registered for a project                                                                                                  | cwd, path target                                                                           |
-| **purpose**                          | Why the project exists or what it should make possible                                                                                     | project intent when a simpler label works                                                  |
-| **goal**                             | The result the user currently intends to reach                                                                                             | objective and outcome as interchangeable labels in the same flow                           |
-| **direction**                        | The project screen's compact statement of where the project is heading; use the current goal when available, otherwise the project purpose | a second independent goal or AI-ranked priority                                            |
-| **overview**                         | StateCarry's prepared explanation of current project state and task choices                                                                | summary, analysis, generated result when referring to the product surface                  |
-| **task**                             | A concrete piece of work or decision shown in an overview                                                                                  | candidate, recommendation item                                                             |
-| **next step**                        | What the user can do next for a task                                                                                                       | next action when both labels would appear together                                         |
-| **Done when / completion condition** | What would make the task ready to accept or review as complete                                                                             | doneWhen, completion predicate, finish condition when another label is already established |
-| **project state**                    | The current project-level explanation: current state, recent work, open or uncertain items, and next direction                             | workspace snapshot in product copy                                                         |
-| **project files**                    | Files StateCarry inspected in the project folder                                                                                           | codebase, file observations                                                                |
-| **Git**                              | Repository branch, revision, and local-change information when available                                                                   | VCS metadata                                                                               |
-| **Codex conversations**              | Optional selected Codex conversations used as supporting project context                                                                   | Codex context, source scope, thread set, conversation connection                           |
-| **original record**                  | Exact source material opened deliberately                                                                                                  | evidence blob, revision payload                                                            |
-| **sources**                          | Project files, Git, Codex conversations, or other supported material behind a displayed conclusion                                         | evidence when the user is choosing what to connect                                         |
-| **Home focus**                       | Up to three projects the user chose to keep visible on Home                                                                                | priority, top project, ranked project                                                      |
-| **disconnect project**               | Stop StateCarry from checking for new project information while keeping saved work                                                         | remove, delete, archive                                                                    |
-| **reconnect project**                | Resume checking the same saved project                                                                                                     | restore project, recreate, reconnect as a new project                                      |
-| **delete project data**              | Permanently delete the stated StateCarry-owned project data after scope review                                                             | remove saved application data, remove saved data, disconnect                               |
+| Use                                  | Meaning                                                                                                                                        | Avoid in ordinary copy                                                                     |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| **project**                          | The registered work environment the user recognizes                                                                                            | work registration, connection, workspace entry                                             |
+| **project folder**                   | The local folder registered for a project                                                                                                      | cwd, path target                                                                           |
+| **purpose**                          | Why the project exists or what it should make possible                                                                                         | project intent when a simpler label works                                                  |
+| **goal**                             | The result the user currently intends to reach                                                                                                 | objective and outcome as interchangeable labels in the same flow                           |
+| **direction**                        | The project screen's compact statement of where the project is heading; use the current goal when available, otherwise the project purpose     | a second independent goal or AI-ranked priority                                            |
+| **work**                             | A durable piece of effort the user can leave, resume, review, pause or complete                                                                | candidate, work group, generated task when referring to durable user work                  |
+| **overview**                         | Legacy/generated project analysis that may support migration or deeper context; it is not the primary object on the new Project return surface | summary, analysis, generated result when referring to the legacy overview surface          |
+| **task**                             | Use only where a legacy surface still calls its generated item a task; new Project copy should prefer **work**                                 | candidate, recommendation item                                                             |
+| **next step**                        | What the user can do next for a task                                                                                                           | next action when both labels would appear together                                         |
+| **Done when / completion condition** | What would make the task ready to accept or review as complete                                                                                 | doneWhen, completion predicate, finish condition when another label is already established |
+| **project state**                    | The current project-level explanation: current state, recent work, open or uncertain items, and next direction                                 | workspace snapshot in product copy                                                         |
+| **project files**                    | Files StateCarry inspected in the project folder                                                                                               | codebase, file observations                                                                |
+| **Git**                              | Repository branch, revision, and local-change information when available                                                                       | VCS metadata                                                                               |
+| **Codex conversations**              | Optional selected Codex conversations used as supporting project context                                                                       | Codex context, source scope, thread set, conversation connection                           |
+| **original record**                  | Exact source material opened deliberately                                                                                                      | evidence blob, revision payload                                                            |
+| **sources**                          | Project files, Git, Codex conversations, or other supported material behind a displayed conclusion                                             | evidence when the user is choosing what to connect                                         |
+| **Home focus**                       | Up to three projects the user chose to keep visible on Home                                                                                    | priority, top project, ranked project                                                      |
+| **disconnect project**               | Stop StateCarry from checking for new project information while keeping saved work                                                             | remove, delete, archive                                                                    |
+| **reconnect project**                | Resume checking the same saved project                                                                                                         | restore project, recreate, reconnect as a new project                                      |
+| **delete project data**              | Permanently delete the stated StateCarry-owned project data after scope review                                                                 | remove saved application data, remove saved data, disconnect                               |
 
 Use **Workspace** only for the application-level navigation surface if needed. Do not use it as a synonym for project, project folder, project files, or persisted project state.
 
@@ -144,6 +152,31 @@ Preserve uncertainty. If StateCarry cannot confirm freshness, completion, or a s
 
 ## Button and action patterns
 
+For the project decision flow, use **Prepare request for Codex** for creating a reviewable request
+and **Send to a new Codex conversation** only for the actual submission. **Copy reviewed request**
+copies the exact reviewed content without implying that execution started.
+
+Use **Check current behavior** for an explicit verification request and **Continue this work** for
+implementation. Switching between them preserves the request text and completion condition but
+requires a new confirmation. Verification asks the user to review the request and completion
+condition; it does not ask them to include existing changes. Explain that normal build and test
+artifacts may be produced and that fixes require a separate decision.
+
+Distinguish an unread file from an unavailable file inventory and from an empty inventory. Say
+**No existing local changes were found** only after the inventory was read successfully. When a
+file's changes exceed the preview limit, keep the file visible and offer **Read changes in [file]**.
+When current project state cannot be checked, explain that confirmation needs another read and
+preserve the user's input for the retry.
+
+Use **Review discarding changes** before a scope review and explain the modifications that would
+be lost. **Unstage changes instead** preserves working files and changes only the index. Use
+**Leave selected changes and move on** for a recorded scope decision, not for leaving a discussion.
+
+Use **Compare with current project** for reading the current project after execution. Describe
+sections as unchanged, changed, or absent; these observations do not prove behavior or completion.
+Keep **Reported by Codex**, **Reported by you after external execution**, and user acceptance
+distinct. A failed or interrupted execution must offer a return to the current work without acceptance.
+
 Buttons should describe the immediate effect, not the larger intention.
 
 Prefer:
@@ -169,6 +202,12 @@ Use **Check for changes** only when a situational project-state read is explicit
 Use **Review** when the next step is inspection before a separate irreversible or judgment action. Use **Delete** only when data is actually deleted under the stated scope. Use **Disconnect** when collection stops but saved data remains. Use **Reconnect** when resuming the same disconnected project registration.
 
 Use **Accept result** when a reported or checked result is waiting for the user's judgment. Use **Mark complete** when the user is recording task completion and there is no distinct returned result to accept.
+
+Use **Discuss this task** for a conversation that remains attached to the current task. Its answers
+may explain records and uncertainty, but asking a question is not a project decision. Use **Stop this
+task** for the task decision itself; do not imply that files will be reverted. If changes remain,
+name the follow-up actions for the files separately, such as `Keep changes and move on` or `Review
+remaining changes`.
 
 Avoid ambiguous buttons such as `Continue`, `Update`, `Check`, `Manage`, `Remove`, or `Retry` when the object or consequence is not clear from immediate context.
 

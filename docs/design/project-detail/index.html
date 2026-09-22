@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>StateCarry · 프로젝트 상세 설계 검토</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="prototype.js" defer></script>
+  </head>
+  <body>
+    <div class="review-bar" aria-label="시안 검토 도구 — 제품 UI에 포함되지 않음">
+      <div class="review-title">
+        <strong>시안 03</strong><span>실제 실행 없이 흐름을 살펴보는 화면</span>
+      </div>
+      <details class="review-tools">
+        <summary>장면과 검토 도구</summary>
+        <div class="review-controls">
+          <label for="scenario">진입 장면</label>
+          <select id="scenario">
+            <option value="actual">실제 분석 · 이후 변경 있음</option>
+            <option value="work-left">예시 · 남은 수정이 확인됨</option>
+            <option value="work-ready">예시 · 동작 확인 후 커밋 검토</option>
+            <option value="ready">예시 · 범위 확인 가능</option>
+            <option value="checking">예시 · 상태 갱신 중</option>
+            <option value="failure">예시 · 갱신 실패</option>
+            <option value="unknown">예시 · 변경 여부 미확인</option>
+            <option value="unclear">예시 · 작업 맥락 부족</option>
+            <option value="missing">예시 · 변경 없음 / 방향 없음</option>
+            <option value="valid">예시 · 유효한 방향 / 다음 작업</option>
+            <option value="complete">예시 · 방향 완료 가능성</option>
+            <option value="changed">예시 · 방향 변화</option>
+            <option value="conflict">예시 · 방향과 정책 충돌</option>
+            <option value="result">예시 · 외부 실행 후 부분 처리</option>
+          </select>
+          <button id="viewport" type="button" aria-pressed="false">좁은 화면</button>
+          <button id="leave" type="button">잠시 나가기</button>
+          <button id="refresh" type="button">관련 변경 발생 예시</button>
+          <button id="resolve" type="button" hidden>범위 확인 완료 예시</button>
+        </div>
+        <p id="provenance">
+          실제 자료: 2026.09.20 19:54 분석 / 20:22 관찰(KST). 질문·결정·실행 결과는 예시입니다.
+        </p>
+      </details>
+    </div>
+    <div id="frame">
+      <div class="app-header">
+        <span class="app-wordmark">StateCarry</span><span>프로젝트 / statecarry</span
+        ><span class="quiet">설계 시안</span>
+      </div>
+      <div class="app-layout">
+        <aside class="rail" aria-label="앱 탐색 미리보기">
+          <strong>StateCarry</strong><span>홈</span><span class="active">프로젝트</span
+          ><span class="rail-bottom">설정</span>
+        </aside>
+        <main id="main">
+          <div class="identity">
+            <span class="project-mark" aria-hidden="true">S</span>
+            <h1>statecarry</h1>
+          </div>
+          <p id="direction" class="direction">현재 목표는 아직 확인되지 않았습니다.</p>
+          <div id="notice" role="status" aria-live="polite"></div>
+          <article id="screen"></article>
+          <footer id="saved" aria-live="polite"></footer>
+        </main>
+      </div>
+    </div>
+    <div class="review-footer">
+      <button id="reset" type="button">시안 선택·초안 초기화</button><br />
+      검토 순서: 지금 판단 → 선택별 논의·검토 → 요청 준비 → 복귀 · 근거는 필요할 때 펼치기<br />설계
+      문서: <a href="../../project-detail-ui-ux-design.md">상태·데이터·정책 점검</a> ·
+      <a href="evidence.json">실제 분석 원본</a>
+    </div>
+  </body>
+</html>
