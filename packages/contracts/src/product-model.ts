@@ -217,10 +217,14 @@ export type WorkProposal = {
   nextAction: string | null;
   doneWhen: string | null;
   evidenceBasis: string | null;
+  /** Source references used only to establish continuity between proposals. */
+  evidence?: string[];
 };
 
 export type WorkProposalMatch = {
   proposal: WorkProposal;
+  /** Equivalent current source expressions retained with the displayed proposal. */
+  aliases?: WorkProposal[];
   workItemId: string | null;
   confidence: 'explicit' | 'possible' | 'unmatched';
   reason: string;

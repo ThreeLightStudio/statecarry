@@ -116,27 +116,39 @@ export class ProjectModel {
     const proposal = this.core.workMatcher.proposalForSelection(projectId, proposalKey);
     if (!proposal)
       throw new DomainError('NOT_FOUND', 'The selected proposal is no longer available.', 404);
-    const matchedWorkId = this.core.workMatcher
+    const linkedWorkIds = new Set(
+      this.core.repo
+        .list('workDecision')
+        .filter(
+          (decision) =>
+            decision.projectId === projectId &&
+            decision.state === 'valid' &&
+            decision.kind === workDecisionKinds.linkWorkProposal &&
+            decision.value.proposalKey === proposal.key &&
+            decision.value.proposalSource === proposal.source &&
+            decision.value.proposalEvidenceBasis === proposal.evidenceBasis &&
+            !!decision.workItemId,
+        )
+        .map((decision) => decision.workItemId!),
+    );
+    if (linkedWorkIds.size > 1)
+      throw new DomainError(
+        'REVISION_CONFLICT',
+        'This interpretation is linked to conflicting work. Review the connection first.',
+        409,
+      );
+    const match = this.core.workMatcher
       .match(projectId)
       .find(
-        (match) =>
-          match.proposal.key === proposal.key &&
-          match.proposal.source === proposal.source &&
-          match.proposal.evidenceBasis === proposal.evidenceBasis,
-      )?.workItemId;
-    const linked = this.core.repo
-      .list('workDecision')
-      .find(
-        (decision) =>
-          decision.projectId === projectId &&
-          decision.state === 'valid' &&
-          decision.kind === workDecisionKinds.linkWorkProposal &&
-          decision.value.proposalKey === proposalKey &&
-          decision.value.proposalSource === proposal.source &&
-          decision.value.proposalEvidenceBasis === proposal.evidenceBasis &&
-          !!decision.workItemId,
+        (item) =>
+          (item.proposal.key === proposal.key && item.proposal.source === proposal.source) ||
+          item.aliases?.some(
+            (alias) => alias.key === proposal.key && alias.source === proposal.source,
+          ),
       );
-    const existingId = linked?.workItemId ?? matchedWorkId;
+    if (!match)
+      throw new DomainError('REVISION_CONFLICT', 'This work connection needs review.', 409);
+    const existingId = match.workItemId;
     const existing = existingId ? this.core.repo.get('workItem', existingId) : null;
     const alreadyCurrent =
       !!existing &&
@@ -170,7 +182,7 @@ export class ProjectModel {
       });
     this.core.repo.transaction(() => {
       if (!existing) this.core.repo.put('workItem', item);
-      if (!linked)
+      if (!existing || !match.workItemId || match.proposal.key !== proposal.key)
         this.core.repo.put('workDecision', {
           id: this.core.ids.hash(['link-work-proposal', projectId, proposalKey]),
           projectId,
@@ -180,6 +192,7 @@ export class ProjectModel {
             proposalKey,
             proposalSource: proposal.source,
             proposalEvidenceBasis: proposal.evidenceBasis,
+            proposalEvidence: proposal.evidence ?? [],
           },
           basis: proposal.evidenceBasis ? [proposal.evidenceBasis] : [],
           state: 'valid',
@@ -187,7 +200,8 @@ export class ProjectModel {
         });
       this.selectCurrentWork(projectId, item.id, false);
     });
-    if (!existing || !linked || !alreadyCurrent) this.core.events.changed(projectId);
+    if (!existing || !alreadyCurrent || match.proposal.key !== proposal.key)
+      this.core.events.changed(projectId);
     return this.view(projectId);
   }
 

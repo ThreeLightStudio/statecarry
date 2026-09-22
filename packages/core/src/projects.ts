@@ -291,6 +291,12 @@ export class Projects {
         nextAction: group.suggestedNextStep,
         doneWhen: group.doneWhen,
         evidenceBasis: observation.semanticKey,
+        evidence: [
+          ...group.files.map((file) => `file:${file}`),
+          ...(group.context ?? []).flatMap((item) =>
+            item.sources.map((source) => `revision:${source}`),
+          ),
+        ],
       })),
       outputLanguage,
     );

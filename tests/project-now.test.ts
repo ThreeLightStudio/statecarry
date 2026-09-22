@@ -707,6 +707,7 @@ describe('WorkMatcher', () => {
           nextAction: null,
           doneWhen: null,
           evidenceBasis: 'basis-a',
+          evidence: ['revision:return-flow'],
         },
       ],
       'en',
@@ -729,6 +730,7 @@ describe('WorkMatcher', () => {
           nextAction: null,
           doneWhen: null,
           evidenceBasis: 'basis-b',
+          evidence: ['revision:return-flow'],
         },
       ],
       'en',
@@ -887,6 +889,11 @@ describe('WorkMatcher', () => {
     expect(h.core.workMatcher.match(projectId)).toEqual([
       expect.objectContaining({ workItemId: null, confidence: 'unmatched' }),
     ]);
+    const before = structuredClone((h.repo as import('./helpers').MemoryRepository).data);
+    expect(() => h.core.projectModel.selectProposal(projectId, 'group:shared')).toThrow(
+      'linked to conflicting work',
+    );
+    expect((h.repo as import('./helpers').MemoryRepository).data).toEqual(before);
   });
 
   it('does not auto-match an unverified legacy analysis proposal', () => {

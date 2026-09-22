@@ -16,6 +16,20 @@ function sameIdentity(left: ProposalIdentity, right: ProposalIdentity) {
   );
 }
 
+function sharesRevisionEvidence(left: WorkProposal, right: WorkProposal): boolean {
+  const rightEvidence = new Set(right.evidence ?? []);
+  return (left.evidence ?? []).some(
+    (evidence) => evidence.startsWith('revision:') && rightEvidence.has(evidence),
+  );
+}
+
+function linkedEvidence(decision: { value: Record<string, unknown> }): string[] {
+  const evidence = decision.value.proposalEvidence;
+  return Array.isArray(evidence) && evidence.every((item) => typeof item === 'string')
+    ? evidence
+    : [];
+}
+
 export class WorkMatcher {
   constructor(private core: StateCarry) {}
 
@@ -161,19 +175,9 @@ export class WorkMatcher {
         !!decision.workItemId &&
         workById.has(decision.workItemId),
     );
-    const records = this.core.repo
-      .list('workProposal')
-      .filter((record) => record.projectId === projectId);
     const matches = proposals.map((proposal) => {
-      const record = records.find(
-        (item) =>
-          item.proposal.source === proposal.source &&
-          item.proposal.key === proposal.key &&
-          item.proposal.evidenceBasis === proposal.evidenceBasis,
-      );
       const identities: ProposalIdentity[] = [
         { key: proposal.key, source: proposal.source, evidenceBasis: proposal.evidenceBasis },
-        ...(record?.history ?? []),
       ];
       const linkedWorkIds = new Set(
         links.flatMap((decision) => {
@@ -195,9 +199,15 @@ export class WorkMatcher {
                   evidenceBasis: typeof basis === 'string' || basis === null ? basis : null,
                 }
               : legacyIdentity;
-          return identities.some((candidate) => sameIdentity(candidate, identity))
-            ? [decision.workItemId!]
-            : [];
+          const exact = identities.some((candidate) => sameIdentity(candidate, identity));
+          const continuous =
+            identity.key === proposal.key &&
+            identity.source === proposal.source &&
+            linkedEvidence(decision).some(
+              (evidence) =>
+                evidence.startsWith('revision:') && (proposal.evidence ?? []).includes(evidence),
+            );
+          return exact || continuous ? [decision.workItemId!] : [];
         }),
       );
       if (linkedWorkIds.size === 1) {
@@ -219,20 +229,52 @@ export class WorkMatcher {
           'The available evidence is not enough to attach this interpretation to durable work.',
       };
     });
+    for (const match of matches) {
+      if (match.workItemId) continue;
+      const equivalents = matches.filter(
+        (other) =>
+          other.workItemId &&
+          other.proposal.source !== match.proposal.source &&
+          sharesRevisionEvidence(match.proposal, other.proposal),
+      );
+      if (new Set(equivalents.map((other) => other.workItemId)).size === 1) {
+        const equivalent = equivalents[0];
+        match.workItemId = equivalent.workItemId;
+        match.confidence = 'explicit';
+        match.reason = 'Current source evidence connects this interpretation to linked work.';
+      }
+    }
     // A work can have current evidence from both sources. Core exposes its
-    // strongest evidence once so consumers cannot count it as two candidates.
-    return matches.filter(
-      (match, index) =>
-        !match.workItemId ||
-        matches
+    // strongest evidence once and retains its aliases for audit and selection.
+    return matches
+      .filter((match, index) => {
+        const equivalent = matches
           .map((other, otherIndex) => ({ other, otherIndex }))
-          .filter(({ other }) => other.workItemId === match.workItemId)
+          .filter(
+            ({ other }) =>
+              other.workItemId === match.workItemId &&
+              (other === match ||
+                other.workItemId !== null ||
+                sharesRevisionEvidence(other.proposal, match.proposal)),
+          )
           .sort(
             ({ other: left }, { other: right }) =>
               Number(left.proposal.source === 'analysis-candidate') -
               Number(right.proposal.source === 'analysis-candidate'),
-          )[0]?.otherIndex === index,
-    );
+          );
+        return equivalent[0]?.otherIndex === index;
+      })
+      .map((match) => ({
+        ...match,
+        aliases: matches
+          .filter(
+            (other) =>
+              other !== match &&
+              other.workItemId === match.workItemId &&
+              sharesRevisionEvidence(other.proposal, match.proposal),
+          )
+          .map((other) => other.proposal),
+      }));
   }
 
   bestForWork(projectId: string, workItem: WorkItem): WorkProposalMatch | null {
