@@ -143,8 +143,8 @@ Focused updater coverage lives in:
 Run focused coverage while editing update behavior, then run the repository verification contract before release:
 
 ```sh
-rtk pnpm test tests/electrobun-updater.test.ts tests/local-updater-http.test.ts tests/project-updater-ui.test.tsx
-rtk pnpm verify:fresh
+pnpm test tests/electrobun-updater.test.ts tests/local-updater-http.test.ts tests/project-updater-ui.test.tsx
+pnpm verify:fresh
 ```
 
 The controlled release that introduced the updater passed 86 test files / 641 tests plus formatting, lint, TypeScript, boundary checks, and production builds. That result is release evidence for that source state, not a permanent test-count requirement.

@@ -69,24 +69,23 @@ Install the app from the DMG into Applications and launch StateCarry from Finder
 
 Read [the architecture overview](docs/architecture.md) for the current runtime structure and [the Electrobun technology decision](docs/decisions/0001-electrobun.md) for the desktop-host choice.
 
-Requirements: Apple Silicon macOS, Node **24.14.1+**, pnpm **10.33.2**, RTK on PATH, Codex CLI and desktop installed and signed in. Development used RTK 0.28.2 and Codex CLI 0.152.0. Other OS/CLI combinations are unverified.
+Requirements: Apple Silicon macOS, Node **24.14.1+**, pnpm **10.33.2**, Codex CLI and desktop installed and signed in. Development used Codex CLI 0.152.0. Other OS/CLI combinations are unverified.
 
 - [Node](https://nodejs.org/en/download)
-- [RTK](https://github.com/rtk-ai/rtk#installation) — required by the runtime adapter
 - [Codex CLI](https://developers.openai.com/codex/cli/)
 - [Codex desktop](https://developers.openai.com/codex/app/)
 
 Open a terminal in the source folder, then:
 
 ```sh
-rtk pnpm install --frozen-lockfile
-rtk pnpm build
-rtk proxy node dist/server.mjs
+pnpm install --frozen-lockfile
+pnpm build
+node dist/server.mjs
 ```
 
-Open the local URL printed by the server. Production servers receive an available port automatically. Keep the terminal running; Ctrl+C stops it. A prepared `dist/` can run without pnpm or the source, but still needs Node, RTK, Codex, and your login. Run it from the folder containing `dist/`.
+Open the local URL printed by the server. Production servers receive an available port automatically. Keep the terminal running; Ctrl+C stops it. A prepared `dist/` can run without pnpm or the source, but still needs Node, Codex, and your login. Run it from the folder containing `dist/`.
 
-An agent can install dependencies, build, and diagnose startup. Sign in yourself (`rtk proxy codex login` if needed); never share credentials. No separate API key is required. Model access and usage limits belong to your Codex account; there is no automatic model fallback.
+An agent can install dependencies, build, and diagnose startup. Sign in yourself (`codex login` if needed); never share credentials. No separate API key is required. Model access and usage limits belong to your Codex account; there is no automatic model fallback.
 
 ## First use
 
@@ -104,7 +103,7 @@ Routine collection checks are quiet when their result is unchanged. Actual recor
 For first-time navigation setup, run the following command in an interactive terminal, replacing `YOUR_THREAD_ID` with a conversation you intend to open:
 
 ```sh
-rtk proxy node dist/verify-connection.mjs --verify-navigation YOUR_THREAD_ID
+node dist/verify-connection.mjs --verify-navigation YOUR_THREAD_ID
 ```
 
 The helper opens that conversation and asks you to inspect its title and content before recording confirmation. An accepted OS request alone is not proof of arrival. Existing navigation evidence is preserved. This diagnostic is optional for source checks and is not run by the automated tests.
@@ -130,10 +129,10 @@ StateCarry analyzes connected records, not every record on your device. Related 
 
 Production storage remains `~/.statecarry`; development uses `~/.statecarry-dev`. These contain private records, analysis output, and corrections. Only one server can write to each data directory. Development never opens the production directory, including through a symlink. Production ignores development port and data-directory environment variables.
 
-Run `rtk pnpm dev` for the development web app at `http://127.0.0.1:4311`, or `rtk pnpm desktop:dev` for **StateCarry Dev**. Both use the development API on port 4310; run one development server at a time. They can run alongside the installed product. Development-only overrides are available for isolated source runs:
+Run `pnpm dev` for the development web app at `http://127.0.0.1:4311`, or `pnpm desktop:dev` for **StateCarry Dev**. Both use the development API on port 4310; run one development server at a time. They can run alongside the installed product. Development-only overrides are available for isolated source runs:
 
 ```sh
-rtk proxy env STATECARRY_DATA_DIR=/absolute/path/to/private-dev-data STATECARRY_PORT=4397 pnpm exec tsx apps/server/src/index.ts
+env STATECARRY_DATA_DIR=/absolute/path/to/private-dev-data STATECARRY_PORT=4397 pnpm exec tsx apps/server/src/index.ts
 ```
 
 See [runtime isolation](docs/runtime-isolation.md) for the server, profile, browser-state, and build boundaries.
@@ -155,11 +154,11 @@ The production entry now uses the Home/Project flow. Old Resume/work/detail book
 ## Development and release checks
 
 ```sh
-rtk pnpm verify
+pnpm verify
 ```
 
 `verify` uses the repository's local Turborepo cache for deterministic checks and the production
-build. Use `rtk pnpm verify:fresh` when release evidence must execute those tasks instead of reading
+build. Use `pnpm verify:fresh` when release evidence must execute those tasks instead of reading
 prior cache entries. See [development](docs/development.md) for focused tests, the workspace layout,
 cache boundaries, contribution guidance and diagnostics. The current signed/notarized macOS release
 procedure is in [desktop release](docs/desktop-release.md), and the in-app stable updater contract is

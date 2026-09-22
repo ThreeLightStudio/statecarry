@@ -33,6 +33,19 @@ it('reports the missing Codex CLI without referring to the retired RTK dependenc
   }
 });
 
+it('supports session execution when Codex is available without RTK', () => {
+  const resolve = vi
+    .spyOn(executableResolver, 'resolveExecutable')
+    .mockImplementation((name) => (name === 'codex' ? '/tools/codex' : null));
+  try {
+    expect(new CodexSessionExecutor().capability()).toMatchObject({
+      create: 'supported',
+      send: 'supported',
+    });
+  } finally {
+    resolve.mockRestore();
+  }
+});
 it('allows verification artifacts in the project without auto-approving execution', async () => {
   const { rpc, executor } = fixture();
   await executor.create({ projectId: 'work', cwd: '/project', title: 'Check' });

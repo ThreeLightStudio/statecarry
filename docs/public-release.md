@@ -41,10 +41,10 @@ For a later compiled release, identify what is actually included and preserve th
 Once license and notice edits are ready, use the checked-in formatter and verification commands. Inspect the resulting diff and commit only the intended public files. Confirm that the selected branch and any tags to publish contain the reviewed source, license and public documentation. Keep private source inventories and review reports outside the committed tree.
 
 ```sh
-rtk pnpm format
-rtk pnpm verify:fresh
-rtk git diff --check
-rtk git status --short
+pnpm format
+pnpm verify:fresh
+git diff --check
+git status --short
 ```
 
 `verify:fresh` executes the checks rather than replaying a previous cached pass. It may recreate ignored build output. Describe any cached, unexecuted or unsupported checks accurately. Source preparation retains the development-preview status and the unresolved user-workflow items in [the roadmap](roadmap.md).
