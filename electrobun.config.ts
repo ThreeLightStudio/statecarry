@@ -7,7 +7,7 @@ export default {
     mainProcess: 'cottontail',
     cottontail: { entrypoint: 'apps/desktop/src/main.ts' },
     mac: { codesign: true, notarize: true, createDmg: true },
-    copy: { 'dist/web': 'views/statecarry' },
+    copy: { '.cache/electrobun/web': 'views/statecarry' },
     buildFolder: '.cache/electrobun/build',
     artifactFolder: '.cache/electrobun/artifacts',
   },

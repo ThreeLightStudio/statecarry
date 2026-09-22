@@ -31,7 +31,7 @@
     "desktop:prepare": "electrobun prepare",
     "desktop:config": "electrobun config --env=dev",
     "desktop:config:stable": "electrobun config --env=stable",
-    "desktop:dev": "STATECARRY_DESKTOP_ENV=dev electrobun dev --env=dev --watch",
+    "desktop:dev": "tsx scripts/desktop-dev.ts",
     "desktop:build": "STATECARRY_DESKTOP_ENV=dev electrobun build --env=dev",
     "desktop:build:stable": "STATECARRY_DESKTOP_ENV=stable electrobun build --env=stable",
     "landing:dev": "vite --config apps/landing/vite.config.ts",
