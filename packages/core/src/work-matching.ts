@@ -41,24 +41,12 @@ function sharesRevisionEvidence(left: WorkProposal, right: WorkProposal): boolea
   const rightQuotes = right.evidenceQuotes ?? [];
   // Current producers retain an exact quote. A shared revision alone can
   // contain unrelated settings, diagnostics, or adjacent work.
-  if (leftQuotes.length || rightQuotes.length)
-    return leftQuotes.some((leftQuote) =>
-      rightQuotes.some(
-        (rightQuote) =>
-          leftQuote.revisionId === rightQuote.revisionId && leftQuote.quote === rightQuote.quote,
-      ),
-    );
-  const rightEvidence = new Set(right.evidence ?? []);
-  return (left.evidence ?? []).some(
-    (evidence) => evidence.startsWith('revision:') && rightEvidence.has(evidence),
+  return leftQuotes.some((leftQuote) =>
+    rightQuotes.some(
+      (rightQuote) =>
+        leftQuote.revisionId === rightQuote.revisionId && leftQuote.quote === rightQuote.quote,
+    ),
   );
-}
-
-function linkedEvidence(decision: { value: Record<string, unknown> }): string[] {
-  const evidence = decision.value.proposalEvidence;
-  return Array.isArray(evidence) && evidence.every((item) => typeof item === 'string')
-    ? evidence
-    : [];
 }
 
 function linkedEvidenceQuotes(decision: {
@@ -81,16 +69,12 @@ function sharesLinkedEvidence(
   decision: { value: Record<string, unknown> },
 ): boolean {
   const quotes = linkedEvidenceQuotes(decision);
-  if (proposal.evidenceQuotes?.length || quotes.length)
-    return (proposal.evidenceQuotes ?? []).some((proposalQuote) =>
-      quotes.some(
-        (decisionQuote) =>
-          proposalQuote.revisionId === decisionQuote.revisionId &&
-          proposalQuote.quote === decisionQuote.quote,
-      ),
-    );
-  return linkedEvidence(decision).some(
-    (evidence) => evidence.startsWith('revision:') && (proposal.evidence ?? []).includes(evidence),
+  return (proposal.evidenceQuotes ?? []).some((proposalQuote) =>
+    quotes.some(
+      (decisionQuote) =>
+        proposalQuote.revisionId === decisionQuote.revisionId &&
+        proposalQuote.quote === decisionQuote.quote,
+    ),
   );
 }
 
