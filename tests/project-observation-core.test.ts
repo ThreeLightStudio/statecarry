@@ -43,6 +43,29 @@ function observedSnapshot(inventoryFingerprint = 'inventory-a'): WorkspaceSnapsh
   };
 }
 
+function cleanSnapshot(): WorkspaceSnapshot {
+  return {
+    ...observedSnapshot(),
+    dirty: false,
+    changedPaths: [],
+    changedFiles: [],
+    changedFileCount: 0,
+    additions: 0,
+    deletions: 0,
+    diffPreview: '',
+    files: [],
+  };
+}
+
+function unknownSnapshot(): WorkspaceSnapshot {
+  return {
+    ...observedSnapshot(),
+    dirty: null,
+    status: 'unknown',
+    limitations: ['Git state could not be read.'],
+  };
+}
+
 function inspectorFixture() {
   let probeFingerprint = 'probe-a';
   let inventoryFingerprint = 'inventory-a';
@@ -363,6 +386,194 @@ describe('project observation reuse', () => {
 
     expect(core.projects.latestSnapshot(projectId).dirty).toBe(false);
   });
+
+  it('keeps saved proposals when the current repository state cannot be observed', async () => {
+    let state: WorkspaceSnapshot = observedSnapshot();
+    let fingerprint = 'dirty-a';
+    const inspector: ProjectInspector = {
+      probe: (cwd) => ({
+        cwd,
+        root: cwd,
+        branch: 'main',
+        commit: 'abcdef',
+        statusFingerprint: fingerprint,
+        status: state.status,
+        checkedAt: AT,
+        limitations: state.limitations,
+      }),
+      inspect: () => state,
+    };
+    const { core } = coreWithObservation(
+      new MemoryRepository(),
+      inspector,
+      vi.fn(async () => analysis()),
+    );
+    const projectId = register(core);
+
+    await core.projects.observe(projectId);
+    core.workMatcher.replaceProposals(
+      projectId,
+      'analysis-candidate',
+      [
+        {
+          key: 'analysis-context',
+          source: 'analysis-candidate',
+          title: 'Saved project context',
+          state: 'active',
+          currentState: 'Saved independently of repository inspection.',
+          uncertainty: null,
+          nextAction: null,
+          doneWhen: null,
+          evidenceBasis: 'analysis-scope',
+        },
+      ],
+      'en',
+    );
+    state = unknownSnapshot();
+    fingerprint = 'unknown-b';
+    await core.projects.observe(projectId);
+
+    expect(core.repo.list('workProposal')).toHaveLength(2);
+    expect(core.workMatcher.proposals(projectId)).toEqual([
+      expect.objectContaining({ source: 'analysis-candidate', key: 'analysis-context' }),
+    ]);
+    expect(core.now.resolve(projectId).freshness).toBe('unknown');
+  });
+
+  it('does not present an older dirty proposal as current after a new unchecked analysis basis', async () => {
+    let state: WorkspaceSnapshot = observedSnapshot();
+    let fingerprint = 'dirty-a';
+    const inspector: ProjectInspector = {
+      probe: (cwd) => ({
+        cwd,
+        root: cwd,
+        branch: 'main',
+        commit: 'abcdef',
+        statusFingerprint: fingerprint,
+        status: 'checked',
+        checkedAt: AT,
+        limitations: [],
+      }),
+      inspect: () => state,
+    };
+    const { core } = coreWithObservation(
+      new MemoryRepository(),
+      inspector,
+      vi.fn(async () => analysis()),
+    );
+    const projectId = register(core);
+
+    await core.projects.observe(projectId);
+    state = { ...observedSnapshot(), diffPreview: 'diff --git a/src/main.ts b/src/main.ts\n+new' };
+    fingerprint = 'dirty-b';
+    await core.projects.observe(projectId, 'en', undefined, false);
+
+    expect(core.repo.list('workProposal')).toHaveLength(1);
+    expect(core.workMatcher.proposals(projectId)).toEqual([]);
+    expect(core.now.resolve(projectId).freshness).toBe('changed');
+  });
+
+  it('replaces old proposals when a fresh analysis establishes no unfinished groups', async () => {
+    let state: WorkspaceSnapshot = observedSnapshot();
+    let fingerprint = 'dirty-a';
+    const inspector: ProjectInspector = {
+      probe: (cwd) => ({
+        cwd,
+        root: cwd,
+        branch: 'main',
+        commit: 'abcdef',
+        statusFingerprint: fingerprint,
+        status: 'checked',
+        checkedAt: AT,
+        limitations: [],
+      }),
+      inspect: () => state,
+    };
+    const generate = vi
+      .fn()
+      .mockResolvedValueOnce(analysis())
+      .mockResolvedValueOnce({ summary: 'No unfinished changes remain.', groups: [] });
+    const { core } = coreWithObservation(new MemoryRepository(), inspector, generate);
+    const projectId = register(core);
+
+    await core.projects.observe(projectId);
+    state = {
+      ...observedSnapshot(),
+      diffPreview: 'diff --git a/src/main.ts b/src/main.ts\n+empty',
+    };
+    fingerprint = 'dirty-b';
+    await core.projects.observe(projectId);
+
+    expect(core.workMatcher.proposals(projectId)).toEqual([]);
+    expect(core.now.resolve(projectId).freshness).toBe('current');
+  });
+
+  it('shares one normalized analysis result between concurrent callers', async () => {
+    const started = waitForRelease();
+    const release = waitForRelease();
+    const generate = vi.fn(async () => {
+      started.release();
+      await release.wait;
+      return analysis();
+    });
+    const observed = inspectorFixture();
+    const { core } = coreWithObservation(new MemoryRepository(), observed.inspector, generate);
+    const projectId = register(core);
+
+    const first = core.projects.observe(projectId);
+    await started.wait;
+    const second = core.projects.analyzeLatest(projectId);
+    release.release();
+    const [fromObservation, fromLatest] = await Promise.all([first, second]);
+
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(fromObservation.workingTreeAnalysis?.groups[0].id).toBe(
+      fromLatest.workingTreeAnalysis?.groups[0].id,
+    );
+  });
+
+  it.each(['resolve', 'reject'] as const)(
+    'returns the newest safe result to all pending callers after clean state on late %s',
+    async (outcome) => {
+      let dirty = true;
+      let fingerprint = 'dirty-a';
+      const inspector: ProjectInspector = {
+        probe: (cwd) => ({
+          cwd,
+          root: cwd,
+          branch: 'main',
+          commit: 'abcdef',
+          statusFingerprint: fingerprint,
+          status: 'checked',
+          checkedAt: AT,
+          limitations: [],
+        }),
+        inspect: () => (dirty ? observedSnapshot() : cleanSnapshot()),
+      };
+      const started = waitForRelease();
+      const release = waitForRelease();
+      const generate = vi.fn(async () => {
+        started.release();
+        await release.wait;
+        if (outcome === 'reject') throw new Error('late provider failure');
+        return analysis();
+      });
+      const { core } = coreWithObservation(new MemoryRepository(), inspector, generate);
+      const projectId = register(core);
+
+      const first = core.projects.observe(projectId);
+      await started.wait;
+      const second = core.projects.analyzeLatest(projectId);
+      dirty = false;
+      fingerprint = 'clean-b';
+      await core.projects.observe(projectId);
+      release.release();
+      const results = await Promise.all([first, second]);
+
+      expect(results.every((snapshot) => snapshot.dirty === false)).toBe(true);
+      expect(core.workMatcher.proposals(projectId)).toEqual([]);
+    },
+  );
 });
 
 it('keeps saved working-tree analysis when the project language changes until explicitly generated again', async () => {

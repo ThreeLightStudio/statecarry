@@ -196,7 +196,9 @@ export class ProjectNowResolver {
       ? ('checking' as const)
       : !observation || observation.snapshot.status !== 'checked'
         ? ('unknown' as const)
-        : ('current' as const);
+        : this.core.workMatcher.hasStaleWorkingTreeProposals(projectId)
+          ? ('changed' as const)
+          : ('current' as const);
 
     if (model.project.lifecycle === 'disconnected')
       return {

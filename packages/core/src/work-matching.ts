@@ -31,6 +31,13 @@ function selectedWorkId(core: StateCarry, projectId: string): string | null {
 export class WorkMatcher {
   constructor(private core: StateCarry) {}
 
+  private currentWorkingTreeBasis(projectId: string): string | null {
+    const observation = this.core.projects.latestObservation(projectId);
+    return observation?.snapshot.status === 'checked' && observation.snapshot.dirty === true
+      ? observation.semanticKey
+      : null;
+  }
+
   replaceProposals(
     projectId: string,
     source: WorkProposal['source'],
@@ -71,10 +78,29 @@ export class WorkMatcher {
   }
   proposals(projectId: string): WorkProposal[] {
     this.core.project(projectId);
+    const workingTreeBasis = this.currentWorkingTreeBasis(projectId);
     return this.core.repo
       .list('workProposal')
-      .filter((record) => record.projectId === projectId)
+      .filter(
+        (record) =>
+          record.projectId === projectId &&
+          (record.proposal.source !== 'working-tree-group' ||
+            (workingTreeBasis !== null && record.proposal.evidenceBasis === workingTreeBasis)),
+      )
       .map((record) => record.proposal);
+  }
+
+  hasStaleWorkingTreeProposals(projectId: string): boolean {
+    this.core.project(projectId);
+    const workingTreeBasis = this.currentWorkingTreeBasis(projectId);
+    return this.core.repo
+      .list('workProposal')
+      .some(
+        (record) =>
+          record.projectId === projectId &&
+          record.proposal.source === 'working-tree-group' &&
+          (workingTreeBasis === null || record.proposal.evidenceBasis !== workingTreeBasis),
+      );
   }
   match(projectId: string): WorkProposalMatch[] {
     const model = this.core.projectModel.view(projectId);
