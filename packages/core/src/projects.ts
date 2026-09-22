@@ -328,6 +328,7 @@ export class Projects {
       this.core.events.changed(work.id, 'working-tree-analysis');
       return { ...snapshot, workingTreeAnalysis: result };
     } catch (error) {
+      this.core.reportError(error, 'working-tree-analysis', work.id);
       const detail = error instanceof Error ? error.message : String(error);
       return {
         ...snapshot,

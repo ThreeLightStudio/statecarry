@@ -22,6 +22,7 @@ import { canonicalProjectCommand } from './adapters/project-folder';
 import type { LocalFolderPicker } from './adapters/local-folder-picker';
 import type { ProjectAssetStore } from './adapters/local-project-assets';
 import type { LocalUpdater } from './adapters/local-updater';
+import { reportServerError } from './error-log';
 import {
   browserStateLimit,
   browserStateSchema,
@@ -674,6 +675,12 @@ export function createHttpServer(
       });
       res.end(req.method === 'HEAD' ? undefined : contents);
     } catch (e) {
+      reportServerError(e, {
+        operation: 'http-request',
+        method: req.method,
+        path: (req.url ?? '/').split('?')[0],
+        status: e instanceof DomainError ? e.status : e instanceof z.ZodError ? 400 : 500,
+      });
       if (res.headersSent) {
         res.end();
         return;
@@ -689,7 +696,6 @@ export function createHttpServer(
           },
         });
       else {
-        console.error(e);
         json(res, 500, {
           error: {
             code: 'STORAGE_UNAVAILABLE',

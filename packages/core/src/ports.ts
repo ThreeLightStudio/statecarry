@@ -105,6 +105,9 @@ export interface ProjectInspector {
   inspectAsync?(cwd: string, hints?: WorkspaceInspectionHints): Promise<WorkspaceSnapshot>;
   close?(): void | Promise<void>;
 }
+export type ErrorContext = { operation: string; projectId?: string };
+export type ErrorReporter = (error: unknown, context: ErrorContext) => void;
+
 export type AttemptMeta = {
   pid: number | null;
   threadId: string | null;

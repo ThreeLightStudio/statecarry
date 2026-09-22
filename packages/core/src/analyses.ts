@@ -1161,6 +1161,7 @@ export class ProjectAnalyses {
       });
     } catch (e) {
       this.errors.set(id, e instanceof Error ? e.message : String(e));
+      this.core.reportError(e, 'project-analysis', id);
     } finally {
       this.running.delete(id);
       this.core.events.changed(id, 'overview');

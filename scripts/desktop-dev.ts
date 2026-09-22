@@ -114,7 +114,14 @@ await stopStaleWatchers();
 
 const child = spawn('electrobun', ['dev', '--env=dev', '--watch'], {
   stdio: 'inherit',
-  env: { ...process.env, STATECARRY_DESKTOP_ENV: 'dev' },
+  env: {
+    ...process.env,
+    STATECARRY_DESKTOP_ENV: 'dev',
+    // Electrobun forwards child output through pipes; preserve terminal color support.
+    ...(process.stderr.isTTY && process.env.NO_COLOR === undefined && process.env.TERM !== 'dumb'
+      ? { FORCE_COLOR: process.env.FORCE_COLOR ?? '1' }
+      : {}),
+  },
 });
 
 child.on('error', (error) => {

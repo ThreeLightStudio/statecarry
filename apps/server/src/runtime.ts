@@ -20,6 +20,7 @@ import { settingsFromEnvironment } from './adapters/summary-settings';
 import { SQLiteRepository } from './adapters/sqlite';
 import { ChangeEvents, createHttpServer } from './http';
 import { LocalBrowserState } from './adapters/local-browser-state';
+import { reportServerError } from './error-log';
 
 const HOST = '127.0.0.1';
 
@@ -60,6 +61,7 @@ export function createServerRuntime(options: ServerRuntimeOptions = {}) {
     events,
     new CodexSessionExecutor(),
     new GitProjectInspector(),
+    reportServerError,
   );
   const server = createHttpServer(core, events, webDir, port, {
     folderPicker: options.folderPicker ?? new MacLocalFolderPicker(),

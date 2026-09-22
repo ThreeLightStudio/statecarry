@@ -51,6 +51,33 @@ After building, `rtk proxy node dist/verify-connection.mjs --help` prints availa
 
 Navigation verification uses an interactive terminal and the current user's confirmation. A successful OS dispatch alone is not arrival evidence. Existing evidence is preserved, including invalid evidence that needs investigation; do not distribute another user's navigation-verification file.
 
+## Terminal error diagnostics
+
+Run `rtk pnpm desktop:dev` or `rtk pnpm dev` from a terminal. Failed API requests and
+overview/working-tree analysis failures print `[statecarry:error]` entries to that
+terminal automatically. No trace flag is required. Each entry includes the time,
+operation, error code and message, plus the project ID or HTTP method, path and status
+when available. Unexpected errors include a stack; validation errors include field
+paths. Request bodies, headers and query strings are not logged, and recognized
+credentials in error text are masked.
+
+Interactive terminal errors use a muted red without bold or a colored background.
+`desktop:dev` preserves this through Electrobun's output forwarding. Redirected logs
+remain plain text; `NO_COLOR=1` or `FORCE_COLOR=0` disables color, while `FORCE_COLOR=1`
+enables it when a terminal wrapper hides color support.
+
+If the app says “StateCarry could not finish the first project check,” look for
+`PROJECT_INITIALIZATION_FAILED` and the preceding `project-analysis` entry. The
+latter preserves the provider or validation failure that caused initialization to
+fail. Analysis started by an asynchronous overview refresh is logged even though
+the original HTTP request already returned successfully. Logging does not change
+the concise error shown in the app or trigger another analysis attempt.
+
+After changing diagnostic code, restart the development app and reproduce the
+failure with **Try again**. Logs describe new failures; they cannot recover an error
+that was previously swallowed. When sharing a report, copy only the relevant
+entries and replace private paths or identifiers with synthetic examples.
+
 ## Local packaging
 
 The license and any required notices must be settled before distributing a package. `rtk pnpm package:local` requires `LICENSE` and copies the clean `dist/`, README, public docs, license and optional `NOTICE` into an ignored release directory. Run `build` first. Inspect the package and associate it with the source commit before publishing it; packaging does not validate the user's end-to-end resume experience.

@@ -42,6 +42,7 @@ import type {
   AttemptMeta,
   SessionExecutor,
   ProjectInspector,
+  ErrorReporter,
 } from './ports';
 import { checkAssessment, checkCandidate, relationshipEvidence } from './checks';
 import { assessFreshness } from './freshness';
@@ -120,6 +121,7 @@ export class StateCarry {
     readonly events: Events,
     sessionExecutorOrProject: SessionExecutor | ProjectInspector = new UnsupportedSessionExecutor(),
     projectInspector?: ProjectInspector,
+    private readonly errorReporter?: ErrorReporter,
   ) {
     // Keep the pre-continuation constructor shape working for local callers
     // that passed a ProjectInspector as the eighth argument.
@@ -144,6 +146,14 @@ export class StateCarry {
       collectionIntervalMs: 15000,
       discoveryIntervalMs: 60000,
     };
+  }
+
+  reportError(error: unknown, operation: string, projectId: string): void {
+    try {
+      this.errorReporter?.(error, { operation, projectId });
+    } catch {
+      // Logging cannot interrupt failure handling or leave an analysis running.
+    }
   }
   directionIntent(id: string): import('@statecarry/contracts').GoalIntent | undefined {
     const direction = this.repo
