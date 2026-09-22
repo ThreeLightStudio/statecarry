@@ -67,7 +67,7 @@ function unknownSnapshot(): WorkspaceSnapshot {
   };
 }
 
-function inspectorFixture() {
+function inspectorFixture(snapshot = observedSnapshot) {
   let probeFingerprint = 'probe-a';
   let inventoryFingerprint = 'inventory-a';
   let probes = 0;
@@ -88,7 +88,7 @@ function inspectorFixture() {
     },
     inspect: () => {
       inspections++;
-      return observedSnapshot(inventoryFingerprint);
+      return snapshot(inventoryFingerprint);
     },
   };
   return {
@@ -167,7 +167,15 @@ function waitForRelease() {
 describe('project observation reuse', () => {
   it('joins refreshed and working-tree proposals from one verified file record', async () => {
     const repo = new MemoryRepository();
-    const observed = inspectorFixture();
+    const observed = inspectorFixture((inventory) => ({
+      ...observedSnapshot(inventory),
+      files: [
+        {
+          ...observedSnapshot(inventory).files![0],
+          preview: 'Reply language configurable. Diagnostic errors details.',
+        },
+      ],
+    }));
     const analyzeWorkingTree = vi.fn(async (input: any) => {
       const record = input.records.find((item: any) => item.kind === 'fileObservation');
       return {
@@ -175,12 +183,26 @@ describe('project observation reuse', () => {
         groups: [
           {
             ...analysis().groups[0],
+            title: 'Configure reply language',
             context: [
               {
                 kind: 'progress',
                 nature: 'file-observation',
                 text: 'Reply language is configurable.',
-                sources: [{ revisionId: record.revisionId, quote: record.text }],
+                sources: [{ revisionId: record.revisionId, quote: 'Reply language configurable.' }],
+              },
+            ],
+          },
+          {
+            ...analysis().groups[0],
+            title: 'Investigate diagnostic errors',
+            currentState: 'Diagnostic errors need review.',
+            context: [
+              {
+                kind: 'unknown',
+                nature: 'file-observation',
+                text: 'Diagnostic errors are present.',
+                sources: [{ revisionId: record.revisionId, quote: 'Diagnostic errors details.' }],
               },
             ],
           },
@@ -195,7 +217,7 @@ describe('project observation reuse', () => {
           {
             ...projectCandidate({
               id: record.revisionId,
-              text: record.text,
+              text: 'Reply language configurable.',
               threadId: record.threadId,
             } as any),
             goal: 'Make reply language configurable',
@@ -208,10 +230,15 @@ describe('project observation reuse', () => {
     await core.analyses.refresh(projectId, 'en');
     await core.projects.observe(projectId, 'en');
     const matches = core.workMatcher.match(projectId);
-    expect(core.workMatcher.proposals(projectId)).toHaveLength(2);
-    expect(matches).toHaveLength(1);
-    expect(matches[0]).toMatchObject({ confidence: 'possible' });
-    expect([matches[0].proposal, ...(matches[0].aliases ?? [])]).toEqual(
+    expect(core.workMatcher.proposals(projectId)).toHaveLength(3);
+    expect(matches).toHaveLength(2);
+    const language = matches.find(
+      (match) =>
+        match.proposal.title === 'Configure reply language' ||
+        match.aliases?.some((alias) => alias.title === 'Configure reply language'),
+    )!;
+    expect(language).toMatchObject({ confidence: 'possible' });
+    expect([language.proposal, ...(language.aliases ?? [])]).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           source: 'analysis-candidate',
@@ -223,9 +250,12 @@ describe('project observation reuse', () => {
         }),
       ]),
     );
-    core.projectModel.selectProposal(projectId, matches[0].proposal.key);
+    expect(matches.some((match) => match.proposal.title === 'Investigate diagnostic errors')).toBe(
+      true,
+    );
+    core.projectModel.selectProposal(projectId, language.proposal.key);
     const workId = core.now.resolve(projectId).currentWorkId;
-    const alias = matches[0].aliases![0];
+    const alias = language.aliases![0];
     core.projectModel.selectProposal(projectId, alias.key);
     expect(core.now.resolve(projectId).currentWorkId).toBe(workId);
     expect(core.projectModel.view(projectId).workItems).toHaveLength(1);
