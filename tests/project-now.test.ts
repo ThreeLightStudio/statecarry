@@ -10,7 +10,12 @@ import { projectCandidate, registerProject } from './project-fixtures';
 
 const LATER = '2026-09-08T13:36:01.780Z';
 
-function observe(h: ReturnType<typeof harness>, projectId: string, semanticKey = 'basis-a') {
+function observe(
+  h: ReturnType<typeof harness>,
+  projectId: string,
+  semanticKey = 'basis-a',
+  dirty = false,
+) {
   h.repo.put('projectObservation', {
     id: projectId,
     projectId: projectId,
@@ -22,7 +27,7 @@ function observe(h: ReturnType<typeof harness>, projectId: string, semanticKey =
       cwd: '/tmp/example',
       branch: 'main',
       commit: 'abc123',
-      dirty: false,
+      dirty,
       status: 'checked',
       checkedAt: AT,
       limitations: [],
@@ -681,6 +686,146 @@ describe('ProjectNow resolver', () => {
 });
 
 describe('WorkMatcher', () => {
+  it('keeps an explicit connection when the proposal is reworded on the same evidence', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    h.core.projectModel.view(projectId);
+    work(h, projectId, 'work-a', 'active', 'Return flow');
+    observe(h, projectId, 'basis-a', true);
+    h.core.workMatcher.replaceProposals(
+      projectId,
+      'working-tree-group',
+      [
+        {
+          key: 'group:before',
+          source: 'working-tree-group',
+          title: 'Original wording',
+          state: 'active',
+          currentState: 'Original state.',
+          uncertainty: null,
+          nextAction: null,
+          doneWhen: null,
+          evidenceBasis: 'basis-a',
+        },
+      ],
+      'en',
+    );
+    h.core.projectModel.selectProposal(projectId, 'group:before');
+    const linkedWorkId = h.core.now.resolve(projectId).currentWorkId;
+
+    h.core.workMatcher.replaceProposals(
+      projectId,
+      'working-tree-group',
+      [
+        {
+          key: 'group:after',
+          source: 'working-tree-group',
+          title: 'Reworded interpretation',
+          state: 'active',
+          currentState: 'Same evidence, newer wording.',
+          uncertainty: null,
+          nextAction: null,
+          doneWhen: null,
+          evidenceBasis: 'basis-a',
+        },
+      ],
+      'en',
+    );
+
+    expect(h.core.workMatcher.match(projectId)).toEqual([
+      expect.objectContaining({
+        proposal: expect.objectContaining({ key: 'group:after' }),
+        workItemId: linkedWorkId,
+        confidence: 'explicit',
+      }),
+    ]);
+    expect(h.repo.list('workProposal')[0].history).toEqual([
+      { key: 'group:before', source: 'working-tree-group', evidenceBasis: 'basis-a' },
+    ]);
+    h.core.projectModel.selectProposal(projectId, 'group:after');
+    expect(h.core.now.resolve(projectId).currentWorkId).toBe(linkedWorkId);
+    expect(h.core.projectModel.view(projectId).workItems).toHaveLength(2);
+  });
+
+  it('does not connect work from a title match or a one-item fallback', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    h.core.projectModel.view(projectId);
+    work(h, projectId, 'work-a', 'active', 'Return flow');
+    observe(h, projectId, 'basis-a', true);
+    h.core.workMatcher.replaceProposals(
+      projectId,
+      'working-tree-group',
+      [
+        {
+          key: 'group:unlinked',
+          source: 'working-tree-group',
+          title: 'Return flow',
+          state: 'active',
+          currentState: 'A matching title is not proof of identity.',
+          uncertainty: null,
+          nextAction: null,
+          doneWhen: null,
+          evidenceBasis: 'basis-a',
+        },
+      ],
+      'en',
+    );
+
+    expect(h.core.workMatcher.match(projectId)).toEqual([
+      expect.objectContaining({ workItemId: null, confidence: 'unmatched' }),
+    ]);
+  });
+
+  it('leaves conflicting explicit connections unresolved', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    h.core.projectModel.view(projectId);
+    work(h, projectId, 'work-a', 'active', 'First work');
+    work(h, projectId, 'work-b', 'active', 'Second work');
+    observe(h, projectId, 'basis-a', true);
+    h.core.workMatcher.replaceProposals(
+      projectId,
+      'working-tree-group',
+      [
+        {
+          key: 'group:shared',
+          source: 'working-tree-group',
+          title: 'Shared interpretation',
+          state: 'active',
+          currentState: 'This needs a user correction.',
+          uncertainty: null,
+          nextAction: null,
+          doneWhen: null,
+          evidenceBasis: 'basis-a',
+        },
+      ],
+      'en',
+    );
+    for (const workItemId of ['work-a', 'work-b'])
+      h.repo.put('workDecision', {
+        id: `link:${workItemId}`,
+        projectId,
+        workItemId,
+        kind: workDecisionKinds.linkWorkProposal,
+        value: {
+          proposalKey: 'group:shared',
+          proposalSource: 'working-tree-group',
+          proposalEvidenceBasis: 'basis-a',
+        },
+        basis: ['basis-a'],
+        state: 'valid',
+        decidedAt: AT,
+      });
+
+    expect(h.core.workMatcher.match(projectId)).toEqual([
+      expect.objectContaining({ workItemId: null, confidence: 'unmatched' }),
+    ]);
+  });
+
   it('does not auto-match an unverified legacy analysis proposal', () => {
     const h = harness();
     const { receipt } = registerProject(h, { goal: 'Improve project return.' });

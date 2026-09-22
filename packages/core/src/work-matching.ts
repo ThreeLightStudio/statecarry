@@ -1,5 +1,4 @@
 import {
-  selectedCurrentWorkId,
   workDecisionKinds,
   type WorkItem,
   type WorkProposal,
@@ -7,25 +6,14 @@ import {
 } from '@statecarry/contracts';
 import type { StateCarry } from './service';
 
-function normalized(value: string) {
-  return value.trim().toLocaleLowerCase().replace(/\s+/g, ' ');
-}
+type ProposalIdentity = Pick<WorkProposal, 'key' | 'source' | 'evidenceBasis'>;
 
-function selectedWorkId(core: StateCarry, projectId: string): string | null {
-  const decisions = core.repo
-    .list('workDecision')
-    .filter(
-      (decision) =>
-        decision.projectId === projectId &&
-        decision.state === 'valid' &&
-        decision.kind === workDecisionKinds.selectCurrentWork,
-    )
-    .sort((a, b) => b.decidedAt.localeCompare(a.decidedAt));
-  for (const decision of decisions) {
-    const workItemId = selectedCurrentWorkId(decision);
-    if (workItemId) return workItemId;
-  }
-  return null;
+function sameIdentity(left: ProposalIdentity, right: ProposalIdentity) {
+  return (
+    left.key === right.key &&
+    left.source === right.source &&
+    left.evidenceBasis === right.evidenceBasis
+  );
 }
 
 export class WorkMatcher {
@@ -58,7 +46,35 @@ export class WorkMatcher {
       .filter((record) => record.projectId === projectId && record.proposal.source === source)
       .sort((a, b) => a.id.localeCompare(b.id));
     const next = [...proposals]
-      .map((proposal) => ({ id: this.core.ids.hash([projectId, proposal.key]), proposal }))
+      .map((proposal) => {
+        const previousForProposal = previous.filter(
+          (record) =>
+            proposal.evidenceBasis !== null &&
+            record.proposal.evidenceBasis === proposal.evidenceBasis,
+        );
+        const history = previousForProposal.flatMap((record) => [
+          ...(record.history ?? []),
+          {
+            key: record.proposal.key,
+            source: record.proposal.source,
+            evidenceBasis: record.proposal.evidenceBasis,
+          },
+        ]);
+        const current = {
+          key: proposal.key,
+          source: proposal.source,
+          evidenceBasis: proposal.evidenceBasis,
+        };
+        return {
+          id: this.core.ids.hash([projectId, proposal.key]),
+          proposal,
+          history: history.filter(
+            (identity, index) =>
+              !sameIdentity(identity, current) &&
+              history.findIndex((other) => sameIdentity(other, identity)) === index,
+          ),
+        };
+      })
       .sort((a, b) => a.id.localeCompare(b.id));
     if (
       previous.length === next.length &&
@@ -66,7 +82,8 @@ export class WorkMatcher {
         (record, index) =>
           record.outputLanguage === outputLanguage &&
           record.id === next[index].id &&
-          JSON.stringify(record.proposal) === JSON.stringify(next[index].proposal),
+          JSON.stringify(record.proposal) === JSON.stringify(next[index].proposal) &&
+          JSON.stringify(record.history ?? []) === JSON.stringify(next[index].history),
       )
     )
       return false;
@@ -74,13 +91,14 @@ export class WorkMatcher {
       for (const record of this.core.repo.list('workProposal'))
         if (record.projectId === projectId && record.proposal.source === source)
           this.core.repo.remove('workProposal', record.id);
-      for (const { id, proposal } of next)
+      for (const { id, proposal, history } of next)
         this.core.repo.put('workProposal', {
           id,
           projectId,
           proposal,
           outputLanguage,
           generatedAt: this.core.clock.now(),
+          ...(history.length > 0 ? { history } : {}),
         });
     });
     return true;
@@ -138,68 +156,61 @@ export class WorkMatcher {
     const model = this.core.projectModel.view(projectId);
     const proposals = this.proposals(projectId);
     const workById = new Map(model.workItems.map((item) => [item.id, item]));
-    const explicit = new Map<string, string>();
-    for (const decision of model.decisions) {
-      if (
-        decision.state !== 'valid' ||
-        decision.kind !== workDecisionKinds.linkWorkProposal ||
-        !decision.workItemId ||
-        !workById.has(decision.workItemId)
-      )
-        continue;
-      const proposalKey = decision.value.proposalKey;
-      if (typeof proposalKey === 'string') explicit.set(proposalKey, decision.workItemId);
-    }
-
-    const selected = selectedWorkId(this.core, projectId);
-    const openWork = model.workItems.filter(
-      (item) => item.state !== 'completed' && item.state !== 'stopped',
+    const links = model.decisions.filter(
+      (decision) =>
+        decision.state === 'valid' &&
+        decision.kind === workDecisionKinds.linkWorkProposal &&
+        !!decision.workItemId &&
+        workById.has(decision.workItemId),
     );
-
-    return proposals.map((proposal) => {
-      const explicitWork = explicit.get(proposal.key);
-      if (explicitWork)
-        return {
-          proposal,
-          workItemId: explicitWork,
-          confidence: 'explicit' as const,
-          reason: 'The user explicitly linked this interpretation to the work.',
-        };
-
-      const titleMatches = openWork.filter(
-        (item) => normalized(item.title) === normalized(proposal.title),
+    const records = this.core.repo
+      .list('workProposal')
+      .filter((record) => record.projectId === projectId);
+    const matches = proposals.map((proposal) => {
+      const record = records.find(
+        (item) =>
+          item.proposal.source === proposal.source &&
+          item.proposal.key === proposal.key &&
+          item.proposal.evidenceBasis === proposal.evidenceBasis,
       );
-      if (titleMatches.length === 1)
-        return {
-          proposal,
-          workItemId: titleMatches[0].id,
-          confidence: 'possible' as const,
-          reason: 'The interpretation has the same title as one open work item.',
-        };
-
-      if (proposals.length === 1 && openWork.length === 1)
-        return {
-          proposal,
-          workItemId: openWork[0].id,
-          confidence: 'possible' as const,
-          reason: 'There is one current interpretation and one open work item.',
-        };
-
-      if (selected) {
-        const selectedWork = workById.get(selected);
-        if (
-          selectedWork &&
-          proposals.length === 1 &&
-          selectedWork.state !== 'completed' &&
-          selectedWork.state !== 'stopped'
-        )
-          return {
-            proposal,
-            workItemId: selectedWork.id,
-            confidence: 'possible' as const,
-            reason:
-              'The user has one selected work item and only one current interpretation exists.',
+      const identities: ProposalIdentity[] = [
+        { key: proposal.key, source: proposal.source, evidenceBasis: proposal.evidenceBasis },
+        ...(record?.history ?? []),
+      ];
+      const linkedWorkIds = new Set(
+        links.flatMap((decision) => {
+          const key = decision.value.proposalKey;
+          if (typeof key !== 'string') return [];
+          const source = decision.value.proposalSource;
+          const basis = decision.value.proposalEvidenceBasis;
+          const legacyIdentity: ProposalIdentity = {
+            key,
+            source: proposal.source,
+            evidenceBasis: decision.basis[0] ?? null,
           };
+          const identity: ProposalIdentity =
+            typeof source === 'string' &&
+            (source === 'analysis-candidate' || source === 'working-tree-group')
+              ? {
+                  key,
+                  source,
+                  evidenceBasis: typeof basis === 'string' || basis === null ? basis : null,
+                }
+              : legacyIdentity;
+          return identities.some((candidate) => sameIdentity(candidate, identity))
+            ? [decision.workItemId!]
+            : [];
+        }),
+      );
+      if (linkedWorkIds.size === 1) {
+        const workItemId = [...linkedWorkIds][0];
+        return {
+          proposal,
+          workItemId,
+          confidence: 'explicit' as const,
+          reason:
+            'The user explicitly linked this interpretation or its retained evidence history to the work.',
+        };
       }
 
       return {
@@ -210,6 +221,20 @@ export class WorkMatcher {
           'The available evidence is not enough to attach this interpretation to durable work.',
       };
     });
+    // A work can have current evidence from both sources. Core exposes its
+    // strongest evidence once so consumers cannot count it as two candidates.
+    return matches.filter(
+      (match, index) =>
+        !match.workItemId ||
+        matches
+          .map((other, otherIndex) => ({ other, otherIndex }))
+          .filter(({ other }) => other.workItemId === match.workItemId)
+          .sort(
+            ({ other: left }, { other: right }) =>
+              Number(left.proposal.source === 'analysis-candidate') -
+              Number(right.proposal.source === 'analysis-candidate'),
+          )[0]?.otherIndex === index,
+    );
   }
 
   bestForWork(projectId: string, workItem: WorkItem): WorkProposalMatch | null {

@@ -116,6 +116,14 @@ export class ProjectModel {
     const proposal = this.core.workMatcher.proposalForSelection(projectId, proposalKey);
     if (!proposal)
       throw new DomainError('NOT_FOUND', 'The selected proposal is no longer available.', 404);
+    const matchedWorkId = this.core.workMatcher
+      .match(projectId)
+      .find(
+        (match) =>
+          match.proposal.key === proposal.key &&
+          match.proposal.source === proposal.source &&
+          match.proposal.evidenceBasis === proposal.evidenceBasis,
+      )?.workItemId;
     const linked = this.core.repo
       .list('workDecision')
       .find(
@@ -124,9 +132,12 @@ export class ProjectModel {
           decision.state === 'valid' &&
           decision.kind === workDecisionKinds.linkWorkProposal &&
           decision.value.proposalKey === proposalKey &&
+          decision.value.proposalSource === proposal.source &&
+          decision.value.proposalEvidenceBasis === proposal.evidenceBasis &&
           !!decision.workItemId,
       );
-    const existing = linked?.workItemId ? this.core.repo.get('workItem', linked.workItemId) : null;
+    const existingId = linked?.workItemId ?? matchedWorkId;
+    const existing = existingId ? this.core.repo.get('workItem', existingId) : null;
     const alreadyCurrent =
       !!existing &&
       this.core.repo
@@ -165,7 +176,11 @@ export class ProjectModel {
           projectId,
           workItemId: item.id,
           kind: workDecisionKinds.linkWorkProposal,
-          value: { proposalKey },
+          value: {
+            proposalKey,
+            proposalSource: proposal.source,
+            proposalEvidenceBasis: proposal.evidenceBasis,
+          },
           basis: proposal.evidenceBasis ? [proposal.evidenceBasis] : [],
           state: 'valid',
           decidedAt: now,

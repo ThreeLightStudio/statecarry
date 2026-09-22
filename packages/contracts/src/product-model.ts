@@ -311,4 +311,10 @@ export type WorkProposalRecord = {
   proposal: WorkProposal;
   outputLanguage: 'en' | 'ko';
   generatedAt: string;
+  /**
+   * Earlier interpretations replaced by this current proposal. These retain
+   * source identity and basis for an explicit user connection, but never make
+   * a retired proposal current again.
+   */
+  history?: Array<{ key: string; source: WorkProposal['source']; evidenceBasis: string | null }>;
 };
