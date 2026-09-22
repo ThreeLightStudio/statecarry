@@ -104,7 +104,7 @@ The development desktop build also passed. An isolated data directory and a dete
 fixture were used in the native desktop window to check empty first launch, project entry, readable
 Korean analysis before selection, explicit work selection, re-entry, application restart and a new
 proposal alongside the preserved current task. The HTTP/SQLite/UI integration test additionally
-checks English/Korean generation/localization and execution with a test session provider.
+checks English/Korean generation with project response-language settings and execution with a test session provider.
 No release was published and the existing user data directory was not migrated during validation;
 its registration-only transition runs when the new server first opens it.
 

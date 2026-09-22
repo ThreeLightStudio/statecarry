@@ -236,7 +236,7 @@ describe('ProjectController ProjectNow cutover', () => {
             body = { supported: false };
             break;
           case '/api/v1/projects/a/observe':
-          case '/api/v1/projects/a/workspace?outputLanguage=en':
+          case '/api/v1/projects/a/workspace':
             body = {
               cwd: '/project/a',
               root: '/project/a',

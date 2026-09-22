@@ -122,6 +122,7 @@ export type QuestionExcerpt = {
   text: string;
 };
 export type QuestionContext = {
+  responseLanguage?: 'en' | 'ko';
   anchorSourceRevisionIds?: string[];
   recordOrder?: string[];
   anchorCondition?: string;

@@ -259,3 +259,23 @@ describe('project registration by normalized folder', () => {
     expect(repo.data).toEqual(before);
   });
 });
+
+it('stores response language per project and preserves it across unrelated settings', () => {
+  const h = harness();
+  const english = registerProject(h);
+  const korean = registerProject(h, { cwd: '/tmp/korean', responseLanguage: 'ko' });
+  expect(h.core.projects.registrations().projects.map((p) => p.responseLanguage)).toEqual([
+    'en',
+    'ko',
+  ]);
+  const id = korean.receipt.projectId;
+  h.core.projects.settings(
+    id,
+    h.command(id, { title: 'Korean project', purpose: '', focused: true, responseLanguage: 'ko' }),
+  );
+  expect(h.core.project(id).responseLanguage).toBe('ko');
+  expect(h.core.project(english.receipt.projectId).responseLanguage).toBe('en');
+  expect(() =>
+    registerProject(h, { cwd: '/tmp/invalid', responseLanguage: 'ja' as 'en' }),
+  ).toThrow();
+});

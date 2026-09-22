@@ -4,7 +4,6 @@ import {
   QUESTION_LIMITS,
   taskDiscussionRequestSchema,
   analysisResultSchema,
-  analysisLocalizationResultSchema,
   analysisCorrectionSchema,
   workspaceSnapshotSchema,
   type AnalysisWork,
@@ -56,10 +55,7 @@ export class ProjectAnalyses {
       throw new DomainError('NOT_FOUND', 'Connection not found', 404);
     void hints;
     if (!this.core.projectInspector) return null;
-    return this.core.projects.latestSnapshot(
-      id,
-      this.core.analysisRecord(work.id)?.result?.outputLanguage ?? 'en',
-    );
+    return this.core.projects.latestSnapshot(id);
   }
   private workspaceKey(value: WorkspaceSnapshot | null | undefined): string | null {
     if (!value) return null;
@@ -841,6 +837,7 @@ export class ProjectAnalyses {
       includedIds.has(revisionId),
     ).length;
     const context: QuestionContext = {
+      responseLanguage: work.responseLanguage ?? 'en',
       anchorSourceRevisionIds: [...candidateRevisionIds].filter((revisionId) =>
         includedIds.has(revisionId),
       ),
@@ -918,7 +915,10 @@ export class ProjectAnalyses {
     }
     return { answer: checked.answer, limitations: context.limitations };
   }
-  async refresh(id: string, outputLanguage: OutputLanguage = 'en') {
+  async refresh(
+    id: string,
+    outputLanguage: OutputLanguage = this.core.project(id).responseLanguage ?? 'en',
+  ) {
     // Coalesce repeated explicit refresh requests. Route remounts and double
     // clicks must not queue a second model call for the same work snapshot.
     if (this.running.has(id)) return;
@@ -1165,79 +1165,6 @@ export class ProjectAnalyses {
       this.running.delete(id);
       this.core.events.changed(id, 'overview');
     }
-  }
-  async localize(id: string, outputLanguage: OutputLanguage) {
-    if (this.running.has(id))
-      throw new DomainError(
-        'PROJECT_BUSY',
-        'Wait for the current overview preparation to finish.',
-        409,
-      );
-    const work = this.core.project(id);
-    if (!this.core.analysisRecord(work.id)?.result)
-      throw new DomainError(
-        'VALIDATION',
-        'Prepare an overview before changing its response language.',
-      );
-    const stored = analysisResultSchema.safeParse({
-      candidates: this.core.analysisRecord(work.id)?.result.candidates,
-    });
-    if (!stored.success)
-      throw new DomainError(
-        'VALIDATION',
-        'The saved overview is incompatible and must be prepared again.',
-      );
-    if ((this.core.analysisRecord(work.id)?.result.outputLanguage ?? 'en') === outputLanguage)
-      return this.view(id);
-    const provider = this.core.summary as typeof this.core.summary & {
-      localizeAnalysis?: (input: unknown) => Promise<unknown>;
-    };
-    if (!provider.localizeAnalysis)
-      throw new DomainError('CAPABILITY_UNSUPPORTED', 'Overview localization is unavailable.');
-    const raw = await provider.localizeAnalysis({
-      outputLanguage,
-      candidates: stored.data.candidates.map((candidate) => ({
-        key: candidate.key,
-        goal: candidate.goal,
-        recentWork: candidate.recentWork,
-        currentState: candidate.currentState,
-        reason: candidate.reason,
-        nextAction: candidate.nextAction,
-        doneWhen: candidate.doneWhen,
-        prerequisites: candidate.prerequisites,
-      })),
-    });
-    const localized = analysisLocalizationResultSchema.parse(raw);
-    const byKey = new Map(localized.candidates.map((candidate) => [candidate.key, candidate]));
-    const originalKeys = stored.data.candidates.map((candidate) => candidate.key);
-    if (
-      localized.candidates.length !== originalKeys.length ||
-      originalKeys.some((key) => !byKey.has(key)) ||
-      localized.candidates.some((candidate) => !originalKeys.includes(candidate.key))
-    )
-      throw new Error('Localized overview changed candidate identity');
-    const candidates = stored.data.candidates.map((candidate) => {
-      const text = byKey.get(candidate.key)!;
-      return {
-        ...candidate,
-        goal: text.goal,
-        recentWork: text.recentWork,
-        currentState: text.currentState,
-        reason: text.reason,
-        nextAction: text.nextAction,
-        doneWhen: text.doneWhen,
-        prerequisites: text.prerequisites,
-      };
-    });
-    // Parse the merged result so localization cannot weaken the normal Resume contract.
-    analysisResultSchema.parse({ candidates });
-    this.core.storeAnalysis({
-      id,
-      projectId: id,
-      result: { ...this.core.analysisRecord(work.id)!.result, candidates, outputLanguage },
-    });
-    this.core.events.changed(id);
-    return this.view(id);
   }
   setGoal(id: string, raw: unknown) {
     const input = raw as { text?: unknown; version?: unknown };

@@ -62,6 +62,7 @@ export class Projects {
       title: work.title,
       purpose: work.purposes.map((purpose) => purpose.text).join('\n'),
       focused: work.focused,
+      responseLanguage: work.responseLanguage ?? 'en',
       iconAsset: work.iconAsset,
       bannerAsset: work.bannerAsset,
     };
@@ -233,18 +234,23 @@ export class Projects {
     return this.core.repo.get('projectObservation', projectId);
   }
 
-  latestSnapshot(projectId: string, outputLanguage: 'en' | 'ko' = 'en'): WorkspaceSnapshot {
+  latestSnapshot(projectId: string): WorkspaceSnapshot {
     const work = this.core.project(projectId);
     const connection = this.connection(work);
     const observation = this.latestObservation(projectId);
     if (!observation) return this.unknownSnapshot(connection.cwd);
     const snapshot = this.withoutAnalysis(observation.snapshot);
     if (!snapshot.dirty) return snapshot;
-    const semanticKey = this.semanticKey(work, observation, outputLanguage);
-    const record = this.core.repo.get(
-      'workingTreeAnalysis',
-      this.analysisRecordId(projectId, semanticKey),
-    );
+    // Reading saved text never regenerates it to match a changed preference.
+    const record = (['en', 'ko'] as const)
+      .flatMap((language) => {
+        const saved = this.core.repo.get(
+          'workingTreeAnalysis',
+          this.analysisRecordId(projectId, this.semanticKey(work, observation, language)),
+        );
+        return saved ? [saved] : [];
+      })
+      .sort((a, b) => b.generatedAt.localeCompare(a.generatedAt))[0];
     return record ? { ...snapshot, workingTreeAnalysis: record.result } : snapshot;
   }
 
@@ -337,17 +343,17 @@ export class Projects {
 
   async analyzeLatest(
     projectId: string,
-    outputLanguage: 'en' | 'ko' = 'en',
+    outputLanguage: 'en' | 'ko' = this.core.project(projectId).responseLanguage ?? 'en',
   ): Promise<WorkspaceSnapshot> {
     const work = this.core.project(projectId);
     const observation = this.latestObservation(projectId);
-    if (!observation) return this.latestSnapshot(projectId, outputLanguage);
+    if (!observation) return this.latestSnapshot(projectId);
     return this.analyzeObservation(work, observation, outputLanguage);
   }
 
   async observe(
     projectId: string,
-    outputLanguage: 'en' | 'ko' = 'en',
+    outputLanguage: 'en' | 'ko' = this.core.project(projectId).responseLanguage ?? 'en',
     hints?: WorkspaceInspectionHints,
     analyze = true,
   ): Promise<WorkspaceSnapshot> {
@@ -478,6 +484,7 @@ export class Projects {
           connectionId: connection.id,
           ...profile,
           focused: profile.focused,
+          responseLanguage: profile.responseLanguage,
           cwd: connection.cwd,
           revision: work.revision,
           disconnectedAt: connection.removedAt ?? null,
@@ -489,8 +496,8 @@ export class Projects {
     };
   }
 
-  async workspace(projectId: string, outputLanguage: 'en' | 'ko' = 'en') {
-    return this.latestSnapshot(projectId, outputLanguage);
+  async workspace(projectId: string) {
+    return this.latestSnapshot(projectId);
   }
 
   create(command: Command): Receipt {
@@ -549,6 +556,7 @@ export class Projects {
             ]
           : [],
         focused: false,
+        responseLanguage: input.responseLanguage,
         iconAsset: null,
         bannerAsset: null,
         lifecycle: 'active',
@@ -619,6 +627,7 @@ export class Projects {
             ? [{ id: 'primary-purpose', text: profile.purpose, origin: 'user', confirmed: true }]
             : [],
           focused: profile.focused,
+          responseLanguage: profile.responseLanguage,
           iconAsset: profile.iconAsset ?? null,
           bannerAsset: profile.bannerAsset ?? null,
           revision: work.revision + 1,

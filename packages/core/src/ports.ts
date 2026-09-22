@@ -144,12 +144,14 @@ export interface SummaryProvider {
     sources: SourceRevision[],
     onRemote: (meta: AttemptMeta) => void,
     goal?: import('@statecarry/contracts').GoalIntent,
+    responseLanguage?: 'en' | 'ko',
   ): Promise<{ candidate: Candidate; model: string }>;
   check(
     candidate: Candidate,
     sources: SourceRevision[],
     onRemote: (meta: AttemptMeta) => void,
     goal?: import('@statecarry/contracts').GoalIntent,
+    responseLanguage?: 'en' | 'ko',
   ): Promise<Assessment>;
   rejectCandidate?(
     sources: SourceRevision[],

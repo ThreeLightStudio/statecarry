@@ -37,33 +37,9 @@ const evidence = z.object({ revisionId: z.string().min(1), quote: text }).strict
 export const outputLanguageSchema = z.enum(['en', 'ko']);
 export type OutputLanguage = z.infer<typeof outputLanguageSchema>;
 export const analysisRefreshSchema = z
-  .object({ outputLanguage: outputLanguageSchema.optional().default('en') })
+  .object({ outputLanguage: outputLanguageSchema.optional() })
   .strict();
 export type AnalysisRefreshInput = z.infer<typeof analysisRefreshSchema>;
-export const analysisLocalizeSchema = z.object({ outputLanguage: outputLanguageSchema }).strict();
-export type AnalysisLocalizeInput = z.infer<typeof analysisLocalizeSchema>;
-
-export const analysisLocalizedCandidateSchema = z
-  .object({
-    key: z.string().min(1).max(160),
-    goal: z.string().min(1).max(120),
-    recentWork: z.string().min(1).max(200).nullable().optional(),
-    currentState: z
-      .string()
-      .min(1)
-      .max(240)
-      .regex(/[.!?]$/, 'Use complete sentences, not a clipped fragment'),
-    reason: z.string().min(1).max(200),
-    nextAction: z.string().min(1).max(240).nullable(),
-    doneWhen: z.string().min(1).max(200).nullable(),
-    prerequisites: z.array(text).max(5),
-  })
-  .strict();
-export const analysisLocalizationResultSchema = z
-  .object({ candidates: z.array(analysisLocalizedCandidateSchema).max(5) })
-  .strict();
-export type AnalysisLocalizationResult = z.infer<typeof analysisLocalizationResultSchema>;
-
 /**
  * Evidence grouped by the level of progress it can establish.  These fields
  * are optional because an analysis may have evidence for only some progress levels.

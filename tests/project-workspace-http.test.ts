@@ -78,7 +78,7 @@ describe('project workspace HTTP contract', () => {
   it('keeps the observe endpoint free of semantic analysis', async () => {
     const { h, call, close } = await serverFixture();
     const id = h.connect();
-    const snapshot = h.core.projects.latestSnapshot(id, 'en');
+    const snapshot = h.core.projects.latestSnapshot(id);
     const observe = vi
       .spyOn(h.core.projects, 'observe')
       .mockResolvedValue(structuredClone(snapshot) as WorkspaceSnapshot);

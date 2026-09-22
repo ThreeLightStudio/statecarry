@@ -1492,6 +1492,7 @@ export class StateCarry {
               sources,
               remote,
               this.directionIntent(this.project(projectId).id),
+              this.project(projectId).responseLanguage ?? 'en',
             ),
           );
           ensureCurrent();
@@ -1519,6 +1520,7 @@ export class StateCarry {
             sources,
             remote,
             this.directionIntent(this.project(projectId).id),
+            this.project(projectId).responseLanguage ?? 'en',
           ),
         );
         ensureCurrent();

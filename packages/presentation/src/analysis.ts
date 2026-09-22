@@ -24,7 +24,6 @@ export interface AnalysisGateway {
   setGoal(projectId: string, text: string, version: string): Promise<void>;
   setCoordination?(projectId: string, threadId: string | null, version: string): Promise<void>;
   refresh(projectId: string, outputLanguage?: OutputLanguage): Promise<void>;
-  localize?(projectId: string, outputLanguage: OutputLanguage): Promise<void>;
   correct(projectId: string, correction: AnalysisCorrection): Promise<void>;
   discussTask?(projectId: string, input: TaskDiscussionRequest): Promise<TaskDiscussionResponse>;
 }

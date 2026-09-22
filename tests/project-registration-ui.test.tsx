@@ -130,6 +130,7 @@ it('keeps the same basename in a different absolute folder available for registr
     expect(button(mounted.host, 'Add project').disabled).toBe(false);
     await press(mounted.host, 'Add project');
     expect(h.projectGateway.create).toHaveBeenCalledExactlyOnceWith({
+      responseLanguage: 'en',
       title: 'Another alpha',
       cwd: '/another/alpha',
       purpose: '',
@@ -183,6 +184,7 @@ it('uses the folder name when a new project is registered without a separate nam
     expect(button(mounted.host, 'Add project').disabled).toBe(false);
     await press(mounted.host, 'Add project');
     expect(h.projectGateway.create).toHaveBeenCalledExactlyOnceWith({
+      responseLanguage: 'en',
       title: 'project-alpha',
       cwd: '/another/project-alpha',
       purpose: '',

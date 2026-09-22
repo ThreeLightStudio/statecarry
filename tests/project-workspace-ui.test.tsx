@@ -121,6 +121,7 @@ it('keeps project search hidden below six projects and adds focus immediately wh
       add.click();
     });
     expect(h.projectGateway.settings).toHaveBeenCalledWith('beta', 7, {
+      responseLanguage: 'en',
       title: 'Project beta',
       purpose: 'Make exported work understandable when returning.',
       focused: true,
@@ -162,11 +163,13 @@ it('opens a replacement modal when all three focus slots are full', async () => 
       first.click();
     });
     expect(h.projectGateway.settings).toHaveBeenNthCalledWith(1, 'alpha', 7, {
+      responseLanguage: 'en',
       title: 'Project alpha',
       purpose: 'Make exported work understandable when returning.',
       focused: false,
     });
     expect(h.projectGateway.settings).toHaveBeenNthCalledWith(2, 'delta', 7, {
+      responseLanguage: 'en',
       title: 'Project delta',
       purpose: 'Make exported work understandable when returning.',
       focused: true,
@@ -231,6 +234,7 @@ it('preserves exact source boundaries and submits source/profile changes with th
     });
     await press(mounted.host, 'Save details');
     expect(h.projectGateway.settings).toHaveBeenCalledWith('alpha', 7, {
+      responseLanguage: 'en',
       title: 'Project alpha',
       purpose: 'A clearer project purpose.',
       focused: true,

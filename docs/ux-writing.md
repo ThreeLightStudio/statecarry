@@ -291,7 +291,7 @@ In particular:
 - Project files and Git status must reflect what was actually inspected. A bounded file sample must not be described as if every project file was checked.
 - `Detected · not verified` must not imply a verified integration. If executables are found but isolation or operation has not been verified, the supporting explanation must say what remains unchecked.
 - Codex conversations are optional supporting sources. Missing Codex conversations must not be described as making an otherwise readable project unusable.
-- Changing response language may translate existing generated overview text without re-analyzing project evidence. Copy must not claim that the project was rechecked unless it was.
+- Response language is a project preference shared by Add project and Project settings. It defaults to English and applies to future generation only; existing results and original quotations stay unchanged. When a question uses another language, the model asks which language to use and notes that the default can be changed in Project settings. An explicit language choice applies to that answer without changing the saved preference.
 - Opening a working conversation or copying task context does not send a message or start work unless the implementation actually does so.
 - Disconnecting keeps saved StateCarry work. Deleting project data is a separate operation.
 - Deleting StateCarry data must not imply deletion of the original project folder or upstream conversations.

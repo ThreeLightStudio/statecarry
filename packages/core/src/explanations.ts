@@ -452,6 +452,7 @@ export class Explanations {
       const sources = this.scope(job.input, true),
         summary = this.core.repo.get('summary', job.summaryId)!;
       const context = explanationContext(job.input, summary, sources);
+      context.responseLanguage = this.core.project(job.projectId).responseLanguage ?? 'en';
       if (!context.excerpts.length)
         throw new DomainError(
           'SOURCE_UNAVAILABLE',

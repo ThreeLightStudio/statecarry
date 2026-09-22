@@ -265,7 +265,7 @@ Project-specific data belongs in Project settings.
 
 Do not let Global Settings become another project-management dashboard.
 
-Project settings owns project identity, source scope, Focus membership and project lifecycle controls.
+Project settings owns project identity, response language, source scope, Focus membership and project lifecycle controls. Add project uses the same response-language preference, defaulting to English. Saving it does not regenerate existing results.
 
 ## Choice count and action hierarchy
 

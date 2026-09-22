@@ -119,7 +119,7 @@ export interface ProjectGateway {
     revision: number,
     input: ReleasePolicyExceptionInput,
   ): Promise<ReleaseProjectView>;
-  workspace(id: string, outputLanguage?: 'en' | 'ko'): Promise<WorkspaceSnapshot>;
+  workspace(id: string): Promise<WorkspaceSnapshot>;
   observe(id: string, outputLanguage?: 'en' | 'ko'): Promise<WorkspaceSnapshot>;
   analyzeWorkspace(id: string, outputLanguage?: 'en' | 'ko'): Promise<WorkspaceSnapshot>;
   create(input: ProjectCreateInput): Promise<Receipt>;
@@ -325,6 +325,7 @@ export type ProjectView = {
   updating?: boolean;
   generatedAt: string | null;
   outputLanguage: 'en' | 'ko';
+  responseLanguage?: 'en' | 'ko';
   sourceCount: number;
   sourceSummary: ProjectSourceSummary[];
   projectState: { currentState: string; recentWork: string; openOrUncertain: string; next: string };
@@ -657,6 +658,7 @@ export function presentProject(entry: ProjectWorkspaceEntry, online = true): Pro
     cwd: entry.cwd,
     purpose: entry.purpose,
     focused: entry.focused,
+    responseLanguage: entry.responseLanguage ?? 'en',
     iconAsset: entry.iconAsset ?? null,
     bannerAsset: entry.bannerAsset ?? null,
     disconnected,

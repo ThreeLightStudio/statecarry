@@ -130,7 +130,6 @@ export class ProjectController {
   private updateTimer: ReturnType<typeof setInterval> | null = null;
   private updateCheckTimer: ReturnType<typeof setInterval> | null = null;
   private unsubscribe?: () => void;
-  private outputLanguage: 'en' | 'ko' = 'en';
   constructor(
     private gateway: ProjectGateway,
     private analysis: AnalysisGateway,
@@ -149,7 +148,7 @@ export class ProjectController {
           id,
           command,
           this.value.decisions[id]?.record.version ?? 0,
-          this.outputLanguage,
+          this.responseLanguage(id),
         );
         if (!this.active || generation !== this.generation) return data;
         this.set({
@@ -273,7 +272,11 @@ export class ProjectController {
           this.value.decisions[change.projectId]
         )
           void this.projectDecision(change.projectId).catch(() => {});
-        if (change?.projectId === this.value.route.projectId && change?.projectId)
+        if (
+          this.value.route.page === 'project' &&
+          change?.projectId === this.value.route.projectId &&
+          change?.projectId
+        )
           void this.readProjectNow(change.projectId);
         if (change?.topic) {
           if (change.topic === 'observation' || change.topic === 'working-tree-analysis') {
@@ -604,7 +607,7 @@ export class ProjectController {
           this.set({
             projectNowInitializing: { ...this.value.projectNowInitializing, [id]: true },
           });
-          bundle = await this.gateway.initialize(id, this.outputLanguage);
+          bundle = await this.gateway.initialize(id, this.responseLanguage(id));
           if (!this.active || generation !== this.generation) return null;
         }
         this.projectNowModels.set(id, bundle.model);
@@ -960,15 +963,14 @@ export class ProjectController {
   }
   async inspectWorkingTree(id: string): Promise<WorkingTreeView | null> {
     if (!this.active) return null;
-    const language = this.outputLanguage;
-    const readKey = `${id}:${language}`;
+    const readKey = id;
     const existing = this.workingTreeReads.get(readKey);
     if (existing) return existing;
     this.set({ workingTreeLoading: { ...this.value.workingTreeLoading, [id]: true } });
     const read = (async () => {
       try {
-        const snapshot = await this.gateway.workspace!(id, language);
-        if (!this.active || language !== this.outputLanguage) return null;
+        const snapshot = await this.gateway.workspace!(id);
+        if (!this.active) return null;
         const view = presentWorkingTree(snapshot);
         this.set({
           workingTrees: { ...this.value.workingTrees, [id]: view },
@@ -976,7 +978,7 @@ export class ProjectController {
         });
         return view;
       } catch (error) {
-        if (this.active && language === this.outputLanguage)
+        if (this.active)
           this.set({ workingTreeLoading: { ...this.value.workingTreeLoading, [id]: false } });
         return null;
       } finally {
@@ -988,14 +990,14 @@ export class ProjectController {
   }
   private async observeWorkingTree(id: string): Promise<WorkingTreeView | null> {
     if (!this.active) return null;
-    const language = this.outputLanguage;
+    const language = this.responseLanguage(id);
     const readKey = [id, language].join(':');
     const existing = this.observationReads.get(readKey);
     if (existing) return existing;
     const read = (async () => {
       try {
         const snapshot = await this.gateway.observe!(id, language);
-        if (!this.active || language !== this.outputLanguage) return null;
+        if (!this.active || language !== this.responseLanguage(id)) return null;
         const view = presentWorkingTree(snapshot);
         this.set({ workingTrees: { ...this.value.workingTrees, [id]: view } });
         void this.readProjectNow(id);
@@ -1013,7 +1015,7 @@ export class ProjectController {
   }
   private async analyzeWorkingTree(id: string): Promise<WorkingTreeView | null> {
     if (!this.active) return null;
-    const language = this.outputLanguage;
+    const language = this.responseLanguage(id);
     const readKey = [id, language].join(':');
     const existing = this.workingTreeAnalysisReads.get(readKey);
     if (existing) return existing;
@@ -1023,7 +1025,7 @@ export class ProjectController {
     const read = (async () => {
       try {
         const snapshot = await this.gateway.analyzeWorkspace!(id, language);
-        if (!this.active || language !== this.outputLanguage) return null;
+        if (!this.active || language !== this.responseLanguage(id)) return null;
         const view = presentWorkingTree(snapshot);
         this.set({
           workingTrees: { ...this.value.workingTrees, [id]: view },
@@ -1032,7 +1034,7 @@ export class ProjectController {
         return view;
       } catch (error) {
         void error;
-        if (this.active && language === this.outputLanguage)
+        if (this.active && language === this.responseLanguage(id))
           this.set({
             workingTreeAnalysisLoading: { ...this.value.workingTreeAnalysisLoading, [id]: false },
           });
@@ -1682,6 +1684,7 @@ export class ProjectController {
     const profile = {
       title: project.title,
       purpose: project.purpose,
+      responseLanguage: project.responseLanguage ?? 'en',
       focused: project.focused,
       iconAsset: project.iconAsset,
       bannerAsset: project.bannerAsset,
@@ -1822,55 +1825,13 @@ export class ProjectController {
       return Promise.reject(new Error('The local folder picker is unavailable.'));
     return this.gateway.chooseFolder().then((result) => result.path);
   }
-  setOutputLanguage(language: 'en' | 'ko') {
-    if (this.outputLanguage === language) return;
-    this.outputLanguage = language;
-    const route = this.value.route;
-    if (this.active && this.hasLoaded && route.page === 'project' && route.projectId) {
-      void this.inspectWorkingTree(route.projectId);
-      void this.analyzeWorkingTree(route.projectId);
-    }
-  }
-  async localizeGeneratedOverviews(language: 'en' | 'ko'): Promise<boolean> {
-    this.outputLanguage = language;
-    if (!this.value.online || this.value.checkingCurrent || this.value.busyWorkId) return false;
-    const targets = this.workspace.projects.filter(
-      (entry) =>
-        !entry.disconnectedAt &&
-        !!entry.analysis?.generatedAt &&
-        (entry.analysis.outputLanguage ?? 'en') !== language,
+  private responseLanguage(id: string): 'en' | 'ko' {
+    return (
+      this.workspace.projects.find((project) => project.projectId === id)?.responseLanguage ?? 'en'
     );
-    if (!targets.length) return true;
-    if (!this.analysis.localize) {
-      this.set({ error: 'Existing overview language cannot be updated in this environment.' });
-      return false;
-    }
-    const generation = this.generation;
-    this.set({ busyWorkId: 'response-language', error: null, notice: null });
-    try {
-      for (const target of targets) await this.analysis.localize(target.projectId, language);
-      if (!this.active || generation !== this.generation) return false;
-      await this.refresh();
-      if (!this.active || generation !== this.generation) return false;
-      this.set({
-        notice:
-          language === 'ko'
-            ? 'Overview language changed to Korean.'
-            : 'Overview language changed to English.',
-      });
-      return true;
-    } catch (error) {
-      if (this.active && generation === this.generation) {
-        await this.refresh();
-        this.set({ error: projectError(error) });
-      }
-      return false;
-    } finally {
-      if (this.active && generation === this.generation) this.set({ busyWorkId: null });
-    }
   }
   private refreshOverview(id: string) {
-    return this.outputLanguage === 'ko'
+    return this.responseLanguage(id) === 'ko'
       ? this.analysis.refresh(id, 'ko')
       : this.analysis.refresh(id);
   }

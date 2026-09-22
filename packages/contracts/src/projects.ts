@@ -5,6 +5,7 @@ import type { AnalysisWork } from './analysis';
 export type ProjectProfile = {
   title: string;
   purpose: string;
+  responseLanguage?: 'en' | 'ko';
   focused: boolean;
   iconAsset?: string | null;
   bannerAsset?: string | null;
@@ -16,6 +17,7 @@ export type ProjectWorkspaceEntry = {
   title: string;
   cwd: string;
   purpose: string;
+  responseLanguage?: 'en' | 'ko';
   focused: boolean;
   iconAsset?: string | null;
   bannerAsset?: string | null;
@@ -36,6 +38,7 @@ export type ProjectRegistration = {
   title: string;
   cwd: string;
   purpose: string;
+  responseLanguage?: 'en' | 'ko';
   focused: boolean;
   iconAsset?: string | null;
   bannerAsset?: string | null;
@@ -49,6 +52,7 @@ export type ProjectCreateInput = {
   title: string;
   cwd: string;
   purpose: string;
+  responseLanguage?: 'en' | 'ko';
   goal?: string;
   threadIds: string[];
   startTurnIds?: Record<string, string>;
@@ -92,6 +96,7 @@ export const projectProfileSchema = z
     title: z.string().trim().min(1).max(120),
     purpose: z.string().trim().max(1200),
     focused: z.boolean(),
+    responseLanguage: z.enum(['en', 'ko']).default('en'),
     iconAsset: projectAssetRef.nullable().optional(),
     bannerAsset: projectAssetRef.nullable().optional(),
   })
@@ -101,6 +106,7 @@ export const projectCreateSchema = z
   .object({
     title: projectProfileSchema.shape.title,
     purpose: projectProfileSchema.shape.purpose,
+    responseLanguage: projectProfileSchema.shape.responseLanguage,
     cwd: z.string().min(1).max(2000).startsWith('/'),
     goal: z.string().trim().min(1).max(1200).optional(),
     ...sources,

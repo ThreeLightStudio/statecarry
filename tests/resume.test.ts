@@ -368,3 +368,37 @@ it('retains actual requests despite verbose tool logs and excludes prior resume 
     72000,
   );
 });
+
+it('keeps language confirmation in the existing discussion and passes the saved project language', async () => {
+  const h = ready();
+  await h.core.analyses.refresh(h.id);
+  h.core.projectModel.createWork(h.id, { title: 'Export validation' }, 'language-discussion');
+  const workItemId = h.core.projectModel.view(h.id).workItems[0].id;
+  const confirmation =
+    '프로젝트 기본 언어인 영어로 답변할까요? 기본 언어는 프로젝트 설정에서 바꿀 수 있습니다.';
+  let calls = 0;
+  h.summary.answerQuestion = async (context) => {
+    expect(context.responseLanguage).toBe('en');
+    if (calls++ === 0) {
+      expect(context.question).toBe('왜 필요한가요?');
+      return { items: [], unknowns: [confirmation] };
+    }
+    expect(context.question).toBe('네');
+    expect(context.anchor).toContain('왜 필요한가요?');
+    expect(context.anchor).toContain(confirmation);
+    return { items: [], unknowns: ['The selected records do not establish the reason.'] };
+  };
+  h.summary.checkQuestion = async () => ({ checks: [], unknownsSafe: true });
+  for (const question of ['왜 필요한가요?', '네']) {
+    await h.core.analyses.discuss(h.id, {
+      workItemId,
+      version: h.core.analyses.view(h.id).version,
+      question,
+      history: [],
+    });
+  }
+  const discussion = h.core.projectModel.view(h.id).discussions[0];
+  expect(discussion.turns).toHaveLength(2);
+  expect(discussion.turns[0].answer).toMatchObject({ items: [], unknowns: [confirmation] });
+  expect(h.core.project(h.id).responseLanguage ?? 'en').toBe('en');
+});

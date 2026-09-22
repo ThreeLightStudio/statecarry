@@ -140,7 +140,7 @@ describe('project observation reuse', () => {
     events.mockClear();
 
     core.projects.list();
-    await core.projects.workspace(projectId, 'en');
+    await core.projects.workspace(projectId);
     expect(observed.counts()).toEqual({ probes: 0, inspections: 0 });
     expect(analyzeWorkingTree).not.toHaveBeenCalled();
 
@@ -148,7 +148,7 @@ describe('project observation reuse', () => {
     expect(observed.counts()).toEqual({ probes: 1, inspections: 1 });
     expect(analyzeWorkingTree).toHaveBeenCalledTimes(1);
 
-    const saved = await core.projects.workspace(projectId, 'en');
+    const saved = await core.projects.workspace(projectId);
     expect(saved.workingTreeAnalysis?.summary).toContain('semantic change');
     expect(observed.counts()).toEqual({ probes: 1, inspections: 1 });
     expect(analyzeWorkingTree).toHaveBeenCalledTimes(1);
@@ -200,7 +200,7 @@ describe('project observation reuse', () => {
 
       repo = new SQLiteRepository(directory);
       const restarted = coreWithObservation(repo, observed.inspector, analyzeWorkingTree);
-      const restored = await restarted.core.projects.workspace(projectId, 'en');
+      const restored = await restarted.core.projects.workspace(projectId);
       expect(restored.workingTreeAnalysis?.summary).toBe('One semantic change is in progress.');
       expect(observed.counts()).toEqual({ probes: 1, inspections: 1 });
       expect(analyzeWorkingTree).toHaveBeenCalledTimes(1);
@@ -213,4 +213,30 @@ describe('project observation reuse', () => {
       rmSync(directory, { recursive: true, force: true });
     }
   });
+});
+
+it('keeps saved working-tree analysis when the project language changes until explicitly generated again', async () => {
+  const observed = inspectorFixture();
+  const generate = vi.fn(async () => analysis());
+  const { core } = coreWithObservation(new MemoryRepository(), observed.inspector, generate);
+  const id = register(core);
+  const before = await core.projects.observe(id);
+  core.projects.settings(id, {
+    requestId: identity.next(),
+    expectedRevision: core.project(id).revision,
+    payload: {
+      title: 'Observed project',
+      purpose: 'Measure observation reuse.',
+      focused: false,
+      responseLanguage: 'ko',
+    },
+  });
+  expect((await core.projects.workspace(id)).workingTreeAnalysis).toEqual(
+    before.workingTreeAnalysis,
+  );
+  expect(generate).toHaveBeenCalledTimes(1);
+  expect(observed.counts()).toEqual({ probes: 1, inspections: 1 });
+  await core.projects.analyzeLatest(id);
+  expect(generate).toHaveBeenLastCalledWith(expect.objectContaining({ outputLanguage: 'ko' }));
+  expect(generate).toHaveBeenCalledTimes(2);
 });

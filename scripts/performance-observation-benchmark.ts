@@ -162,7 +162,7 @@ async function listScenario(projectCount: number) {
     const started = performance.now();
     counters.listRead++;
     core.projects.list();
-    await core.projects.workspace(ids[0], 'en');
+    await core.projects.workspace(ids[0]);
     const listPlusWorkspaceMs = performance.now() - started;
     const listPlusWorkspaceInspect = counters.inspect - beforeWorkspace;
     return {
@@ -223,7 +223,7 @@ async function semanticScenario() {
       inspector,
     );
     const restartReadStarted = performance.now();
-    await restarted.projects.workspace(projectId, 'en');
+    await restarted.projects.workspace(projectId);
     const restartSavedReadMs = performance.now() - restartReadStarted;
     const restartObserveStarted = performance.now();
     await restarted.projects.observe(projectId, 'en');

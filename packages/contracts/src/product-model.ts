@@ -24,6 +24,7 @@ export const projectRecordSchema = z
     cwd: z.string().min(1).max(2000),
     purposes: z.array(projectPurposeSchema).max(12),
     focused: z.boolean(),
+    responseLanguage: z.enum(['en', 'ko']).optional(),
     iconAsset: z.string().max(120).nullable(),
     bannerAsset: z.string().max(120).nullable(),
     lifecycle: z.enum(['active', 'disconnected']),

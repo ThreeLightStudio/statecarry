@@ -392,6 +392,7 @@ export class ContextQuestions {
         summary = this.core.repo.get('summary', s.summaryId)!;
       const anchor = this.anchor(s);
       const context = selectQuestionContext(s, t.text, anchor, sources);
+      context.responseLanguage = this.core.project(s.projectId).responseLanguage ?? 'en';
       if ('kind' in anchor)
         context.anchorStatus = {
           kind: anchor.kind,

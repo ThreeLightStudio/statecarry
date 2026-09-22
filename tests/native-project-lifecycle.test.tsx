@@ -22,21 +22,6 @@ it('uses the real client, HTTP and SQLite through analysis, selection, execution
   const candidate = projectCandidate();
   const generate = vi.fn(async () => ({ candidates: [candidate] }));
   h.summary.generateAnalysis = generate;
-  Object.assign(h.summary, {
-    localizeAnalysis: async () => ({
-      candidates: [
-        {
-          key: candidate.key,
-          goal: '내보내기 검증 마무리',
-          currentState: '내보내기 구현을 마쳤으며 최종 확인이 남아 있습니다.',
-          reason: '마지막 확인이 필요합니다.',
-          nextAction: '내보내기를 확인합니다.',
-          doneWhen: '확인 결과를 기록합니다.',
-          prerequisites: [],
-        },
-      ],
-    }),
-  });
   h.summary.answerQuestion = async () => ({
     items: [],
     unknowns: ['This user-created task has no verified result yet.'],
@@ -157,7 +142,24 @@ it('uses the real client, HTTP and SQLite through analysis, selection, execution
     expect(mounted.host.textContent).toContain(candidate.currentState);
     await mounted.unmount();
     mounted = undefined;
-    await analysis.localize(id, 'ko');
+    await gateway.settings(id, core.project(id).revision, {
+      title: 'Native lifecycle',
+      purpose: 'Keep a durable project.',
+      focused: false,
+      responseLanguage: 'ko',
+    });
+    expect(repo.list('projectAnalysis')[0].result.candidates[0].goal).toBe(candidate.goal);
+    generate.mockResolvedValue({
+      candidates: [
+        {
+          ...candidate,
+          goal: '내보내기 검증 마무리',
+          currentState: '내보내기 구현을 마쳤으며 최종 확인이 남아 있습니다.',
+        },
+      ],
+    });
+    await core.analyses.refresh(id);
+    expect(generate).toHaveBeenLastCalledWith(expect.objectContaining({ outputLanguage: 'ko' }));
     expect((await gateway.now(id)).now.proposalMatches[0].proposal.title).toBe(
       '내보내기 검증 마무리',
     );

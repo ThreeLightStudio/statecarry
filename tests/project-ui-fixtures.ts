@@ -216,10 +216,6 @@ export function projectUiFixture(entries = [projectEntry()]) {
   const analysisGateway: AnalysisGateway = {
     list: vi.fn(async () => []),
     refresh: vi.fn(async () => {}),
-    localize: vi.fn(async (id, outputLanguage) => {
-      const entry = rows.projects.find((item) => item.projectId === id);
-      if (entry?.analysis) entry.analysis.outputLanguage = outputLanguage;
-    }),
     setGoal: vi.fn(async () => {}),
     correct: vi.fn(async () => {}),
     subscribe: () => () => {},

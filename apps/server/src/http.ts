@@ -7,7 +7,6 @@ import {
   commandSchema,
   DomainError,
   observationSchema,
-  analysisLocalizeSchema,
   analysisRefreshSchema,
   workDiscussionSyncSchema,
   workItemCreateSchema,
@@ -213,7 +212,13 @@ export function createHttpServer(
                 200,
                 core.executions.view(
                   parts[1],
-                  z.enum(['en', 'ko']).parse(url.searchParams.get('outputLanguage') ?? 'en'),
+                  z
+                    .enum(['en', 'ko'])
+                    .parse(
+                      url.searchParams.get('outputLanguage') ??
+                        core.project(parts[1]).responseLanguage ??
+                        'en',
+                    ),
                 ),
               );
             if (req.method === 'POST') {
@@ -242,7 +247,7 @@ export function createHttpServer(
             });
           if (req.method === 'POST' && parts.length === 3 && parts[2] === 'initialize') {
             const input = z
-              .object({ outputLanguage: z.enum(['en', 'ko']).default('en') })
+              .object({ outputLanguage: z.enum(['en', 'ko']).optional() })
               .strict()
               .parse(await body(req));
             if (!core.projectModel.initialized(parts[1]))
@@ -264,22 +269,19 @@ export function createHttpServer(
           if (req.method === 'GET' && parts.length === 3 && parts[2] === 'release')
             return json(res, 200, core.releases.view(parts[1]));
           if (req.method === 'GET' && parts.length === 3 && parts[2] === 'workspace') {
-            const outputLanguage = z
-              .enum(['en', 'ko'])
-              .parse(url.searchParams.get('outputLanguage') ?? 'en');
-            return json(res, 200, await core.projects.workspace(parts[1], outputLanguage));
+            return json(res, 200, await core.projects.workspace(parts[1]));
           }
           if (req.method === 'POST' && parts.length === 3 && parts[2] === 'observe') {
             const input = z
-              .object({ outputLanguage: z.enum(['en', 'ko']).default('en') })
+              .object({ outputLanguage: z.enum(['en', 'ko']).optional() })
               .strict()
               .parse(await body(req));
             await core.projects.observe(parts[1], input.outputLanguage, undefined, false);
-            return json(res, 200, core.projects.latestSnapshot(parts[1], input.outputLanguage));
+            return json(res, 200, core.projects.latestSnapshot(parts[1]));
           }
           if (req.method === 'POST' && parts.length === 3 && parts[2] === 'analysis') {
             const input = z
-              .object({ outputLanguage: z.enum(['en', 'ko']).default('en') })
+              .object({ outputLanguage: z.enum(['en', 'ko']).optional() })
               .strict()
               .parse(await body(req));
             return json(
@@ -493,12 +495,6 @@ export function createHttpServer(
               const refresh = analysisRefreshSchema.parse(input);
               void core.analyses.refresh(parts[1], refresh.outputLanguage);
               return json(res, 202, { accepted: true });
-            }
-            if (parts[3] === 'localize') {
-              core.project(parts[1]);
-              const localize = analysisLocalizeSchema.parse(input);
-              await core.analyses.localize(parts[1], localize.outputLanguage);
-              return json(res, 200, { localized: true, outputLanguage: localize.outputLanguage });
             }
             if (parts[3] === 'goal') return json(res, 200, core.analyses.setGoal(parts[1], input));
             if (parts[3] === 'correct')

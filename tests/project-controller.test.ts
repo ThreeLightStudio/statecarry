@@ -466,8 +466,6 @@ describe('project-oriented presentation and return memory', () => {
     expect(scopedHandoff).not.toContain('docs/readme.md');
     expect(scopedHandoff).toContain('Continue only the selected work groups below.');
 
-    controller.setOutputLanguage('ko');
-    await vi.waitFor(() => expect(h.gateway.workspace).toHaveBeenCalledWith('a', 'ko'));
     controller.stop();
   });
   it('does not write or reread when the saved goal text is unchanged', async () => {

@@ -132,6 +132,7 @@ export type ExplanationInput = {
   limitations: string[];
 };
 export type ExplanationContext = {
+  responseLanguage?: 'en' | 'ko';
   input: ExplanationInput;
   guide: { role: string; text: string; sourceRevisionIds?: string[] }[];
   excerpts: QuestionExcerpt[];

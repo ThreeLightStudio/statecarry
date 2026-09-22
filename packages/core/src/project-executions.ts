@@ -89,7 +89,10 @@ export class ProjectExecutions {
       ]),
     };
   }
-  view(id: string, language: 'en' | 'ko' = 'en'): ProjectExecutionWorkspace {
+  view(
+    id: string,
+    language: 'en' | 'ko' = this.core.project(id).responseLanguage ?? 'en',
+  ): ProjectExecutionWorkspace {
     const saved = this.record(id);
     const nativeDirection = this.core.projectModel
       .directions(id)
@@ -104,7 +107,7 @@ export class ProjectExecutions {
           },
         }
       : { ...saved, direction: null };
-    const current = this.core.projects.latestSnapshot(id, language);
+    const current = this.core.projects.latestSnapshot(id);
     const prior = this.core.repo
       .list('workingTreeAnalysis')
       .filter((r) => r.projectId === id && r.outputLanguage === language)
@@ -217,7 +220,10 @@ export class ProjectExecutions {
         'A newer decision was saved. Read it before saving your choice.',
         409,
       );
-    const language: 'en' | 'ko' = 'outputLanguage' in input ? input.outputLanguage : 'en';
+    const language: 'en' | 'ko' =
+      ('outputLanguage' in input ? input.outputLanguage : undefined) ??
+      this.core.project(id).responseLanguage ??
+      'en';
     switch (input.action) {
       case 'observe': {
         await this.core.projects.observe(id, language, undefined, false);
@@ -357,7 +363,7 @@ export class ProjectExecutions {
                   .find((direction) => direction.state === 'active' && direction.primary)?.text ??
                 null,
               currentState:
-                this.core.projects.latestSnapshot(id, language).workingTreeAnalysis?.summary ??
+                this.core.projects.latestSnapshot(id).workingTreeAnalysis?.summary ??
                 'Current project state requires review.',
               nextAction: input.text.slice(0, 2000),
               doneWhen: input.doneWhen.slice(0, 2000),

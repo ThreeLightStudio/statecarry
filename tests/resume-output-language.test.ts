@@ -5,7 +5,7 @@ import { CodexSummary } from '../apps/server/src/adapters/codex-summary';
 import { ChangeEvents, createHttpServer } from '../apps/server/src/http';
 import { harness } from './helpers';
 
-it('passes the optional refresh output language through HTTP and defaults to English', async () => {
+it('passes the optional refresh output language through HTTP and leaves the default to the project', async () => {
   const h = harness();
   const projectId = h.connect();
   const refresh = vi.spyOn(h.core.analyses, 'refresh').mockResolvedValue(undefined);
@@ -39,7 +39,7 @@ it('passes the optional refresh output language through HTTP and defaults to Eng
     expect(await post({ outputLanguage: 'ko' })).toEqual({ status: 202, body: { accepted: true } });
     expect(refresh).toHaveBeenLastCalledWith(projectId, 'ko');
     expect(await post({})).toEqual({ status: 202, body: { accepted: true } });
-    expect(refresh).toHaveBeenLastCalledWith(projectId, 'en');
+    expect(refresh).toHaveBeenLastCalledWith(projectId, undefined);
     const invalid = await post({ outputLanguage: 'ja' });
     expect(invalid.status).toBe(400);
     expect(invalid.body.error.code).toBe('VALIDATION');
@@ -54,9 +54,6 @@ it('localizes a saved overview through HTTP without starting a refresh', async (
   const h = harness();
   const projectId = h.connect();
   const refresh = vi.spyOn(h.core.analyses, 'refresh').mockResolvedValue(undefined);
-  const localize = vi
-    .spyOn(h.core.analyses, 'localize')
-    .mockResolvedValue(h.core.analyses.view(projectId));
   const server = createHttpServer(h.core, new ChangeEvents(), '/tmp/no-web', 4310);
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -81,8 +78,7 @@ it('localizes a saved overview through HTTP without starting a refresh', async (
     req.end(JSON.stringify({ outputLanguage: 'ko' }));
   });
   try {
-    expect(response).toEqual({ status: 200, body: { localized: true, outputLanguage: 'ko' } });
-    expect(localize).toHaveBeenCalledExactlyOnceWith(projectId, 'ko');
+    expect(response.status).toBe(404);
     expect(refresh).not.toHaveBeenCalled();
   } finally {
     server.closeAllConnections();
@@ -137,45 +133,6 @@ it('sends Korean generation instructions while restoring evidence in its origina
   expect(result.candidates[0].progress?.reported).toEqual([{ revisionId: 'r1', quote: evidence }]);
 });
 
-it('rejects English generated explanation fields for a Korean overview request', async () => {
-  const summary = new CodexSummary('/tmp/statecarry-language-validation-test');
-  (summary as any).preflight = async () => {};
-  (summary as any).run = async () => ({
-    value: {
-      candidates: [
-        {
-          key: 'english-output',
-          goal: 'Review export implementation',
-          currentState: 'The implementation is ready for review.',
-          status: 'active',
-          reason: 'The current implementation needs review.',
-          nextAction: 'Review the implementation.',
-          actionSource: 'suggested',
-          doneWhen: 'The implementation is reviewed.',
-          threadId: 'thread-a',
-          prerequisites: [],
-          evidence: [{ ref: 'R1' }],
-          progress: { reported: [], implemented: [], verified: [] },
-          completion: { reported: [], verified: [] },
-        },
-      ],
-    },
-  });
-  await expect(
-    summary.generateAnalysis({
-      outputLanguage: 'ko',
-      records: [
-        {
-          revisionId: 'r1',
-          text: 'Keep this exact evidence.',
-          threadId: 'thread-a',
-          actor: 'user',
-        },
-      ],
-    }),
-  ).rejects.toThrow(/Korean overview/);
-});
-
 it('allows code-only individual fields when the Korean candidate is explanatory overall', async () => {
   const summary = new CodexSummary('/tmp/statecarry-language-code-field-test');
   (summary as any).preflight = async () => {};
@@ -208,170 +165,6 @@ it('allows code-only individual fields when the Korean candidate is explanatory 
   ).resolves.toMatchObject({
     candidates: [expect.objectContaining({ nextAction: 'src/export.ts' })],
   });
-});
-
-it('localizes only explanatory fields and keeps localization input free of evidence', async () => {
-  const summary = new CodexSummary('/tmp/statecarry-localize-provider-test');
-  let prompt = '';
-  let instructions = '';
-  (summary as any).preflight = async () => {};
-  (summary as any).run = async (
-    valuePrompt: string,
-    _schema: unknown,
-    _onRemote: unknown,
-    _phase: string,
-    valueInstructions: string,
-  ) => {
-    prompt = valuePrompt;
-    instructions = valueInstructions;
-    return {
-      value: {
-        candidates: [
-          {
-            key: 'same-key',
-            goal: '내보내기를 확인합니다',
-            recentWork: '최근 내보내기 구현을 정리했습니다.',
-            currentState: '내보내기 구현이 준비되어 있습니다.',
-            reason: '마지막 확인이 남아 있습니다.',
-            nextAction: 'src/export.ts',
-            doneWhen: '검토가 완료됩니다',
-            prerequisites: ['pnpm test'],
-          },
-        ],
-      },
-    };
-  };
-  const result = await summary.localizeAnalysis({
-    outputLanguage: 'ko',
-    candidates: [
-      {
-        key: 'same-key',
-        goal: 'Review export',
-        recentWork: 'Refined the export implementation.',
-        currentState: 'The export is ready.',
-        reason: 'One review remains.',
-        nextAction: 'src/export.ts',
-        doneWhen: 'The review is complete',
-        prerequisites: ['pnpm test'],
-      },
-    ],
-  });
-  expect(prompt).not.toContain('evidence');
-  expect(instructions).toContain('complete, grammatical sentence ending in ., !, or ?');
-  expect(result.candidates[0]).toMatchObject({
-    key: 'same-key',
-    recentWork: '최근 내보내기 구현을 정리했습니다.',
-    nextAction: 'src/export.ts',
-  });
-});
-
-it('repairs a clipped English current state without adding evidence or re-analysis input', async () => {
-  const summary = new CodexSummary('/tmp/statecarry-localize-repair-test');
-  const run = vi.fn();
-  let calls = 0;
-  (summary as any).preflight = async () => {};
-  (summary as any).run = run.mockImplementation(async (prompt: string) => {
-    calls++;
-    expect(prompt).not.toContain('evidence');
-    return {
-      value: {
-        candidates: [
-          {
-            key: 'same-key',
-            goal: 'Review the export',
-            currentState:
-              calls === 1
-                ? `${'Current project state '.repeat(9)}the¿?`
-                : 'The export implementation is ready, while final verification remains open.',
-            reason: 'Final verification remains.',
-            nextAction: 'src/export.ts',
-            doneWhen: 'The review is complete.',
-            prerequisites: ['pnpm test'],
-          },
-        ],
-      },
-    };
-  });
-  const result = await summary.localizeAnalysis({
-    outputLanguage: 'en',
-    candidates: [
-      {
-        key: 'same-key',
-        goal: '내보내기를 확인합니다',
-        currentState: '내보내기 구현이 준비되어 있으며 최종 검증이 남았습니다.',
-        reason: '최종 검증이 남았습니다.',
-        nextAction: 'src/export.ts',
-        doneWhen: '검토가 완료됩니다.',
-        prerequisites: ['pnpm test'],
-      },
-    ],
-  });
-  expect(run).toHaveBeenCalledTimes(2);
-  expect(result.candidates[0].currentState).toBe(
-    'The export implementation is ready, while final verification remains open.',
-  );
-});
-
-it('persists localized text and language while preserving candidate evidence and identity', async () => {
-  const h = harness();
-  const id = h.connect();
-  const record = (await h.reader.read('thread-a')).revisions[0];
-  h.records([record]);
-  const original = {
-    key: 'same-key',
-    goal: 'Review export',
-    recentWork: 'Refined the export implementation.',
-    currentState: 'The export is ready for review.',
-    status: 'active' as const,
-    reason: 'One review remains.',
-    nextAction: 'Review export',
-    actionSource: 'recorded' as const,
-    doneWhen: 'Review is complete',
-    threadId: record.threadId,
-    prerequisites: ['Use the project'],
-    evidence: [{ revisionId: record.id, quote: record.text }],
-    progress: { reported: [{ revisionId: record.id, quote: record.text }] },
-    completion: { reported: [], verified: [] },
-  };
-  h.summary.generateAnalysis = async () => ({ candidates: [original] });
-  await h.core.analyses.refresh(id, 'en');
-  const before = structuredClone(h.core.analysisRecord(id)!.result);
-  const generate = vi.spyOn(h.summary, 'generateAnalysis');
-  (h.summary as any).localizeAnalysis = vi.fn(async () => ({
-    candidates: [
-      {
-        key: original.key,
-        goal: '내보내기를 검토합니다',
-        recentWork: '내보내기 구현을 정리했습니다.',
-        currentState: '내보내기가 검토 준비 상태입니다.',
-        reason: '마지막 검토가 남아 있습니다.',
-        nextAction: '내보내기를 검토합니다',
-        doneWhen: '검토가 완료됩니다',
-        prerequisites: ['프로젝트를 사용합니다'],
-      },
-    ],
-  }));
-  await h.core.analyses.localize(id, 'ko');
-  const after = h.core.analysisRecord(id)!.result;
-  expect(after.outputLanguage).toBe('ko');
-  expect(after.scope).toBe(before.scope);
-  expect(after.version).toBe(before.version);
-  expect(after.generatedAt).toBe(before.generatedAt);
-  expect(after.workspaceBefore).toEqual(before.workspaceBefore);
-  expect(after.workspaceAfter).toEqual(before.workspaceAfter);
-  expect(after.candidates[0]).toMatchObject({
-    key: original.key,
-    status: original.status,
-    actionSource: original.actionSource,
-    threadId: original.threadId,
-    evidence: original.evidence,
-    progress: original.progress,
-    completion: original.completion,
-  });
-  expect(after.candidates[0].goal).toBe('내보내기를 검토합니다');
-  expect(after.candidates[0].recentWork).toBe('내보내기 구현을 정리했습니다.');
-  expect(generate).toHaveBeenCalledTimes(0);
-  expect(h.core.analyses.view(id).outputLanguage).toBe('ko');
 });
 
 it('keeps English as the provider default when outputLanguage is omitted', async () => {

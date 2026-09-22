@@ -78,43 +78,70 @@ it('keeps primary RouteLink controls as real anchors with the shadcn foreground 
   }
 });
 
-it('shows global integration settings, persists Korean responses, and uses them for overview refresh', async () => {
-  const entry = projectEntry();
-  const h = projectUiFixture([entry]);
+it('keeps response language out of global settings and ignores the legacy browser preference', async () => {
+  window.localStorage.setItem('statecarry.response-language.v1', 'ko');
+  const h = projectUiFixture();
   window.history.replaceState(null, '', '#/settings');
-  let mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
   try {
-    expect(window.location.hash).toBe('#/settings');
-    expect(mounted.host.querySelector('h1')?.textContent).toBe('StateCarry settings');
-    expect(
-      mounted.host
-        .querySelector<HTMLAnchorElement>('a[href="#/settings"]')
-        ?.getAttribute('aria-current'),
-    ).toBe('page');
-    expect(mounted.host.textContent).toContain(
-      'StateCarry can use Codex when creating or updating overviews.',
-    );
-    expect(mounted.host.textContent).not.toContain('Project sources');
-    expect(mounted.host.textContent).not.toContain('Edit Codex conversations');
+    expect(mounted.host.querySelector('select[name="response-language"]')).toBeNull();
     expect(h.projectGateway.capabilities).toHaveBeenCalledTimes(1);
-
     await press(mounted.host, 'Check again');
     expect(h.projectGateway.capabilities).toHaveBeenCalledTimes(2);
-    expect(h.projectGateway.list).toHaveBeenCalledTimes(1);
+    expect(h.analysisGateway.refresh).not.toHaveBeenCalled();
+    await go('#/project/alpha');
+    await press(mounted.host, 'Update overview');
+    expect(h.analysisGateway.refresh).toHaveBeenLastCalledWith('alpha');
+  } finally {
+    await mounted.unmount();
+  }
+});
 
+it('saves a project response language without changing existing results and uses it after reopening', async () => {
+  const entry = projectEntry();
+  const previous = structuredClone(entry.analysis);
+  const h = projectUiFixture([entry, projectEntry('beta')]);
+  vi.mocked(h.projectGateway.settings).mockImplementation(async (id, revision, profile) => {
+    Object.assign(
+      h.rows.projects.find((project) => project.projectId === id)!,
+      profile,
+    );
+    return {
+      id: 'saved',
+      command: 'settings',
+      bodyHash: '',
+      projectId: id,
+      committedRevision: revision,
+      resultId: id,
+      createdAt: '',
+    };
+  });
+  window.history.replaceState(null, '', '#/project/alpha/settings');
+  let mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
+  try {
+    expect(
+      mounted.host.querySelector<HTMLSelectElement>('select[name="response-language"]')?.value,
+    ).toBe('en');
     await typeField(mounted.host, 'select[name="response-language"]', 'ko');
-    expect(window.localStorage.getItem('statecarry.response-language.v1')).toBe('ko');
-    expect(h.analysisGateway.localize).toHaveBeenCalledWith('alpha', 'ko');
-
+    await press(mounted.host, 'Save details');
+    expect(h.projectGateway.settings).toHaveBeenCalledWith(
+      'alpha',
+      entry.revision,
+      expect.objectContaining({ responseLanguage: 'ko' }),
+    );
+    expect(entry.analysis).toEqual(previous);
+    expect(h.analysisGateway.refresh).not.toHaveBeenCalled();
     await mounted.unmount();
     mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
     expect(
       mounted.host.querySelector<HTMLSelectElement>('select[name="response-language"]')?.value,
     ).toBe('ko');
-
     await go('#/project/alpha');
     await press(mounted.host, 'Update overview');
     expect(h.analysisGateway.refresh).toHaveBeenLastCalledWith('alpha', 'ko');
+    await go('#/project/beta');
+    await press(mounted.host, 'Update overview');
+    expect(h.analysisGateway.refresh).toHaveBeenLastCalledWith('beta');
   } finally {
     await mounted.unmount();
   }
@@ -302,30 +329,48 @@ it('shows discovered Codex tooling as available before the analysis isolation ch
   }
 });
 
-it('repairs a saved language mismatch when settings opens after an earlier Korean preference', async () => {
-  window.localStorage.setItem('statecarry.response-language.v1', 'ko');
-  const entry = projectEntry();
-  entry.analysis!.outputLanguage = 'en';
-  const h = projectUiFixture([entry]);
-  window.history.replaceState(null, '', '#/settings');
-  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
-  try {
-    expect(h.analysisGateway.localize).toHaveBeenCalledWith('alpha', 'ko');
-    expect(entry.analysis!.outputLanguage).toBe('ko');
-  } finally {
-    await mounted.unmount();
-  }
-});
+it.each(['en', 'ko'] as const)(
+  'stores %s from Add project, defaulting to English regardless of legacy storage',
+  async (language) => {
+    window.localStorage.setItem('statecarry.response-language.v1', 'ko');
+    const h = projectUiFixture([]);
+    window.history.replaceState(null, '', '#/new');
+    const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
+    try {
+      expect(
+        mounted.host.querySelector<HTMLSelectElement>('select[name="response-language"]')?.value,
+      ).toBe('en');
+      if (language === 'ko')
+        await typeField(mounted.host, 'select[name="response-language"]', language);
+      await typeField(mounted.host, 'input[name="cwd"]', '/synthetic/new-project');
+      await press(mounted.host, 'Add project');
+      expect(h.projectGateway.create).toHaveBeenCalledWith(
+        expect.objectContaining({ responseLanguage: language }),
+      );
+    } finally {
+      await mounted.unmount();
+    }
+  },
+);
 
-it('uses the persisted Korean response language for a newly created project overview', async () => {
-  window.localStorage.setItem('statecarry.response-language.v1', 'ko');
-  const h = projectUiFixture([]);
-  window.history.replaceState(null, '', '#/new');
+it('does not start first analysis when a profile event arrives while settings is open', async () => {
+  const h = projectUiFixture();
+  let changed: Parameters<NonNullable<typeof h.analysisGateway.subscribe>>[0] | undefined;
+  h.analysisGateway.subscribe = (onChange) => {
+    changed = onChange;
+    return () => {};
+  };
+  const now = h.projectGateway.now;
+  h.projectGateway.now = vi.fn(async (id) => ({ ...(await now(id)), initialized: false }));
+  window.history.replaceState(null, '', '#/project/alpha/settings');
   const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
   try {
-    await typeField(mounted.host, 'input[name="cwd"]', '/synthetic/new-korean-project');
-    await press(mounted.host, 'Add project');
-    expect(h.analysisGateway.refresh).toHaveBeenLastCalledWith('new-project', 'ko');
+    await act(async () => {
+      changed?.({ projectId: 'alpha', topic: 'profile' });
+    });
+    await settle();
+    expect(h.projectGateway.initialize).not.toHaveBeenCalled();
+    expect(h.analysisGateway.refresh).not.toHaveBeenCalled();
   } finally {
     await mounted.unmount();
   }

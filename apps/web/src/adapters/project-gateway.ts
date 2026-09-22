@@ -154,10 +154,8 @@ export class HttpProjectGateway implements ProjectGateway {
   registrations() {
     return this.request<ProjectRegistrations>('/projects/registrations');
   }
-  workspace(id: string, outputLanguage: 'en' | 'ko' = 'en') {
-    return this.request<WorkspaceSnapshot>(
-      `/projects/${encodeURIComponent(id)}/workspace?outputLanguage=${outputLanguage}`,
-    );
+  workspace(id: string) {
+    return this.request<WorkspaceSnapshot>(`/projects/${encodeURIComponent(id)}/workspace`);
   }
   observe(id: string, outputLanguage: 'en' | 'ko' = 'en') {
     return this.request<WorkspaceSnapshot>(`/projects/${encodeURIComponent(id)}/observe`, {

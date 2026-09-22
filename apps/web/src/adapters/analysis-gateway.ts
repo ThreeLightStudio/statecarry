@@ -101,9 +101,6 @@ export class HttpAnalysisGateway implements AnalysisGateway {
       ...(outputLanguage ? { outputLanguage } : {}),
     });
   }
-  async localize(id: string, outputLanguage: OutputLanguage) {
-    await this.request(`/${encodeURIComponent(id)}/analysis/localize`, { outputLanguage });
-  }
   async correct(id: string, input: AnalysisCorrection) {
     await this.request(`/${encodeURIComponent(id)}/analysis/correct`, input);
   }

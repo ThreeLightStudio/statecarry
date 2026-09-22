@@ -62,7 +62,6 @@ type DirtyWorkPreview = {
   summary: string;
 };
 const emptyEdits: ProjectDrafts = { goalDraft: null, actionDrafts: [], expanded: [], scroll: 0 };
-const responseLanguageKey = 'statecarry.response-language.v1';
 const updateUiPreviewKey = 'statecarry.developer.update-ui-preview.v1';
 const dirtyWorkPreviewKey = 'statecarry.developer.dirty-work-preview.v1';
 const feedbackUrl = 'https://forms.gle/U8RcHwGe1dJxLdvq5';
@@ -247,22 +246,6 @@ function previewAppUpdate(
   };
 }
 
-function readResponseLanguage(): 'en' | 'ko' {
-  try {
-    return window.localStorage.getItem(responseLanguageKey) === 'ko' ? 'ko' : 'en';
-  } catch {
-    return 'en';
-  }
-}
-
-function writeResponseLanguage(language: 'en' | 'ko') {
-  try {
-    window.localStorage.setItem(responseLanguageKey, language);
-  } catch {
-    // The preference remains active for this tab when browser storage is unavailable.
-  }
-}
-
 function buttonVariantForClass(className?: string) {
   if (className?.includes('pw-button--primary')) return 'default' as const;
   if (className?.includes('pw-button--quiet')) return 'ghost' as const;
@@ -431,9 +414,7 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
     },
     [],
   );
-  useEffect(() => {
-    controller.setOutputLanguage(readResponseLanguage());
-  }, [controller]);
+  useEffect(() => {}, [controller]);
   useEffect(() => {
     const heading = mainRef.current?.querySelector<HTMLElement>('h1');
     heading?.focus({ preventScroll: true });
@@ -717,15 +698,12 @@ function GlobalSettings({
   dirtyWorkPreview: DirtyWorkPreviewScenario;
   onDirtyWorkPreviewChange: (scenario: DirtyWorkPreviewScenario) => void;
 }) {
-  const [language, setLanguage] = useState<'en' | 'ko'>(() => readResponseLanguage());
   const [capabilities, setCapabilities] = useState<Awaited<
     ReturnType<ProjectController['capabilities']>
   > | null>(null);
   const [checking, setChecking] = useState(false);
-  const [localizing, setLocalizing] = useState(false);
   const [capabilityError, setCapabilityError] = useState('');
   const mounted = useRef(true);
-  const localizationAttempt = useRef('');
 
   const readCapabilities = async () => {
     try {
@@ -748,45 +726,10 @@ function GlobalSettings({
     };
   }, [controller]);
 
-  useEffect(() => {
-    if (!state.online || state.loading || state.checkingCurrent || state.busyWorkId) return;
-    const mismatched = state.projects
-      .filter((project) => project.generatedAt && project.outputLanguage !== language)
-      .map((project) => `${project.id}:${project.generatedAt}:${project.outputLanguage}`)
-      .join('|');
-    if (!mismatched) return;
-    const attempt = `${language}:${mismatched}`;
-    if (localizationAttempt.current === attempt) return;
-    localizationAttempt.current = attempt;
-    setLocalizing(true);
-    void controller.localizeGeneratedOverviews(language).finally(() => {
-      if (mounted.current) setLocalizing(false);
-    });
-  }, [
-    controller,
-    language,
-    state.busyWorkId,
-    state.checkingCurrent,
-    state.loading,
-    state.online,
-    state.projects,
-  ]);
-
   const checkIntegrations = async () => {
     setChecking(true);
     await readCapabilities();
     if (mounted.current) setChecking(false);
-  };
-
-  const changeLanguage = (next: 'en' | 'ko') => {
-    setLanguage(next);
-    writeResponseLanguage(next);
-    controller.setOutputLanguage(next);
-    localizationAttempt.current = '';
-    setLocalizing(true);
-    void controller.localizeGeneratedOverviews(next).finally(() => {
-      if (mounted.current) setLocalizing(false);
-    });
   };
 
   return (
@@ -795,38 +738,11 @@ function GlobalSettings({
         <div className="pw-hero-copy">
           <span className="pw-eyebrow">Settings</span>
           <h1 tabIndex={-1}>StateCarry settings</h1>
-          <p className="pw-lead">Choose app-wide behavior and check integration availability.</p>
+          <p className="pw-lead">Check app-wide integration availability.</p>
         </div>
       </header>
 
       <div className="pw-stack">
-        <Card className={cardSurface} aria-labelledby="response-language-heading">
-          <h2 id="response-language-heading">Overview language</h2>
-          <p className="pw-small">
-            This changes generated overview and working-tree analysis text. Existing overviews are
-            translated without re-checking project files, Git, or Codex conversations. Working-tree
-            analysis is reused when the repository state and selected language have not changed.
-            Quoted source text stays unchanged.
-          </p>
-          <label className="pw-field">
-            Language
-            <select
-              name="response-language"
-              value={language}
-              disabled={localizing}
-              onChange={(event) => changeLanguage(event.target.value === 'ko' ? 'ko' : 'en')}
-            >
-              <option value="en">English</option>
-              <option value="ko">Korean</option>
-            </select>
-          </label>
-          {localizing && (
-            <p className="pw-small" role="status">
-              Updating existing overview text…
-            </p>
-          )}
-        </Card>
-
         <Card className={cardSurface} aria-labelledby="codex-integration-heading">
           <div className="pw-section-head">
             <h2 id="codex-integration-heading">Codex</h2>
@@ -2048,11 +1964,40 @@ function projectTitle(title: string, folder: string): string {
   return folder.split('/').filter(Boolean).at(-1) ?? 'Project';
 }
 
+function ResponseLanguageField({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: 'en' | 'ko';
+  disabled: boolean;
+  onChange: (value: 'en' | 'ko') => void;
+}) {
+  return (
+    <label className="pw-field">
+      Response language
+      <select
+        name="response-language"
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value === 'ko' ? 'ko' : 'en')}
+      >
+        <option value="en">English</option>
+        <option value="ko">한국어</option>
+      </select>
+      <span className="pw-field-help">
+        Applies to future answers and overviews. Existing results stay unchanged.
+      </span>
+    </label>
+  );
+}
+
 function CreateProject({ controller, onNavigate }: WorkspaceProps) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [title, setTitle] = useState('');
   const [cwd, setCwd] = useState('');
   const [purpose, setPurpose] = useState('');
+  const [responseLanguage, setResponseLanguage] = useState<'en' | 'ko'>('en');
   const [goal, setGoal] = useState('');
   const [error, setError] = useState('');
   const [choosingFolder, setChoosingFolder] = useState(false);
@@ -2098,6 +2043,7 @@ function CreateProject({ controller, onNavigate }: WorkspaceProps) {
       title: projectTitle(title, folder),
       cwd: cwd.trim(),
       purpose: purpose.trim(),
+      responseLanguage,
       ...(goal.trim() ? { goal: goal.trim() } : {}),
       threadIds: [],
       startTurnIds: {},
@@ -2216,6 +2162,11 @@ function CreateProject({ controller, onNavigate }: WorkspaceProps) {
                 placeholder="What should this project make possible?"
               />
             </label>
+            <ResponseLanguageField
+              value={responseLanguage}
+              disabled={busy}
+              onChange={setResponseLanguage}
+            />
             <label>
               Current goal <span className="pw-field-help">Optional</span>
               <Textarea
@@ -2575,6 +2526,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
   const [profile, setProfile] = useState({
     title: project.title,
     purpose: project.purpose,
+    responseLanguage: project.responseLanguage ?? 'en',
     focused: project.focused,
     iconAsset: project.iconAsset,
     bannerAsset: project.bannerAsset,
@@ -2652,6 +2604,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
       {
         title: submitted.title.trim(),
         purpose: submitted.purpose.trim(),
+        responseLanguage: submitted.responseLanguage,
         focused: submitted.focused,
         iconAsset: submitted.iconAsset,
         bannerAsset: submitted.bannerAsset,
@@ -2770,6 +2723,11 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
                 onChange={(event) => setProfile({ ...profile, purpose: event.target.value })}
               />
             </label>
+            <ResponseLanguageField
+              value={profile.responseLanguage}
+              disabled={busy}
+              onChange={(responseLanguage) => setProfile({ ...profile, responseLanguage })}
+            />
             <div className="pw-project-assets">
               <div className="pw-project-asset-setting">
                 <div className="pw-project-asset-preview pw-project-asset-preview--icon">

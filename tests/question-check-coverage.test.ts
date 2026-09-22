@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import type { QuestionAnswer } from '@statecarry/contracts';
 import { questionCheckCatalog } from '../apps/server/src/adapters/question-prompts';
 import { assessQuestionAnswer } from '../packages/core/src/question-context';
@@ -128,3 +128,58 @@ it('preserves uncertain rejection and unsafe unknown rejection', () => {
   expect(result.answer.unknowns).not.toContain(candidate.unknowns[0]);
   expect(result.assessment.checks.every((c) => c.verdict === 'uncertain')).toBe(true);
 });
+
+it.each(['en', 'ko'] as const)(
+  'uses the %s project language and accepts language confirmation through the existing schema',
+  async (responseLanguage) => {
+    const provider = new CodexSummary('/unused');
+    (provider as any).preflight = async () => {};
+    const confirmation = {
+      items: [],
+      unknowns: [
+        '프로젝트 기본 언어인 영어로 답변할까요? 기본 언어는 프로젝트 설정에서 바꿀 수 있습니다.',
+      ],
+    };
+    const run = vi.fn(async (_prompt, schema, _remote, phase, instructions) => {
+      expect(instructions).toContain(
+        `default response language is ${responseLanguage === 'ko' ? 'Korean' : 'English'}`,
+      );
+      expect(instructions).toContain('For every new question whose language differs');
+      expect(instructions).toContain('Project settings');
+      expect(instructions).toContain('answer the original pending question');
+      const value =
+        phase === 'check-question'
+          ? {
+              checks: {},
+              unknownsSafe: true,
+              addressesQuestion: true,
+              coversAvailableContext: true,
+            }
+          : confirmation;
+      return { value: schema.parse(value) };
+    });
+    (provider as any).run = run;
+    const context = {
+      responseLanguage,
+      anchor: '',
+      question: '왜 필요한가요?',
+      history: [],
+      excerpts: [],
+      limitations: [],
+    };
+    const answer = await provider.answerQuestion(
+      context,
+      () => {},
+      () => {},
+    );
+    expect(answer).toEqual(confirmation);
+    const assessment = await provider.checkQuestion(
+      context,
+      answer,
+      () => {},
+      () => {},
+    );
+    expect(assessQuestionAnswer(answer, assessment).answer).toEqual(confirmation);
+    expect(run).toHaveBeenCalledTimes(2);
+  },
+);
