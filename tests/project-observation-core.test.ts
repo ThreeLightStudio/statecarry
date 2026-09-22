@@ -223,6 +223,16 @@ describe('project observation reuse', () => {
             goal: 'Make reply language configurable',
             currentState: 'The reply language setting is in the current file change.',
           },
+          {
+            ...projectCandidate({
+              id: record.revisionId,
+              text: 'Diagnostic errors details.',
+              threadId: record.threadId,
+            } as any),
+            key: 'diagnostic-errors',
+            goal: 'Investigate diagnostic errors',
+            currentState: 'Diagnostic errors are in the current file change.',
+          },
         ],
       };
     });
@@ -230,7 +240,7 @@ describe('project observation reuse', () => {
     await core.analyses.refresh(projectId, 'en');
     await core.projects.observe(projectId, 'en');
     const matches = core.workMatcher.match(projectId);
-    expect(core.workMatcher.proposals(projectId)).toHaveLength(3);
+    expect(core.workMatcher.proposals(projectId)).toHaveLength(4);
     expect(matches).toHaveLength(2);
     const language = matches.find(
       (match) =>
@@ -250,15 +260,23 @@ describe('project observation reuse', () => {
         }),
       ]),
     );
-    expect(matches.some((match) => match.proposal.title === 'Investigate diagnostic errors')).toBe(
-      true,
-    );
+    const diagnostic = matches.find(
+      (match) =>
+        match.proposal.title === 'Investigate diagnostic errors' ||
+        match.aliases?.some((alias) => alias.title === 'Investigate diagnostic errors'),
+    )!;
+    expect([diagnostic.proposal, ...(diagnostic.aliases ?? [])]).toHaveLength(2);
     core.projectModel.selectProposal(projectId, language.proposal.key);
     const workId = core.now.resolve(projectId).currentWorkId;
     const alias = language.aliases![0];
     core.projectModel.selectProposal(projectId, alias.key);
     expect(core.now.resolve(projectId).currentWorkId).toBe(workId);
-    expect(core.projectModel.view(projectId).workItems).toHaveLength(1);
+    core.projectModel.selectProposal(projectId, diagnostic.proposal.key);
+    const diagnosticWorkId = core.now.resolve(projectId).currentWorkId;
+    core.projectModel.selectProposal(projectId, diagnostic.aliases![0].key);
+    expect(diagnosticWorkId).not.toBe(workId);
+    expect(core.now.resolve(projectId).currentWorkId).toBe(diagnosticWorkId);
+    expect(core.projectModel.view(projectId).workItems).toHaveLength(2);
   });
   it('keeps reads passive and reenters an unchanged project with probe only', async () => {
     const repo = new MemoryRepository();
