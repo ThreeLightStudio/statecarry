@@ -90,7 +90,7 @@ export class CodexRpc extends EventEmitter {
         }
       });
       await this.call('initialize', {
-        clientInfo: { name: 'statecarry', version: '0.1.9' },
+        clientInfo: { name: 'statecarry', version: '0.2.0' },
         capabilities: { experimentalApi: true },
       });
       this.write({ method: 'initialized', params: {} });
