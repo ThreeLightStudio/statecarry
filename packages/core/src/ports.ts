@@ -8,7 +8,7 @@ import type {
   Link,
   Checkpoint,
   SourceRevision,
-  Work,
+  ProjectRecord,
   Overlay,
   Draft,
   Visit,
@@ -21,12 +21,31 @@ import type {
   WorkspaceProbe,
   ProjectObservation,
   WorkingTreeAnalysisRecord,
+  Direction,
+  WorkItem,
+  WorkRelation,
+  WorkDecision,
+  ReturnPoint,
+  WorkDiscussionRecord,
+  ReleasePolicy,
+  ReleaseBatch,
+  DeliveryTarget,
+  ReleasePolicyException,
 } from '@statecarry/contracts';
 export type Entities = {
   explanation: import('@statecarry/contracts').ExplanationRevision;
   explanationJob: import('@statecarry/contracts').ExplanationJob;
   questionExecution: import('@statecarry/contracts').QuestionExecution;
-  work: Work;
+  workProposal: import('@statecarry/contracts').WorkProposalRecord;
+  projectAnalysisControl: {
+    id: string;
+    projectId: string;
+    corrections: import('@statecarry/contracts').AnalysisOverride[];
+  };
+  projectScope: import('@statecarry/contracts').ProjectScopeRecord;
+  project: ProjectRecord;
+  projectAnalysis: import('@statecarry/contracts').ProjectAnalysisRecord;
+  projectExecution: import('@statecarry/contracts').ProjectExecutionRecord;
   connection: Connection;
   link: Link;
   checkpoint: Checkpoint;
@@ -40,6 +59,16 @@ export type Entities = {
   continuation: Continuation;
   projectObservation: ProjectObservation;
   workingTreeAnalysis: WorkingTreeAnalysisRecord;
+  direction: Direction;
+  workItem: WorkItem;
+  workRelation: WorkRelation;
+  workDecision: WorkDecision;
+  returnPoint: ReturnPoint;
+  workDiscussion: WorkDiscussionRecord;
+  releasePolicy: ReleasePolicy;
+  releaseBatch: ReleaseBatch;
+  deliveryTarget: DeliveryTarget;
+  releasePolicyException: ReleasePolicyException;
   receipt: Receipt;
 };
 export interface StateRepository {
@@ -66,6 +95,10 @@ export interface SourceReader {
 /** Read-only project state used to keep a return brief tied to its workspace.
  * Implementations may use Git or another local project provider. */
 export interface ProjectInspector {
+  scope?(
+    cwd: string,
+    expandedFiles?: import('@statecarry/contracts').ScopeFileSelection[],
+  ): import('@statecarry/contracts').ScopeObservation;
   probe?(cwd: string): WorkspaceProbe;
   probeAsync?(cwd: string): Promise<WorkspaceProbe>;
   inspect(cwd: string, hints?: WorkspaceInspectionHints): WorkspaceSnapshot;
@@ -79,7 +112,7 @@ export type AttemptMeta = {
   phase: string;
 };
 export interface SummaryProvider {
-  generateResume?(input: unknown): Promise<unknown>;
+  generateAnalysis?(input: unknown): Promise<unknown>;
   analyzeWorkingTree?(input: unknown): Promise<import('@statecarry/contracts').WorkingTreeAnalysis>;
   generateExplanation?(
     context: import('@statecarry/contracts').ExplanationContext,
@@ -130,11 +163,29 @@ export interface Navigator {
   capability(): Capabilities['navigation'];
   open(threadId: string): Promise<void>;
 }
-export type SessionCreateInput = { workId: string; title: string; cwd: string };
-export type SessionSendInput = { workId: string; threadId: string; text: string };
+export type SessionCreateInput = { projectId: string; title: string; cwd: string };
+export type SessionSendInput = {
+  projectId: string;
+  threadId: string;
+  text: string;
+  cwd?: string;
+  operation?: import('@statecarry/contracts').DecisionOperation;
+};
 export type SessionCreateResult = { threadId: string; title?: string };
 export type SessionSendResult = { turnId: string | null };
 export interface SessionExecutor {
+  read?(
+    threadId: string,
+    turnId: string | null,
+    requestId?: string,
+  ): Promise<import('@statecarry/contracts').SessionRun>;
+  interrupt?(threadId: string, turnId: string): Promise<void>;
+  answer?(
+    threadId: string,
+    questionId: string,
+    accept: boolean,
+    answers?: Record<string, string[]>,
+  ): Promise<void>;
   capability(): import('@statecarry/contracts').SessionCapability;
   create(input: SessionCreateInput): Promise<SessionCreateResult>;
   send(input: SessionSendInput): Promise<SessionSendResult>;
@@ -149,9 +200,9 @@ export interface Identity {
 }
 export interface Events {
   changed(
-    workId: string | null,
+    projectId: string | null,
     topic?: 'profile' | 'sources' | 'observation' | 'working-tree-analysis' | 'overview',
   ): void;
   /** Completes an observation that a concurrent reader may have seen in progress. */
-  collectionSettled?(workId: string): void;
+  collectionSettled?(projectId: string): void;
 }

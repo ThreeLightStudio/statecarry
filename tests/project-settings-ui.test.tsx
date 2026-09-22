@@ -48,7 +48,7 @@ afterEach(() => {
 it('renders mutation notices in a fixed toast layer without replacing inline errors', async () => {
   const h = projectUiFixture();
   window.history.replaceState(null, '', '#/project/alpha');
-  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
   try {
     await press(mounted.host, 'Update overview');
     const toastLayer = mounted.host.querySelector('.pw-toast-layer');
@@ -65,7 +65,7 @@ it('renders mutation notices in a fixed toast layer without replacing inline err
 it('keeps primary RouteLink controls as real anchors with the shadcn foreground class', async () => {
   const h = projectUiFixture();
   window.history.replaceState(null, '', '#/projects');
-  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
   try {
     const link = [...mounted.host.querySelectorAll<HTMLAnchorElement>('a[href="#/new"]')].find(
       (item) => item.classList.contains('pw-button--primary'),
@@ -82,7 +82,7 @@ it('shows global integration settings, persists Korean responses, and uses them 
   const entry = projectEntry();
   const h = projectUiFixture([entry]);
   window.history.replaceState(null, '', '#/settings');
-  let mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  let mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
   try {
     expect(window.location.hash).toBe('#/settings');
     expect(mounted.host.querySelector('h1')?.textContent).toBe('StateCarry settings');
@@ -104,17 +104,17 @@ it('shows global integration settings, persists Korean responses, and uses them 
 
     await typeField(mounted.host, 'select[name="response-language"]', 'ko');
     expect(window.localStorage.getItem('statecarry.response-language.v1')).toBe('ko');
-    expect(h.resumeGateway.localize).toHaveBeenCalledWith('alpha', 'ko');
+    expect(h.analysisGateway.localize).toHaveBeenCalledWith('alpha', 'ko');
 
     await mounted.unmount();
-    mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+    mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
     expect(
       mounted.host.querySelector<HTMLSelectElement>('select[name="response-language"]')?.value,
     ).toBe('ko');
 
     await go('#/project/alpha');
     await press(mounted.host, 'Update overview');
-    expect(h.resumeGateway.refresh).toHaveBeenLastCalledWith('alpha', 'ko');
+    expect(h.analysisGateway.refresh).toHaveBeenLastCalledWith('alpha', 'ko');
   } finally {
     await mounted.unmount();
   }
@@ -123,7 +123,7 @@ it('shows global integration settings, persists Korean responses, and uses them 
 it('toggles the update UI preview from Advanced settings in development', async () => {
   const h = projectUiFixture();
   window.history.replaceState(null, '', '#/settings');
-  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
   try {
     expect(mounted.host.textContent).toContain('Advanced');
     expect(mounted.host.textContent).toContain('Developer mode');
@@ -187,7 +187,7 @@ it('toggles the update UI preview from Advanced settings in development', async 
 it('previews hard-coded uncommitted work scenarios from Advanced settings in development', async () => {
   const h = projectUiFixture();
   window.history.replaceState(null, '', '#/settings');
-  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
   try {
     const scenario = mounted.host.querySelector<HTMLSelectElement>(
       'select[name="preview-dirty-work"]',
@@ -217,12 +217,12 @@ it('previews hard-coded uncommitted work scenarios from Advanced settings in dev
     expect(preview?.textContent).toContain('Why');
     expect(preview?.textContent).toContain('Done when');
     expect(preview?.textContent).toContain('Open or review next');
-    expect(preview?.textContent).toContain('Copy handoff for new Codex session');
+    expect(preview?.textContent).not.toContain('Copy handoff for new Codex session');
     expect(preview?.textContent).not.toContain('Codex conversation');
     expect(
       [...preview!.querySelectorAll<HTMLButtonElement>('button')].every((item) => item.disabled),
     ).toBe(true);
-    expect(h.resumeGateway.refresh).not.toHaveBeenCalled();
+    expect(h.analysisGateway.refresh).not.toHaveBeenCalled();
 
     await follow(mounted.host, '#/settings');
     await typeField(mounted.host, 'select[name="preview-dirty-work"]', 'off');
@@ -238,7 +238,7 @@ it('previews hard-coded uncommitted work scenarios from Advanced settings in dev
 
 it('keeps project-specific source diagnostics out of global settings', async () => {
   const entry = projectEntry();
-  Object.assign(entry.resume!.workspace!, {
+  Object.assign(entry.analysis!.workspace!, {
     status: 'checked',
     root: entry.cwd,
     branch: null,
@@ -249,7 +249,7 @@ it('keeps project-specific source diagnostics out of global settings', async () 
   });
   const h = projectUiFixture([entry]);
   window.history.replaceState(null, '', '#/settings');
-  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
   try {
     expect(
       mounted.host.querySelector('[aria-label="Integration status for Project alpha"]'),
@@ -289,7 +289,7 @@ it('shows discovered Codex tooling as available before the analysis isolation ch
     discoveryIntervalMs: 60000,
   });
   window.history.replaceState(null, '', '#/settings');
-  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
   try {
     expect(mounted.host.textContent).toContain('Detected · not verified');
     expect(mounted.host.textContent).toContain(
@@ -305,13 +305,13 @@ it('shows discovered Codex tooling as available before the analysis isolation ch
 it('repairs a saved language mismatch when settings opens after an earlier Korean preference', async () => {
   window.localStorage.setItem('statecarry.response-language.v1', 'ko');
   const entry = projectEntry();
-  entry.resume!.outputLanguage = 'en';
+  entry.analysis!.outputLanguage = 'en';
   const h = projectUiFixture([entry]);
   window.history.replaceState(null, '', '#/settings');
-  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
   try {
-    expect(h.resumeGateway.localize).toHaveBeenCalledWith('alpha', 'ko');
-    expect(entry.resume!.outputLanguage).toBe('ko');
+    expect(h.analysisGateway.localize).toHaveBeenCalledWith('alpha', 'ko');
+    expect(entry.analysis!.outputLanguage).toBe('ko');
   } finally {
     await mounted.unmount();
   }
@@ -321,11 +321,11 @@ it('uses the persisted Korean response language for a newly created project over
   window.localStorage.setItem('statecarry.response-language.v1', 'ko');
   const h = projectUiFixture([]);
   window.history.replaceState(null, '', '#/new');
-  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
   try {
     await typeField(mounted.host, 'input[name="cwd"]', '/synthetic/new-korean-project');
     await press(mounted.host, 'Add project');
-    expect(h.resumeGateway.refresh).toHaveBeenLastCalledWith('new-project', 'ko');
+    expect(h.analysisGateway.refresh).toHaveBeenLastCalledWith('new-project', 'ko');
   } finally {
     await mounted.unmount();
   }

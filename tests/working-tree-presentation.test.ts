@@ -121,4 +121,26 @@ describe('working-tree presentation', () => {
       doneWhen: 'A new session receives enough direction to continue without broad reconstruction.',
     });
   });
+
+  it('uses user-facing fallbacks and reflects repository changes in the presented tree', () => {
+    const first = presentWorkingTree(snapshot());
+    const changed = presentWorkingTree(
+      snapshot({
+        changedPaths: ['apps/web/src/App.tsx', 'apps/web/src/new-state.ts'],
+        changedFiles: [
+          { path: 'apps/web/src/App.tsx', status: 'modified' },
+          { path: 'apps/web/src/new-state.ts', status: 'modified' },
+        ],
+        changedFileCount: 2,
+        additions: 18,
+      }),
+    );
+
+    expect(first.summary).toBe(
+      'Changes are still present, but StateCarry cannot yet tell which piece of work they belong to.',
+    );
+    expect(first.summary).not.toContain('Semantic reconstruction');
+    expect(changed.files).not.toEqual(first.files);
+    expect(changed.fileCount).toBe(2);
+  });
 });

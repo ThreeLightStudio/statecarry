@@ -121,6 +121,9 @@ export class CodexRpc extends EventEmitter {
     if (!this.child?.stdin.writable) throw new Error('Codex transport is closed');
     this.child.stdin.write(JSON.stringify(packet) + '\n');
   }
+  rejectRequest(id: string | number, message: string) {
+    this.write({ id, error: { code: -32601, message } });
+  }
   respond(id: string | number, result: unknown) {
     this.write({ id, result });
   }

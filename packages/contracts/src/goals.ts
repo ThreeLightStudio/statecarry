@@ -11,7 +11,7 @@ export type GoalCandidate = {
   threadId: string;
   range: RecordRange;
   status: 'proposed' | 'confirmed' | 'dismissed';
-  workId?: string;
+  projectId?: string;
 };
 export type GoalIntent = {
   text: string;

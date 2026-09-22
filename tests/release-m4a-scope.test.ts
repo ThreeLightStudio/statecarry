@@ -72,7 +72,7 @@ it('first scoped collection stores and sends only the approved local turns to ge
       startTurnIds: { 'thread-a': 'chosen' },
       discover: false,
     },
-  }).workId;
+  }).projectId;
   expect(request).not.toHaveBeenCalled();
   expect(generate).not.toHaveBeenCalled();
   await h.core.collect(id);
@@ -114,7 +114,7 @@ it('missing starting turns fail without source storage or model requests', async
       startTurnIds: { 'thread-a': 'missing' },
       discover: false,
     },
-  }).workId;
+  }).projectId;
   await h.core.collect(id);
   await h.core.process(id);
   expect(h.repo.list('source')).toEqual([]);
@@ -156,7 +156,7 @@ it('does not include earlier-turn supplements appearing after the starting turn 
       startTurnIds: { 'thread-a': 'chosen' },
       discover: false,
     },
-  }).workId;
+  }).projectId;
   await h.core.collect(id);
   expect(h.core.sources(id)).toEqual([selected]);
   await h.core.close();

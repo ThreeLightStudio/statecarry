@@ -7,8 +7,8 @@ import { harness } from './helpers';
 
 it('passes the optional refresh output language through HTTP and defaults to English', async () => {
   const h = harness();
-  const workId = h.connect();
-  const refresh = vi.spyOn(h.core.resumes, 'refresh').mockResolvedValue(undefined);
+  const projectId = h.connect();
+  const refresh = vi.spyOn(h.core.analyses, 'refresh').mockResolvedValue(undefined);
   const server = createHttpServer(h.core, new ChangeEvents(), '/tmp/no-web', 4310);
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -20,7 +20,7 @@ it('passes the optional refresh output language through HTTP and defaults to Eng
         {
           hostname: '127.0.0.1',
           port: address.port,
-          path: `/api/v1/resume/${workId}/refresh`,
+          path: `/api/v1/projects/${projectId}/analysis/refresh`,
           method: 'POST',
           headers: { Host: '127.0.0.1:4310', 'Content-Type': 'application/json' },
         },
@@ -37,9 +37,9 @@ it('passes the optional refresh output language through HTTP and defaults to Eng
     });
   try {
     expect(await post({ outputLanguage: 'ko' })).toEqual({ status: 202, body: { accepted: true } });
-    expect(refresh).toHaveBeenLastCalledWith(workId, 'ko');
+    expect(refresh).toHaveBeenLastCalledWith(projectId, 'ko');
     expect(await post({})).toEqual({ status: 202, body: { accepted: true } });
-    expect(refresh).toHaveBeenLastCalledWith(workId, 'en');
+    expect(refresh).toHaveBeenLastCalledWith(projectId, 'en');
     const invalid = await post({ outputLanguage: 'ja' });
     expect(invalid.status).toBe(400);
     expect(invalid.body.error.code).toBe('VALIDATION');
@@ -52,11 +52,11 @@ it('passes the optional refresh output language through HTTP and defaults to Eng
 
 it('localizes a saved overview through HTTP without starting a refresh', async () => {
   const h = harness();
-  const workId = h.connect();
-  const refresh = vi.spyOn(h.core.resumes, 'refresh').mockResolvedValue(undefined);
+  const projectId = h.connect();
+  const refresh = vi.spyOn(h.core.analyses, 'refresh').mockResolvedValue(undefined);
   const localize = vi
-    .spyOn(h.core.resumes, 'localize')
-    .mockResolvedValue(h.core.resumes.view(workId));
+    .spyOn(h.core.analyses, 'localize')
+    .mockResolvedValue(h.core.analyses.view(projectId));
   const server = createHttpServer(h.core, new ChangeEvents(), '/tmp/no-web', 4310);
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -67,7 +67,7 @@ it('localizes a saved overview through HTTP without starting a refresh', async (
       {
         hostname: '127.0.0.1',
         port: address.port,
-        path: `/api/v1/resume/${workId}/localize`,
+        path: `/api/v1/projects/${projectId}/analysis/localize`,
         method: 'POST',
         headers: { Host: '127.0.0.1:4310', 'Content-Type': 'application/json' },
       },
@@ -82,7 +82,7 @@ it('localizes a saved overview through HTTP without starting a refresh', async (
   });
   try {
     expect(response).toEqual({ status: 200, body: { localized: true, outputLanguage: 'ko' } });
-    expect(localize).toHaveBeenCalledExactlyOnceWith(workId, 'ko');
+    expect(localize).toHaveBeenCalledExactlyOnceWith(projectId, 'ko');
     expect(refresh).not.toHaveBeenCalled();
   } finally {
     server.closeAllConnections();
@@ -126,7 +126,7 @@ it('sends Korean generation instructions while restoring evidence in its origina
     };
   };
   const evidence = 'Original English evidence must remain unchanged.';
-  const result = await summary.generateResume({
+  const result = await summary.generateAnalysis({
     outputLanguage: 'ko',
     records: [{ revisionId: 'r1', text: evidence, threadId: 'thread-a', actor: 'user' }],
   });
@@ -162,7 +162,7 @@ it('rejects English generated explanation fields for a Korean overview request',
     },
   });
   await expect(
-    summary.generateResume({
+    summary.generateAnalysis({
       outputLanguage: 'ko',
       records: [
         {
@@ -201,7 +201,7 @@ it('allows code-only individual fields when the Korean candidate is explanatory 
     },
   });
   await expect(
-    summary.generateResume({
+    summary.generateAnalysis({
       outputLanguage: 'ko',
       records: [{ revisionId: 'r1', text: 'Keep exact.', threadId: 'thread-a', actor: 'user' }],
     }),
@@ -241,7 +241,7 @@ it('localizes only explanatory fields and keeps localization input free of evide
       },
     };
   };
-  const result = await summary.localizeResume({
+  const result = await summary.localizeAnalysis({
     outputLanguage: 'ko',
     candidates: [
       {
@@ -292,7 +292,7 @@ it('repairs a clipped English current state without adding evidence or re-analys
       },
     };
   });
-  const result = await summary.localizeResume({
+  const result = await summary.localizeAnalysis({
     outputLanguage: 'en',
     candidates: [
       {
@@ -333,11 +333,11 @@ it('persists localized text and language while preserving candidate evidence and
     progress: { reported: [{ revisionId: record.id, quote: record.text }] },
     completion: { reported: [], verified: [] },
   };
-  h.summary.generateResume = async () => ({ candidates: [original] });
-  await h.core.resumes.refresh(id, 'en');
-  const before = structuredClone(h.core.work(id).resume!);
-  const generate = vi.spyOn(h.summary, 'generateResume');
-  (h.summary as any).localizeResume = vi.fn(async () => ({
+  h.summary.generateAnalysis = async () => ({ candidates: [original] });
+  await h.core.analyses.refresh(id, 'en');
+  const before = structuredClone(h.core.analysisRecord(id)!.result);
+  const generate = vi.spyOn(h.summary, 'generateAnalysis');
+  (h.summary as any).localizeAnalysis = vi.fn(async () => ({
     candidates: [
       {
         key: original.key,
@@ -351,8 +351,8 @@ it('persists localized text and language while preserving candidate evidence and
       },
     ],
   }));
-  await h.core.resumes.localize(id, 'ko');
-  const after = h.core.work(id).resume!;
+  await h.core.analyses.localize(id, 'ko');
+  const after = h.core.analysisRecord(id)!.result;
   expect(after.outputLanguage).toBe('ko');
   expect(after.scope).toBe(before.scope);
   expect(after.version).toBe(before.version);
@@ -371,7 +371,7 @@ it('persists localized text and language while preserving candidate evidence and
   expect(after.candidates[0].goal).toBe('내보내기를 검토합니다');
   expect(after.candidates[0].recentWork).toBe('내보내기 구현을 정리했습니다.');
   expect(generate).toHaveBeenCalledTimes(0);
-  expect(h.core.resumes.view(id).outputLanguage).toBe('ko');
+  expect(h.core.analyses.view(id).outputLanguage).toBe('ko');
 });
 
 it('keeps English as the provider default when outputLanguage is omitted', async () => {
@@ -408,7 +408,7 @@ it('keeps English as the provider default when outputLanguage is omitted', async
       },
     };
   };
-  const result = await summary.generateResume({
+  const result = await summary.generateAnalysis({
     records: [
       { revisionId: 'r1', text: 'Original evidence.', threadId: 'thread-a', actor: 'user' },
     ],

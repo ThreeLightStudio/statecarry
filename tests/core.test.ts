@@ -84,7 +84,7 @@ describe('collection, processing, writes and navigation', () => {
       id = h.connect();
     await h.core.collect(id);
     await h.core.process(id);
-    const valid = h.core.work(id).latestSummaryId;
+    const valid = h.core.project(id).latestSummaryId;
     h.records([source('unsupported new Next')]);
     await h.core.collect(id);
     h.summary.check = async (c) => ({
@@ -95,7 +95,7 @@ describe('collection, processing, writes and navigation', () => {
       })),
     });
     await h.core.process(id);
-    expect(h.core.work(id).latestSummaryId).toBe(valid);
+    expect(h.core.project(id).latestSummaryId).toBe(valid);
     expect(h.core.snapshot(id).jobs.some((j) => j.error?.includes('Meaning check rejected'))).toBe(
       true,
     );
@@ -106,15 +106,15 @@ describe('collection, processing, writes and navigation', () => {
       id = h.connect();
     await h.core.collect(id);
     await h.core.process(id);
-    const before = h.core.work(id);
+    const before = h.core.project(id);
     await h.core.collect(id);
     await h.core.process(id);
     expect(h.counts().generationCalls).toBe(1);
-    expect(h.core.work(id)).toEqual(before);
+    expect(h.core.project(id)).toEqual(before);
     h.records([source(), source('정정: 인증서 다운로드 불필요', 'thread-a', 'correction')]);
     await h.core.collect(id);
     expect(h.core.sources(id)).toHaveLength(2);
-    expect(h.core.work(id).inputVersion).not.toBe(before.inputVersion);
+    expect(h.core.project(id).inputVersion).not.toBe(before.inputVersion);
   });
   it('publishes validated fixed input while newer records await a follow-up', async () => {
     const h = harness(),
@@ -144,13 +144,13 @@ describe('collection, processing, writes and navigation', () => {
       id = h.connect();
     await h.core.collect(id);
     await h.core.process(id);
-    const summaryId = h.core.work(id).latestSummaryId;
+    const summaryId = h.core.project(id).latestSummaryId;
     h.reader.read = async () => {
       throw new Error('offline');
     };
     await h.core.collect(id);
     expect(h.core.snapshot(id).checkpoints[0].status).toBe('failed');
-    expect(h.core.work(id).latestSummaryId).toBe(summaryId);
+    expect(h.core.project(id).latestSummaryId).toBe(summaryId);
   });
   it('limits automatic summary retries to two and cannot resend execution', async () => {
     const h = harness(),
@@ -193,11 +193,11 @@ describe('collection, processing, writes and navigation', () => {
     await h.core.collect(id);
     h.summary.generate = generate;
     await h.core.process(id);
-    expect(h.core.work(id).latestSummaryId).toBeNull();
+    expect(h.core.project(id).latestSummaryId).toBeNull();
     expect(h.repo.list('job').filter((j) => j.status === 'result-unknown')).toHaveLength(1);
     h.summary.resolve = async () => 'terminated';
     await h.core.process(id);
-    expect(h.core.work(id).latestSummaryId).not.toBeNull();
+    expect(h.core.project(id).latestSummaryId).not.toBeNull();
     expect(h.repo.list('job').filter((j) => j.status === 'applied')).toHaveLength(1);
     expect(h.core.freshness(id).summary).toBe('outdated');
     await h.core.process(id);
@@ -220,7 +220,7 @@ describe('collection, processing, writes and navigation', () => {
     expect(h.repo.list('job')[0].candidate).not.toBeNull();
     await h.core.process(id);
     expect(h.counts().generationCalls).toBe(1);
-    expect(h.core.work(id).latestSummaryId).not.toBeNull();
+    expect(h.core.project(id).latestSummaryId).not.toBeNull();
   });
   it('keeps overlays across automatic summaries without modifying raw records or review', async () => {
     const h = harness(),
@@ -321,7 +321,7 @@ describe('collection, processing, writes and navigation', () => {
         id = h.connect();
       await h.core.collect(id);
       await h.core.process(id);
-      const baseSummaryId = h.core.work(id).latestSummaryId!;
+      const baseSummaryId = h.core.project(id).latestSummaryId!;
       h.core.mutate(
         id,
         'corrections',
@@ -352,7 +352,7 @@ describe('collection, processing, writes and navigation', () => {
         }),
       );
       const before = structuredClone((h.repo as MemoryRepository).data);
-      if (guard === 'overlay') undo.expectedRevision = h.core.work(id).revision;
+      if (guard === 'overlay') undo.expectedRevision = h.core.project(id).revision;
       expect(() => h.core.mutate(id, 'corrections', undo)).toThrow(
         guard === 'work' ? 'Displayed work revision changed' : 'Correction was edited elsewhere',
       );
@@ -364,14 +364,14 @@ describe('collection, processing, writes and navigation', () => {
       id = h.connect();
     await h.core.collect(id);
     await h.core.process(id);
-    const before = h.core.work(id);
+    const before = h.core.project(id);
     h.core.mutate(
       id,
       'visits',
       h.command(id, { summaryId: before.latestSummaryId, evidenceIds: [] }),
     );
     await h.core.process(id);
-    expect(h.core.work(id)).toEqual(before);
+    expect(h.core.project(id)).toEqual(before);
     expect(h.counts().generationCalls).toBe(1);
   });
   it('returns the same receipt for a duplicate body and rejects ID reuse with changed input', async () => {
@@ -379,7 +379,10 @@ describe('collection, processing, writes and navigation', () => {
       id = h.connect();
     await h.core.collect(id);
     await h.core.process(id);
-    const command = h.command(id, { summaryId: h.core.work(id).latestSummaryId, evidenceIds: [] });
+    const command = h.command(id, {
+      summaryId: h.core.project(id).latestSummaryId,
+      evidenceIds: [],
+    });
     const one = h.core.mutate(id, 'visits', command);
     expect(h.core.mutate(id, 'visits', command)).toEqual(one);
     expect(() =>
@@ -396,7 +399,7 @@ describe('collection, processing, writes and navigation', () => {
     await h.core.process(id);
     const payload = {
       threadId: 'thread-a',
-      summaryId: h.core.work(id).latestSummaryId,
+      summaryId: h.core.project(id).latestSummaryId,
       evidenceIds: [h.core.sources(id)[0].id],
       text: '초안',
       draftRevision: 0,
@@ -423,7 +426,7 @@ describe('collection, processing, writes and navigation', () => {
     await h.core.process(id);
     const payload = {
       threadId: 'thread-a',
-      summaryId: h.core.work(id).latestSummaryId,
+      summaryId: h.core.project(id).latestSummaryId,
       evidenceIds: [h.core.sources(id)[0].id],
       text: '초안',
       draftRevision: 0,
@@ -435,7 +438,7 @@ describe('collection, processing, writes and navigation', () => {
         done = r;
       });
     const pending = h.core.collect(id);
-    expect(() => h.core.prepareHandoff(id, h.core.work(id).revision, payload)).toThrow(
+    expect(() => h.core.prepareHandoff(id, h.core.project(id).revision, payload)).toThrow(
       'still checking',
     );
     done(await priorRead('thread-a'));
@@ -443,7 +446,7 @@ describe('collection, processing, writes and navigation', () => {
     h.reader.read = priorRead;
     h.records([source('new evidence')]);
     await h.core.collect(id);
-    expect(() => h.core.prepareHandoff(id, h.core.work(id).revision, payload)).toThrow(
+    expect(() => h.core.prepareHandoff(id, h.core.project(id).revision, payload)).toThrow(
       'not reflected',
     );
   });
@@ -459,7 +462,7 @@ describe('collection, processing, writes and navigation', () => {
       h.core.mutate(
         id,
         'visits',
-        h.command(id, { summaryId: h.core.work(id).latestSummaryId, evidenceIds: [] }),
+        h.command(id, { summaryId: h.core.project(id).latestSummaryId, evidenceIds: [] }),
       ),
     ).toThrow('commit failure');
     expect(repo.data).toEqual(before);

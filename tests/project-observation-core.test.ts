@@ -109,7 +109,7 @@ function register(core: StateCarry) {
       threadIds: [],
       discover: false,
     },
-  }).workId;
+  }).projectId;
 }
 
 function analysis() {
@@ -136,45 +136,51 @@ describe('project observation reuse', () => {
     const observed = inspectorFixture();
     const analyzeWorkingTree = vi.fn(async () => analysis());
     const { core, events } = coreWithObservation(repo, observed.inspector, analyzeWorkingTree);
-    const workId = register(core);
+    const projectId = register(core);
     events.mockClear();
 
     core.projects.list();
-    await core.projects.workspace(workId, 'en');
+    await core.projects.workspace(projectId, 'en');
     expect(observed.counts()).toEqual({ probes: 0, inspections: 0 });
     expect(analyzeWorkingTree).not.toHaveBeenCalled();
 
-    await core.projects.observe(workId, 'en');
+    await core.projects.observe(projectId, 'en');
     expect(observed.counts()).toEqual({ probes: 1, inspections: 1 });
     expect(analyzeWorkingTree).toHaveBeenCalledTimes(1);
 
-    const saved = await core.projects.workspace(workId, 'en');
+    const saved = await core.projects.workspace(projectId, 'en');
     expect(saved.workingTreeAnalysis?.summary).toContain('semantic change');
     expect(observed.counts()).toEqual({ probes: 1, inspections: 1 });
     expect(analyzeWorkingTree).toHaveBeenCalledTimes(1);
 
-    await core.projects.observe(workId, 'en');
+    await core.projects.observe(projectId, 'en');
     expect(observed.counts()).toEqual({ probes: 2, inspections: 1 });
     expect(analyzeWorkingTree).toHaveBeenCalledTimes(1);
 
-    await core.projects.analyzeLatest(workId, 'ko');
+    await core.projects.analyzeLatest(projectId, 'ko');
     expect(observed.counts()).toEqual({ probes: 2, inspections: 1 });
     expect(analyzeWorkingTree).toHaveBeenCalledTimes(2);
 
     observed.changeProbe('probe-b', 'inventory-mtime-only');
-    await core.projects.observe(workId, 'en');
+    await core.projects.observe(projectId, 'en');
     expect(observed.counts()).toEqual({ probes: 3, inspections: 2 });
     expect(analyzeWorkingTree).toHaveBeenCalledTimes(2);
 
-    const profile = core.work(workId).projectProfile!;
-    core.projects.settings(workId, {
+    const profile = core.project(projectId);
+    core.projects.settings(projectId, {
       requestId: identity.next(),
-      expectedRevision: core.work(workId).revision,
-      payload: { ...profile, purpose: 'Profile only.' },
+      expectedRevision: core.project(projectId).revision,
+      payload: {
+        title: profile.title,
+        focused: profile.focused,
+        iconAsset: profile.iconAsset,
+        bannerAsset: profile.bannerAsset,
+        purpose: 'Profile only.',
+      },
     });
-    expect(events).toHaveBeenLastCalledWith(workId, 'profile');
+    expect(events).toHaveBeenLastCalledWith(projectId, 'profile');
     expect(
-      events.mock.calls.filter(([id, topic]) => id === workId && topic === 'profile'),
+      events.mock.calls.filter(([id, topic]) => id === projectId && topic === 'profile'),
     ).toHaveLength(1);
     expect(observed.counts()).toEqual({ probes: 3, inspections: 2 });
   });
@@ -186,20 +192,20 @@ describe('project observation reuse', () => {
     let repo = new SQLiteRepository(directory);
     try {
       const first = coreWithObservation(repo, observed.inspector, analyzeWorkingTree);
-      const workId = register(first.core);
-      await first.core.projects.observe(workId, 'en');
+      const projectId = register(first.core);
+      await first.core.projects.observe(projectId, 'en');
       expect(observed.counts()).toEqual({ probes: 1, inspections: 1 });
       expect(analyzeWorkingTree).toHaveBeenCalledTimes(1);
       repo.close();
 
       repo = new SQLiteRepository(directory);
       const restarted = coreWithObservation(repo, observed.inspector, analyzeWorkingTree);
-      const restored = await restarted.core.projects.workspace(workId, 'en');
+      const restored = await restarted.core.projects.workspace(projectId, 'en');
       expect(restored.workingTreeAnalysis?.summary).toBe('One semantic change is in progress.');
       expect(observed.counts()).toEqual({ probes: 1, inspections: 1 });
       expect(analyzeWorkingTree).toHaveBeenCalledTimes(1);
 
-      await restarted.core.projects.observe(workId, 'en');
+      await restarted.core.projects.observe(projectId, 'en');
       expect(observed.counts()).toEqual({ probes: 2, inspections: 1 });
       expect(analyzeWorkingTree).toHaveBeenCalledTimes(1);
     } finally {

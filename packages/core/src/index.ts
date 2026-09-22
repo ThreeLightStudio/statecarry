@@ -3,3 +3,7 @@ export * from './checks';
 export * from './service';
 export * from './continuations';
 export * from './continuation-payload';
+export * from './project-model';
+export * from './work-matching';
+export * from './project-now';
+export * from './releases';

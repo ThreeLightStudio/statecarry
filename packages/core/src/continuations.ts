@@ -2,7 +2,7 @@ import {
   continuationPrepareSchema,
   continuationSendSchema,
   continuationOpenSchema,
-  resumeResultSchema,
+  analysisResultSchema,
   DomainError,
   workspaceSnapshotSchema,
   type Command,
@@ -10,7 +10,7 @@ import {
   type ContinuationPayload,
   type ContinuationTarget,
   type Receipt,
-  type Work,
+  type ProjectRecord,
 } from '@statecarry/contracts';
 import type { StateCarry } from './service';
 import type { SessionExecutor } from './ports';
@@ -40,19 +40,20 @@ export class Continuations {
    * well as by the request ID. This prevents a second continuation/session
    * when the first response was lost or a click was delivered twice.
    */
-  private receiptForBody(workId: string, command: string, hash: string): Receipt | null {
+  private receiptForBody(projectId: string, command: string, hash: string): Receipt | null {
     return (
       this.core.repo
         .list('receipt')
         .find(
-          (item) => item.workId === workId && item.command === command && item.bodyHash === hash,
+          (item) =>
+            item.projectId === projectId && item.command === command && item.bodyHash === hash,
         ) ?? null
     );
   }
 
-  private require(id: string, workId?: string): Continuation {
+  private require(id: string, projectId?: string): Continuation {
     const value = this.core.repo.get('continuation', id);
-    if (!value || (workId && value.workId !== workId))
+    if (!value || (projectId && value.projectId !== projectId))
       throw new DomainError('NOT_FOUND', 'Continuation request not found', 404);
     return value;
   }
@@ -72,12 +73,12 @@ export class Continuations {
 
   /**
    * A resume brief is tied to the project state observed while it was
-   * generated. Work revision alone does not change when a checkout moves, so
+   * generated. ProjectRecord revision alone does not change when a checkout moves, so
    * reject a cached brief whose branch, commit or change status is no longer
    * current before any continuation is dispatched or opened.
    */
-  private ensureWorkspace(work: Work) {
-    const baseline = work.resume?.workspaceAfter;
+  private ensureWorkspace(work: ProjectRecord) {
+    const baseline = this.core.analysisRecord(work.id)?.result?.workspaceAfter;
     if (!this.core.projectInspector) return;
     if (!baseline || !workspaceSnapshotSchema.safeParse(baseline).success) {
       throw new DomainError(
@@ -86,7 +87,7 @@ export class Continuations {
         409,
       );
     }
-    const connection = this.core.repo.get('connection', work.projectId);
+    const connection = this.core.repo.get('connection', work.connectionId);
     if (!connection) throw new DomainError('NOT_FOUND', 'Connected project not found', 404);
     const current = this.core.inspectWorkspace(connection.cwd, baseline.inspection?.hints);
     if (!current || baseline.status !== 'checked' || current.status !== 'checked') {
@@ -113,19 +114,12 @@ export class Continuations {
         (current.fileFingerprint ?? current.fingerprint ?? null) &&
       (baseline.inventoryFingerprint ?? null) === (current.inventoryFingerprint ?? null) &&
       this.core.ids.hash(
-        (
-          (baseline.files?.length
-            ? baseline.files
-            : (baseline.fileObservations ?? baseline.files)) ?? []
-        )
+        ((baseline.files?.length ? baseline.files : baseline.files) ?? [])
           .map((file) => ({ path: file.path, hash: file.hash, size: file.size ?? null }))
           .sort((a, b) => a.path.localeCompare(b.path)),
       ) ===
         this.core.ids.hash(
-          (
-            (current.files?.length ? current.files : (current.fileObservations ?? current.files)) ??
-            []
-          )
+          ((current.files?.length ? current.files : current.files) ?? [])
             .map((file) => ({ path: file.path, hash: file.hash, size: file.size ?? null }))
             .sort((a, b) => a.path.localeCompare(b.path)),
         ) &&
@@ -146,17 +140,19 @@ export class Continuations {
    * direct callers cannot dispatch an old next step.  Manual continuation
    * payloads created before a brief exists remain supported.
    */
-  private ensureResumeCurrent(work: Work) {
+  private ensureResumeCurrent(work: ProjectRecord) {
     // An empty result is a valid completed check, but it has no action that
     // can be handed off. Let callers prepare a durable request only for a
     // validated candidate; send/open still recheck the workspace below.
     if (
-      !work.resume ||
-      !work.resume.candidates.length ||
-      !resumeResultSchema.safeParse({ candidates: work.resume.candidates }).success
+      !this.core.analysisRecord(work.id)?.result ||
+      !this.core.analysisRecord(work.id)?.result.candidates.length ||
+      !analysisResultSchema.safeParse({
+        candidates: this.core.analysisRecord(work.id)?.result.candidates,
+      }).success
     )
       return;
-    const current = this.core.resumes.view(work.id);
+    const current = this.core.analyses.view(work.id);
     if (current.error) throw new DomainError('SOURCE_UNAVAILABLE', current.error, 409);
     if (current.busy || current.stale || current.updatesAvailable) {
       throw new DomainError(
@@ -168,14 +164,14 @@ export class Continuations {
   }
 
   private ensureTargetCurrent(
-    workId: string,
+    projectId: string,
     mode: ContinuationTarget['mode'],
     threadId: string | null | undefined,
     payload: ContinuationPayload,
   ) {
     if (
       payload.evidence?.some((item) => {
-        const source = this.core.accessibleSource(workId, item.revisionId);
+        const source = this.core.accessibleSource(projectId, item.revisionId);
         return !source || !source.text.includes(item.quote);
       })
     ) {
@@ -187,7 +183,7 @@ export class Continuations {
     const link =
       mode === 'existing-session'
         ? this.core
-            .links(workId)
+            .links(projectId)
             .find((item) => item.threadId === threadId && item.status === 'linked')
         : undefined;
     if (mode === 'existing-session' && !link)
@@ -200,7 +196,7 @@ export class Continuations {
     if (
       payload.previousThreadId &&
       !this.core
-        .links(workId)
+        .links(projectId)
         .some((item) => item.threadId === payload.previousThreadId && item.status === 'linked')
     ) {
       throw new DomainError(
@@ -211,54 +207,81 @@ export class Continuations {
     return link;
   }
 
-  prepare(workId: string, command: Command): Continuation {
+  prepare(projectId: string, command: Command): Continuation {
     const input = continuationPrepareSchema.parse(command.payload);
     const bodyHash = this.core.ids.hash({
       action: 'continuation-prepare',
-      workId,
+      projectId,
       expectedRevision: command.expectedRevision,
       payload: input,
     });
     const prior = this.receipt(command.requestId, bodyHash);
-    if (prior) return this.require(prior.resultId, workId);
-    const sameAction = this.receiptForBody(workId, 'continuation-prepare', bodyHash);
+    if (prior) return this.require(prior.resultId, projectId);
+    const sameAction = this.receiptForBody(projectId, 'continuation-prepare', bodyHash);
     if (sameAction) {
-      const existing = this.require(sameAction.resultId, workId);
+      const existing = this.require(sameAction.resultId, projectId);
       // A confirmed provider failure can be retried only by a fresh,
       // explicit prepare request. Unknown outcomes remain deduplicated so a
       // retry cannot accidentally create another session or message.
-      if (existing.state !== 'failed') return existing;
+      if (
+        existing.state !== 'failed' &&
+        !(
+          input.payload.projectContext &&
+          (existing.externalReport ||
+            ['completed', 'failed', 'interrupted'].includes(existing.execution?.status ?? ''))
+        )
+      )
+        return existing;
     }
-    const work = this.core.work(workId);
+    const work = this.core.project(projectId);
     if (work.revision !== command.expectedRevision)
       throw new DomainError(
         'REVISION_CONFLICT',
         'Work changed; review the current status before preparing a continuation',
         409,
       );
-    this.ensureResumeCurrent(work);
-    this.ensureWorkspace(work);
-    this.ensureCapability(input.targetMode);
+    if (input.payload?.projectContext)
+      this.core.executions.validate(projectId, input.payload.projectContext);
+    else {
+      this.ensureResumeCurrent(work);
+      this.ensureWorkspace(work);
+    }
+    if (!input.payload.projectContext) this.ensureCapability(input.targetMode);
     // A continuation may carry optional supporting quotes from the resume
     // brief. Treat browser supplied quotes as untrusted: only records that
     // are still accessible in this work and whose text still contains the
     // exact quote can be sent to another session.
-    const link = this.ensureTargetCurrent(workId, input.targetMode, input.threadId, input.payload);
+    const link = this.ensureTargetCurrent(
+      projectId,
+      input.targetMode,
+      input.threadId,
+      input.payload,
+    );
     const payload = input.payload;
     const target: ContinuationTarget = {
       mode: input.targetMode,
       threadId: input.targetMode === 'existing-session' ? input.threadId! : null,
       title: link?.title ?? `${work.title} · continuation`,
-      workId,
+      projectId,
       payload,
       expectedRevision: command.expectedRevision,
     };
     const now = this.core.clock.now();
+    const continuationId = this.core.ids.next();
     const continuation: Continuation = {
-      id: this.core.ids.next(),
-      workId,
+      id: continuationId,
+      projectId,
       requestId: command.requestId,
       target,
+      ...(payload.projectContext
+        ? {
+            preparedText:
+              this.text(payload) +
+              '\n\n' +
+              this.core.executions.requestText(projectId, payload.projectContext) +
+              `\n\nStateCarry execution request ID: ${continuationId}`,
+          }
+        : {}),
       state: 'prepared',
       threadId: target.threadId,
       turnId: null,
@@ -270,7 +293,7 @@ export class Continuations {
       id: command.requestId,
       command: 'continuation-prepare',
       bodyHash,
-      workId,
+      projectId,
       committedRevision: work.revision,
       resultId: continuation.id,
       createdAt: now,
@@ -279,17 +302,25 @@ export class Continuations {
       // Repeat the exact check in the transaction for callers that race on the
       // same request ID. The repository's transaction provides the atomic write.
       const again = this.receipt(command.requestId, bodyHash);
-      if (again) return this.require(again.resultId, workId);
-      const duplicate = this.receiptForBody(workId, 'continuation-prepare', bodyHash);
+      if (again) return this.require(again.resultId, projectId);
+      const duplicate = this.receiptForBody(projectId, 'continuation-prepare', bodyHash);
       if (duplicate) {
-        const existing = this.require(duplicate.resultId, workId);
-        if (existing.state !== 'failed') return existing;
+        const existing = this.require(duplicate.resultId, projectId);
+        if (
+          existing.state !== 'failed' &&
+          !(
+            input.payload.projectContext &&
+            (existing.externalReport ||
+              ['completed', 'failed', 'interrupted'].includes(existing.execution?.status ?? ''))
+          )
+        )
+          return existing;
       }
       this.core.repo.put('continuation', continuation);
       this.core.repo.put('receipt', receipt);
       return continuation;
     });
-    this.core.events.changed(workId);
+    this.core.events.changed(projectId);
     return saved;
   }
 
@@ -316,31 +347,35 @@ export class Continuations {
     ].join('\n');
   }
 
-  async send(workId: string, command: Command): Promise<Receipt> {
+  async send(projectId: string, command: Command): Promise<Receipt> {
     const input = continuationSendSchema.parse(command.payload);
     const bodyHash = this.core.ids.hash({
       action: 'continuation-send',
-      workId,
+      projectId,
       expectedRevision: command.expectedRevision,
       payload: input,
     });
     const prior = this.receipt(command.requestId, bodyHash);
     if (prior) return prior;
-    const sameAction = this.receiptForBody(workId, 'continuation-send', bodyHash);
+    const sameAction = this.receiptForBody(projectId, 'continuation-send', bodyHash);
     if (sameAction) return sameAction;
-    const continuation = this.require(input.continuationId, workId);
-    const work = this.core.work(workId);
+    const continuation = this.require(input.continuationId, projectId);
+    const work = this.core.project(projectId);
     if (work.revision !== continuation.target.expectedRevision)
       throw new DomainError(
         'REVISION_CONFLICT',
         'Work changed; prepare a fresh continuation before sending',
         409,
       );
-    this.ensureResumeCurrent(work);
-    this.ensureWorkspace(work);
+    if (continuation.target.payload.projectContext)
+      this.core.executions.validate(projectId, continuation.target.payload.projectContext);
+    else {
+      this.ensureResumeCurrent(work);
+      this.ensureWorkspace(work);
+    }
     this.ensureCapability(continuation.target.mode);
     this.ensureTargetCurrent(
-      workId,
+      projectId,
       continuation.target.mode,
       continuation.target.threadId,
       continuation.target.payload,
@@ -359,15 +394,15 @@ export class Continuations {
       id: command.requestId,
       command: 'continuation-send',
       bodyHash,
-      workId,
-      committedRevision: this.core.work(workId).revision,
+      projectId,
+      committedRevision: this.core.project(projectId).revision,
       resultId: continuation.id,
       createdAt: now,
     };
     const transaction = this.core.repo.transaction((): { receipt: Receipt; dispatch: boolean } => {
       const again = this.receipt(command.requestId, bodyHash);
       if (again) return { receipt: again, dispatch: false };
-      const duplicate = this.receiptForBody(workId, 'continuation-send', bodyHash);
+      const duplicate = this.receiptForBody(projectId, 'continuation-send', bodyHash);
       if (duplicate) return { receipt: duplicate, dispatch: false };
       this.core.repo.put('continuation', { ...continuation, state: 'dispatching', updatedAt: now });
       this.core.repo.put('receipt', receipt);
@@ -381,11 +416,16 @@ export class Continuations {
     try {
       if (continuation.target.mode === 'new-session') {
         const created = await this.executor.create({
-          workId,
+          projectId,
           title: continuation.target.title,
-          cwd: this.core.repo.get('connection', this.core.work(workId).projectId)!.cwd,
+          cwd: this.core.repo.get('connection', this.core.project(projectId).connectionId)!.cwd,
         });
         threadId = created.threadId;
+        this.core.repo.put('continuation', {
+          ...this.require(continuation.id, projectId),
+          threadId,
+          updatedAt: this.core.clock.now(),
+        });
       }
       if (!threadId)
         throw new DomainError(
@@ -393,10 +433,20 @@ export class Continuations {
           'The continuation session ID was not returned',
           409,
         );
+      if (continuation.target.payload.projectContext)
+        this.core.executions.validate(projectId, continuation.target.payload.projectContext);
+      if (this.core.project(projectId).revision !== continuation.target.expectedRevision)
+        throw new DomainError(
+          'REVISION_CONFLICT',
+          'The project decision changed before the request was sent. Review it again.',
+          409,
+        );
       const sent = await this.executor.send({
-        workId,
+        projectId,
         threadId,
-        text: this.text(continuation.target.payload),
+        text: continuation.preparedText ?? this.text(continuation.target.payload),
+        cwd: this.core.repo.get('connection', work.connectionId)!.cwd,
+        operation: continuation.target.payload.projectContext?.operation,
       });
       turnId = sent.turnId ?? null;
     } catch (e) {
@@ -404,12 +454,13 @@ export class Continuations {
       // accepted the message. Keep it unknown so a caller cannot accidentally
       // create a second session/message while trying to recover.
       state =
-        e instanceof DomainError && ['CAPABILITY_UNSUPPORTED', 'VALIDATION'].includes(e.code)
+        e instanceof DomainError &&
+        ['CAPABILITY_UNSUPPORTED', 'VALIDATION', 'REVISION_CONFLICT'].includes(e.code)
           ? 'failed'
           : 'result-unknown';
       error = e instanceof Error ? e.message : String(e);
     }
-    const current = this.require(continuation.id, workId);
+    const current = this.require(continuation.id, projectId);
     this.core.repo.put('continuation', {
       ...current,
       state,
@@ -418,29 +469,29 @@ export class Continuations {
       error,
       updatedAt: this.core.clock.now(),
     });
-    this.core.events.changed(workId);
+    this.core.events.changed(projectId);
     return receipt;
   }
 
-  async open(workId: string, command: Command): Promise<Receipt> {
+  async open(projectId: string, command: Command): Promise<Receipt> {
     const input = continuationOpenSchema.parse(command.payload);
     const bodyHash = this.core.ids.hash({
       action: 'continuation-open',
-      workId,
+      projectId,
       expectedRevision: command.expectedRevision,
       payload: input,
     });
     const prior = this.receipt(command.requestId, bodyHash);
     if (prior) return prior;
-    const sameAction = this.receiptForBody(workId, 'continuation-open', bodyHash);
+    const sameAction = this.receiptForBody(projectId, 'continuation-open', bodyHash);
     if (sameAction) {
-      const existing = this.require(sameAction.resultId, workId);
+      const existing = this.require(sameAction.resultId, projectId);
       // A confirmed opening failure may be retried only by a fresh explicit
       // request. Unknown outcomes remain deduplicated until checked.
       if (existing.state !== 'failed') return sameAction;
     }
-    const continuation = this.require(input.continuationId, workId);
-    const work = this.core.work(workId);
+    const continuation = this.require(input.continuationId, projectId);
+    const work = this.core.project(projectId);
     if (work.revision !== continuation.target.expectedRevision)
       throw new DomainError(
         'REVISION_CONFLICT',
@@ -467,17 +518,17 @@ export class Continuations {
       id: command.requestId,
       command: 'continuation-open',
       bodyHash,
-      workId,
-      committedRevision: this.core.work(workId).revision,
+      projectId,
+      committedRevision: this.core.project(projectId).revision,
       resultId: continuation.id,
       createdAt: now,
     };
     const transaction = this.core.repo.transaction((): { receipt: Receipt; dispatch: boolean } => {
       const again = this.receipt(command.requestId, bodyHash);
       if (again) return { receipt: again, dispatch: false };
-      const duplicate = this.receiptForBody(workId, 'continuation-open', bodyHash);
+      const duplicate = this.receiptForBody(projectId, 'continuation-open', bodyHash);
       if (duplicate) {
-        const existing = this.require(duplicate.resultId, workId);
+        const existing = this.require(duplicate.resultId, projectId);
         if (existing.state !== 'failed') return { receipt: duplicate, dispatch: false };
       }
       this.core.repo.put('continuation', { ...continuation, state: 'opening', updatedAt: now });
@@ -493,19 +544,19 @@ export class Continuations {
       state = e instanceof DomainError && e.code === 'RESULT_UNKNOWN' ? 'result-unknown' : 'failed';
       error = e instanceof Error ? e.message : String(e);
     }
-    const current = this.require(continuation.id, workId);
+    const current = this.require(continuation.id, projectId);
     this.core.repo.put('continuation', {
       ...current,
       state,
       error,
       updatedAt: this.core.clock.now(),
     });
-    this.core.events.changed(workId);
+    this.core.events.changed(projectId);
     return receipt;
   }
 
-  get(workId: string, id: string) {
-    return this.require(id, workId);
+  get(projectId: string, id: string) {
+    return this.require(id, projectId);
   }
 
   recover() {

@@ -36,12 +36,12 @@ describe('actual SQLite storage', () => {
     expect(() =>
       r.transaction(() => {
         r.put('source', s);
-        r.put('work', { ...h.core.work(id), revision: 9 });
+        r.put('project', { ...h.core.project(id), revision: 9 });
         throw new Error('disk boundary');
       }),
     ).toThrow('disk boundary');
     expect(r.get('source', s.id)).toBeNull();
-    expect(h.core.work(id).revision).toBe(1);
+    expect(h.core.project(id).revision).toBe(1);
   });
   it('preserves the first immutable source and rejects target/content collisions', () => {
     const r = open(),
@@ -101,7 +101,13 @@ describe('actual SQLite storage', () => {
   it('uses actual foreign keys for owned records', () => {
     const r = open();
     expect(() =>
-      r.put('visit', { id: 'missing', workId: 'missing', summaryId: 'x', evidenceIds: [], at: '' }),
+      r.put('visit', {
+        id: 'missing',
+        projectId: 'missing',
+        summaryId: 'x',
+        evidenceIds: [],
+        at: '',
+      }),
     ).toThrow('FOREIGN KEY');
   });
 });

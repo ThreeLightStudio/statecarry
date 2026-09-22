@@ -1,7 +1,7 @@
 import type {
   Command,
   ProjectCreateInput,
-  ResumeCandidate,
+  AnalysisCandidate,
   SourceRevision,
 } from '@statecarry/contracts';
 import { harness, source } from './helpers';
@@ -25,7 +25,7 @@ export function registerProject(
   return { command, receipt: h.core.projects.create(command) };
 }
 
-export const projectCandidate = (record: SourceRevision = source()): ResumeCandidate => ({
+export const projectCandidate = (record: SourceRevision = source()): AnalysisCandidate => ({
   key: 'export-check',
   goal: 'Finish export validation',
   currentState: 'The export is implemented and its final check is still needed.',

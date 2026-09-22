@@ -6,7 +6,7 @@ it('HTTP binds work/session/answer and rejects arbitrary revisions and hostile o
     port = 4397;
   const server = createHttpServer(h.core, new ChangeEvents(), '/tmp/no-web', port);
   await new Promise<void>((r) => server.listen(port, '127.0.0.1', r));
-  const base = `http://127.0.0.1:${port}/api/v1/work-contexts/${id}/questions`;
+  const base = `http://127.0.0.1:${port}/api/v1/projects/${id}/questions`;
   const post = (url: string, payload: unknown, origin = `http://127.0.0.1:${port}`) =>
     fetch(url, {
       method: 'POST',
@@ -16,7 +16,7 @@ it('HTTP binds work/session/answer and rejects arbitrary revisions and hostile o
   try {
     const input = {
       requestId: 'create',
-      summaryId: h.core.work(id).latestSummaryId,
+      summaryId: h.core.project(id).latestSummaryId,
       claimId: 'next',
     };
     expect((await post(base, { ...input, revisionIds: ['arbitrary'] })).status).toBe(400);

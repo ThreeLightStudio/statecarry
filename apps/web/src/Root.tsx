@@ -4,21 +4,21 @@ import {
   parseProjectRoute,
   projectRouteHref,
   type ProjectGateway,
-  type ResumeGateway,
-  type ResumeMemory,
+  type AnalysisGateway,
+  type AnalysisMemory,
 } from '@statecarry/presentation';
 import { ProjectWorkspace } from './ui/ProjectWorkspace';
 
 export type RootProps = {
   projectGateway: ProjectGateway;
-  resumeGateway: ResumeGateway;
-  resumeMemory?: ResumeMemory;
+  analysisGateway: AnalysisGateway;
+  analysisMemory?: AnalysisMemory;
 };
 
-export function Root({ projectGateway, resumeGateway, resumeMemory }: RootProps) {
+export function Root({ projectGateway, analysisGateway, analysisMemory }: RootProps) {
   const controller = useMemo(
-    () => new ProjectController(projectGateway, resumeGateway, resumeMemory),
-    [projectGateway, resumeGateway, resumeMemory],
+    () => new ProjectController(projectGateway, analysisGateway, analysisMemory),
+    [projectGateway, analysisGateway, analysisMemory],
   );
   useEffect(() => {
     const readRoute = () => {
@@ -29,7 +29,6 @@ export function Root({ projectGateway, resumeGateway, resumeMemory }: RootProps)
     };
     const changed = () => {
       controller.navigate(readRoute());
-      void controller.refresh();
     };
     let wasAway = document.visibilityState === 'hidden';
     const returned = () => {

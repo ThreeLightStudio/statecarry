@@ -1,12 +1,16 @@
+import { projectExecutionContextSchema } from './project-executions';
 import { z } from 'zod';
 import { recordRangeSchema } from './goals';
 import type { WorkspaceSnapshot } from './workspace';
 export * from './goals';
-export * from './resume';
+export * from './analysis';
 export * from './workspace';
 export * from './questions';
 export * from './explanations';
 export * from './projects';
+export * from './project-executions';
+export * from './product-model';
+export * from './release';
 
 export const idSchema = z.string().min(1).max(250);
 export const missingSchema = z.enum([
@@ -109,7 +113,7 @@ export const observationSchema = z
       'connection-restored',
     ]),
     at: z.string().datetime(),
-    workId: idSchema.nullable(),
+    projectId: idSchema.nullable(),
     summaryId: idSchema.nullable(),
     targetId: idSchema.nullable(),
     result: z.enum(['observed', 'committed', 'failed', 'unknown']),
@@ -180,7 +184,7 @@ export type Connection = {
   startTurnIds: Record<string, string>;
   discover: boolean;
   revision: number;
-  workId: string;
+  projectId: string;
   createdAt: string;
   discovery?: DiscoveryState;
   /** Set when the user removes this connection. Source records and project files remain untouched. */ removedAt?:
@@ -190,7 +194,7 @@ export type Connection = {
 export type Link = {
   relation?: import('./goals').GoalRelation['kind'];
   id: string;
-  workId: string;
+  projectId: string;
   threadId: string;
   title: string;
   status: 'proposed' | 'linked' | 'deferred' | 'separate';
@@ -204,7 +208,7 @@ export type Link = {
 export type Checkpoint = {
   id: string;
   threadId: string;
-  workId: string;
+  projectId: string;
   revisionIds: string[];
   sourceFingerprint: string;
   generation: string;
@@ -218,7 +222,7 @@ export type Checkpoint = {
 export type SummaryRevision = {
   inputCapturedAt?: string | null;
   id: string;
-  workId: string;
+  projectId: string;
   inputVersion: string;
   sourceRevisionIds: string[];
   linkVersion: number;
@@ -234,7 +238,7 @@ export type SummaryRevision = {
 };
 export type Overlay = {
   id: string;
-  workId: string;
+  projectId: string;
   slot: ClaimSlot;
   text: string;
   baseSummaryId: string;
@@ -245,7 +249,7 @@ export type Overlay = {
 };
 export type Draft = {
   id: string;
-  workId: string;
+  projectId: string;
   threadId: string;
   evidenceIds: string[];
   summaryId: string;
@@ -255,7 +259,7 @@ export type Draft = {
 };
 export type Visit = {
   id: string;
-  workId: string;
+  projectId: string;
   summaryId: string;
   evidenceIds: string[];
   at: string;
@@ -315,7 +319,7 @@ export type Job = {
   queuedAt?: string | null;
   phases?: JobPhase[];
   id: string;
-  workId: string;
+  projectId: string;
   inputVersion: string;
   extractorVersion: string;
   analysis?: AnalysisSettings;
@@ -338,19 +342,14 @@ export type Job = {
   updatedAt: string;
   resultId: string | null;
 };
-export type Work = {
-  projectProfile?: import('./projects').ProjectProfile;
-  resume?: import('./resume').ResumeStored;
-  resumeOverrides?: import('./resume').ResumeOverride[];
+export type ProjectRecord = import('./product-model').ProjectIdentity & {
   /** User-selected conversation responsible for overall progress. */ coordinationThreadId?:
     | string
     | null;
   coordinationMode?: 'auto' | 'selected' | 'none';
-  goal?: import('./goals').GoalIntent;
-  goalCandidates?: import('./goals').GoalCandidate[];
   pendingRefresh?: PendingRefresh | null;
   id: string;
-  projectId: string;
+  connectionId: string;
   title: string;
   revision: number;
   linkVersion: number;
@@ -361,7 +360,7 @@ export type Work = {
 export type HandoffTarget = {
   title: string;
   role: Link['role'];
-  workId: string;
+  projectId: string;
   expectedRevision: number;
   summaryId: string;
   threadId: string;
@@ -385,6 +384,7 @@ export type SessionCapability = {
 };
 export type ContinuationEvidence = { revisionId: string; quote: string };
 export type ContinuationPayload = {
+  projectContext?: import('./project-executions').ProjectExecutionContext;
   goal: string | null;
   goalConfirmed?: boolean;
   currentState: string;
@@ -398,13 +398,16 @@ export type ContinuationTarget = {
   mode: 'new-session' | 'existing-session';
   threadId: string | null;
   title: string;
-  workId: string;
+  projectId: string;
   payload: ContinuationPayload;
   expectedRevision: number;
 };
 export type Continuation = {
+  preparedText?: string;
+  externalReport?: string;
+  execution?: import('./project-executions').SessionRun;
   id: string;
-  workId: string;
+  projectId: string;
   requestId: string;
   target: ContinuationTarget;
   state: 'prepared' | 'dispatching' | 'opening' | 'sent' | 'opened' | 'failed' | 'result-unknown';
@@ -475,7 +478,6 @@ export type ReturnContextSnapshot = {
     preview: string;
     actor: SourceRevision['actor'];
   }[];
-  goalCandidates?: import('./goals').GoalCandidate[];
   explanation?: import('./explanations').ExplanationView;
   conversationFlows?: ConversationFlow[];
   coverage?: SummaryCoverage;
@@ -483,7 +485,7 @@ export type ReturnContextSnapshot = {
   freshness?: Freshness;
   workspace?: WorkspaceSnapshot | null;
   continuation?: Continuation | null;
-  work: Work;
+  work: ProjectRecord;
   connection: Connection;
   links: Link[];
   checkpoints: Checkpoint[];
@@ -509,7 +511,7 @@ export type ProjectListItem = {
   id: string;
   title: string;
   cwd: string;
-  workId: string;
+  projectId: string;
   revision: number;
   summaryId: string | null;
   current: string | null;
@@ -528,7 +530,7 @@ export type Receipt = {
   id: string;
   command: string;
   bodyHash: string;
-  workId: string;
+  projectId: string;
   committedRevision: number;
   resultId: string;
   createdAt: string;
@@ -538,6 +540,7 @@ export type ApiErrorCode =
   | 'REVISION_CONFLICT'
   | 'IDEMPOTENCY_CONFLICT'
   | 'PROJECT_BUSY'
+  | 'PROJECT_INITIALIZATION_FAILED'
   | 'PROJECT_DELETION_CHANGED'
   | 'SOURCE_UNAVAILABLE'
   | 'SUMMARY_UNAVAILABLE'
@@ -590,6 +593,7 @@ export const draftInputSchema = z
   .strict();
 export const continuationPayloadSchema = z
   .object({
+    projectContext: projectExecutionContextSchema.optional(),
     goal: z.string().max(1200).nullable(),
     goalConfirmed: z.boolean().optional(),
     currentState: z.string().min(1).max(2000),

@@ -149,7 +149,7 @@ describe('explanation contract and raw context', () => {
 describe('explanation execution', () => {
   it('coalesces preparation, preserves work/draft basis, reuses result across reopen and reads', async () => {
     const { h, id, prepare, settled, counts } = await explanationHarness();
-    const work = h.core.work(id),
+    const work = h.core.project(id),
       snapshot = h.core.snapshot(id);
     prepare();
     prepare();
@@ -157,7 +157,7 @@ describe('explanation execution', () => {
     prepare();
     await settled();
     expect(counts()).toEqual({ generated: 1, checked: 1 });
-    expect(h.core.work(id)).toEqual(work);
+    expect(h.core.project(id)).toEqual(work);
     expect(h.core.snapshot(id).summary).toEqual(snapshot.summary);
     expect(h.core.snapshot(id).visit).toBeNull();
     const r = h.core.explanations.view(id).revision!;
@@ -184,7 +184,9 @@ describe('explanation execution', () => {
     await h.core.process(id);
     await h.core.explanations.settled();
     expect(counts().generated).toBe(1);
-    expect(h.core.explanations.view(id).revision?.summaryId).toBe(h.core.work(id).latestSummaryId);
+    expect(h.core.explanations.view(id).revision?.summaryId).toBe(
+      h.core.project(id).latestSummaryId,
+    );
     await h.core.close();
   });
   it.each(['summary', 'unlink', 'start-range', 'configuration'])(
@@ -201,14 +203,14 @@ describe('explanation execution', () => {
       prepare();
       await vi.waitFor(() => expect(release).toBeDefined());
       if (change === 'summary')
-        h.repo.put('work', { ...h.core.work(id), latestSummaryId: 'new-summary' });
+        h.repo.put('project', { ...h.core.project(id), latestSummaryId: 'new-summary' });
       if (change === 'unlink') {
         const l = h.core.links(id)[0];
         h.repo.put('link', { ...l, status: 'separate' });
       }
       if (change === 'start-range') {
-        const w = h.core.work(id),
-          c = h.repo.get('connection', w.projectId)!;
+        const w = h.core.project(id),
+          c = h.repo.get('connection', w.connectionId)!;
         h.repo.put('connection', { ...c, revision: c.revision + 1 });
       }
       if (change === 'configuration')
@@ -240,7 +242,7 @@ describe('explanation execution', () => {
     expect(v.job?.repairs).toBe(1);
     expect(counts().generated).toBe(2);
     expect(() =>
-      h.core.explanations.retry(v.revision!.workId, v.job!.id, { requestId: 'retry' }),
+      h.core.explanations.retry(v.revision!.projectId, v.job!.id, { requestId: 'retry' }),
     ).toThrow();
     await h.core.close();
   });
@@ -321,7 +323,7 @@ describe('explanation execution', () => {
       directory = mkdtempSync(join(tmpdir(), 'explanation-db-'));
     try {
       let db = new SQLiteRepository(directory);
-      db.put('work', h.core.work(id));
+      db.put('project', h.core.project(id));
       db.put('explanation', revision);
       db.close();
       db = new SQLiteRepository(directory);

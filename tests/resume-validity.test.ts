@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { StateCarry, buildContinuationPayload, type SessionExecutor } from '@statecarry/core';
-import type { ResumeCandidate, WorkspaceSnapshot } from '@statecarry/contracts';
+import type { AnalysisCandidate, WorkspaceSnapshot } from '@statecarry/contracts';
 import {
   continuationPayload,
   manualContinuation,
-  presentResumeWork,
+  presentProjectAnalysis,
 } from '@statecarry/presentation';
 import { harness, source } from './helpers';
 
@@ -55,14 +55,14 @@ async function prepared(patch: Partial<WorkspaceSnapshot> = {}) {
       threadIds: ['thread-a'],
       discover: false,
     },
-  }).workId;
+  }).projectId;
   const request = source('Review the export check before shipping.', 'thread-a', 'request');
   const proof = {
     ...source('The focused export test passed.', 'thread-a', 'proof'),
     actor: 'tool' as const,
     kind: 'toolResult',
   };
-  const candidate: ResumeCandidate = {
+  const candidate: AnalysisCandidate = {
     key: 'export-check',
     goal: 'Ship the export',
     currentState: 'The export awaits its final check.',
@@ -78,11 +78,11 @@ async function prepared(patch: Partial<WorkspaceSnapshot> = {}) {
   };
   h.records([request, proof]);
   const generate = vi.fn(async () => ({ candidates: [candidate] }));
-  h.summary.generateResume = generate;
-  await core.resumes.refresh(id);
+  h.summary.generateAnalysis = generate;
+  await core.analyses.refresh(id);
   const command = (payload: Record<string, unknown>) => ({
     requestId: core.ids.next(),
-    expectedRevision: core.work(id).revision,
+    expectedRevision: core.project(id).revision,
     payload,
   });
   return {
@@ -104,7 +104,7 @@ async function prepared(patch: Partial<WorkspaceSnapshot> = {}) {
 describe('resume goal and evidence validity', () => {
   it('keeps cited historical evidence readable during a failed read of the same bounded scope', async () => {
     const h = await prepared();
-    const connection = h.core.connection(h.core.work(h.id).projectId);
+    const connection = h.core.connection(h.core.project(h.id).connectionId);
     h.core.updateConnection(
       connection.id,
       h.command({
@@ -117,58 +117,58 @@ describe('resume goal and evidence validity', () => {
         },
       }),
     );
-    await h.core.resumes.refresh(h.id);
+    await h.core.analyses.refresh(h.id);
     h.reader.read = async () => {
       throw new Error('Synthetic read outage');
     };
-    await h.core.resumes.refresh(h.id);
-    const view = h.core.resumes.view(h.id);
+    await h.core.analyses.refresh(h.id);
+    const view = h.core.analyses.view(h.id);
     expect(view).toMatchObject({
       stale: true,
       state: 'limited',
       candidates: [expect.objectContaining({ key: h.candidate.key })],
     });
     expect(h.core.evidence(h.request.id, h.id).text).toBe(h.request.text);
-    expect(presentResumeWork(view).selected?.actionAvailable).toBe(false);
+    expect(presentProjectAnalysis(view).selected?.actionAvailable).toBe(false);
     const unrelated = source('Unrelated historical text', 'thread-a', 'unrelated');
     h.repo.put('source', unrelated);
     expect(h.core.accessibleSource(h.id, unrelated.id)).toBeNull();
-    h.core.resumes.setGoal(h.id, { text: 'A new goal', version: view.version });
+    h.core.analyses.setGoal(h.id, { text: 'A new goal', version: view.version });
     expect(h.core.accessibleSource(h.id, h.request.id)).toBeNull();
-    expect(h.core.resumes.view(h.id).candidates).toEqual([]);
+    expect(h.core.analyses.view(h.id).candidates).toEqual([]);
   });
   it.each(['unavailable workspace', 'changed workspace', 'failed refresh'] as const)(
     'does not retain the old action under a changed goal with %s',
     async (condition) => {
       const h = await prepared();
-      const stored = h.core.work(h.id).resume;
+      const stored = h.core.analysisRecord(h.id)?.result;
       if (condition === 'unavailable workspace') h.inspect({ status: 'unknown' });
       if (condition === 'changed workspace') h.inspect({ commit: 'different-commit' });
       if (condition === 'failed refresh') {
-        h.summary.generateResume = async () => {
+        h.summary.generateAnalysis = async () => {
           throw new Error('Synthetic provider failure');
         };
-        await h.core.resumes.refresh(h.id);
+        await h.core.analyses.refresh(h.id);
       }
-      const view = h.core.resumes.setGoal(h.id, {
+      const view = h.core.analyses.setGoal(h.id, {
         text: 'Investigate a separate billing issue',
-        version: h.core.resumes.view(h.id).version,
+        version: h.core.analyses.view(h.id).version,
       });
       expect(view).toMatchObject({
         goalText: 'Investigate a separate billing issue',
         stale: true,
         candidates: [],
       });
-      expect(presentResumeWork(view).selected).toBeNull();
+      expect(presentProjectAnalysis(view).selected).toBeNull();
       expect(view.stateDetail).toMatch(/goal|scope/i);
       // Invalidation affects the current reading; it does not destroy the saved history.
-      expect(h.core.work(h.id).resume).toEqual(stored);
+      expect(h.core.analysisRecord(h.id)?.result).toEqual(stored);
     },
   );
 
   it('hides the old brief after the connected record range changes and collection is partial', async () => {
     const h = await prepared();
-    const connection = h.core.connection(h.core.work(h.id).projectId);
+    const connection = h.core.connection(h.core.project(h.id).connectionId);
     h.core.updateConnection(
       connection.id,
       h.command({
@@ -186,9 +186,9 @@ describe('resume goal and evidence validity', () => {
       limitations: ['Synthetic partial read'],
     });
     await h.core.collect(h.id);
-    const view = h.core.resumes.view(h.id);
+    const view = h.core.analyses.view(h.id);
     expect(view.candidates).toEqual([]);
-    expect(presentResumeWork(view).selected).toBeNull();
+    expect(presentProjectAnalysis(view).selected).toBeNull();
     expect(h.repo.get('source', h.request.id)?.text).toBe(h.request.text);
   });
 
@@ -196,36 +196,37 @@ describe('resume goal and evidence validity', () => {
     const h = await prepared();
     h.repo.put('source', { ...h.proof, text: 'The original proof is no longer available.' });
     h.inspect({ status: 'unknown' });
-    const view = h.core.resumes.view(h.id);
+    const view = h.core.analyses.view(h.id);
     expect(view).toMatchObject({ stale: true, candidates: [] });
     expect(view.stateDetail).toMatch(/evidence|record/i);
-    expect(presentResumeWork(view).selected).toBeNull();
+    expect(presentProjectAnalysis(view).selected).toBeNull();
   });
 
   it('does not revive an incompatible saved result on an inspection failure', async () => {
     const h = await prepared();
-    const work = h.core.work(h.id);
-    work.resume!.candidates[0].currentState = 'Clipped fragment';
-    h.repo.put('work', work);
+    const work = h.core.project(h.id);
+    const analysis = h.core.analysisRecord(work.id)!;
+    analysis.result.candidates[0].currentState = 'Clipped fragment';
+    h.repo.put('projectAnalysis', analysis);
     h.inspect({ status: 'unknown' });
-    expect(h.core.resumes.view(h.id)).toMatchObject({ stale: true, candidates: [] });
+    expect(h.core.analyses.view(h.id)).toMatchObject({ stale: true, candidates: [] });
   });
 
   it('rejects restoring an old candidate into a new goal scope', async () => {
     const h = await prepared();
-    h.core.resumes.setGoal(h.id, {
+    h.core.analyses.setGoal(h.id, {
       text: 'Investigate billing',
-      version: h.core.resumes.view(h.id).version,
+      version: h.core.analyses.view(h.id).version,
     });
-    const before = h.core.work(h.id).resumeOverrides;
+    const before = h.core.analysisCorrections(h.id);
     expect(() =>
-      h.core.resumes.correct(h.id, {
+      h.core.analyses.correct(h.id, {
         candidateKey: h.candidate.key,
-        version: h.core.resumes.view(h.id).version,
+        version: h.core.analyses.view(h.id).version,
         kind: 'restore',
       }),
     ).toThrowError(expect.objectContaining({ code: 'REVISION_CONFLICT' }));
-    expect(h.core.work(h.id).resumeOverrides).toEqual(before);
+    expect(h.core.analysisCorrections(h.id)).toEqual(before);
   });
 
   it('rejects a late result for the previous goal and never analyzes on a read', async () => {
@@ -243,18 +244,18 @@ describe('resume goal and evidence validity', () => {
       await gate;
       return { candidates: [h.candidate] };
     });
-    h.summary.generateResume = generate;
-    const refreshing = h.core.resumes.refresh(h.id);
+    h.summary.generateAnalysis = generate;
+    const refreshing = h.core.analyses.refresh(h.id);
     await entered;
-    h.core.resumes.setGoal(h.id, {
+    h.core.analyses.setGoal(h.id, {
       text: 'Investigate billing',
-      version: h.core.resumes.view(h.id).version,
+      version: h.core.analyses.view(h.id).version,
     });
     release();
     await refreshing;
-    expect(h.core.resumes.view(h.id)).toMatchObject({ candidates: [], stale: true });
-    expect(h.core.resumes.view(h.id).error).toContain('changed');
-    h.core.resumes.list();
+    expect(h.core.analyses.view(h.id)).toMatchObject({ candidates: [], stale: true });
+    expect(h.core.analyses.view(h.id).error).toContain('changed');
+    h.core.analyses.list();
     expect(generate).toHaveBeenCalledTimes(1);
   });
 });
@@ -263,9 +264,9 @@ describe('inspection limits and actual action blockers', () => {
   it('retains inspection limits without requiring another identical analysis to continue', async () => {
     const h = await prepared({ limitations: [inspectionLimit] });
     for (let visit = 0; visit < 2; visit++) {
-      const view = h.core.resumes.view(h.id);
+      const view = h.core.analyses.view(h.id);
       expect(view).toMatchObject({ state: 'ready', stale: false, updatesAvailable: false });
-      const presented = presentResumeWork(view);
+      const presented = presentProjectAnalysis(view);
       expect(presented.status.canAct).toBe(true);
       expect(presented.selected?.actionAvailable).toBe(true);
       expect(presented.blockedActions).toEqual([]);
@@ -274,15 +275,15 @@ describe('inspection limits and actual action blockers', () => {
         manualContinuation(presented.selected!, view)?.payload.constraints.length,
       ).toBeGreaterThan(0);
       expect(buildContinuationPayload(view.candidates[0], view)).not.toBeNull();
-      if (visit === 0) await h.core.resumes.refresh(h.id);
+      if (visit === 0) await h.core.analyses.refresh(h.id);
     }
     expect(h.generate).toHaveBeenCalledTimes(2);
   });
 
   it('permits the same bounded candidate through preparation and sending without dropping its constraints', async () => {
     const h = await prepared({ limitations: [inspectionLimit] });
-    const view = h.core.resumes.view(h.id);
-    const payload = continuationPayload(presentResumeWork(view).selected!, view);
+    const view = h.core.analyses.view(h.id);
+    const payload = continuationPayload(presentProjectAnalysis(view).selected!, view);
     expect(payload).not.toBeNull();
     const request = h.core.continuations.prepare(
       h.id,
@@ -307,10 +308,10 @@ describe('inspection limits and actual action blockers', () => {
         await h.core.projects.observe(h.id, 'en', undefined, false);
       }
       if (condition === 'failed refresh') {
-        h.summary.generateResume = async () => {
+        h.summary.generateAnalysis = async () => {
           throw new Error('Synthetic failure');
         };
-        await h.core.resumes.refresh(h.id);
+        await h.core.analyses.refresh(h.id);
       }
       if (condition === 'new records') {
         h.records([
@@ -320,8 +321,8 @@ describe('inspection limits and actual action blockers', () => {
         ]);
         await h.core.collect(h.id);
       }
-      const view = h.core.resumes.view(h.id);
-      const presented = presentResumeWork(view);
+      const view = h.core.analyses.view(h.id);
+      const presented = presentProjectAnalysis(view);
       expect(presented.selected?.key).toBe(h.candidate.key);
       expect(presented.selected?.actionAvailable).toBe(false);
       expect(presented.selected?.statusLabel).not.toBe('Ready for the next action');
@@ -349,10 +350,10 @@ describe('inspection limits and actual action blockers', () => {
   it('keeps an explicit Core action block even when a caller also labels the work ready', async () => {
     const h = await prepared();
     const view = {
-      ...h.core.resumes.view(h.id),
+      ...h.core.analyses.view(h.id),
       blockedActions: ['Confirm the required input first.'],
     };
-    expect(presentResumeWork(view).selected?.actionAvailable).toBe(false);
+    expect(presentProjectAnalysis(view).selected?.actionAvailable).toBe(false);
     expect(buildContinuationPayload(view.candidates[0], view)).toBeNull();
   });
 });

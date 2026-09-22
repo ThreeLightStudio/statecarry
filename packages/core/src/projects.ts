@@ -5,6 +5,7 @@ import {
   projectSourcesSchema,
   projectDeletionSchema,
   workspaceSnapshotSchema,
+  workingTreeGroupKey,
   type Command,
   type Connection,
   type ProjectObservation,
@@ -13,8 +14,8 @@ import {
   type ProjectWorkspace,
   type ProjectWorkspaceEntry,
   type Receipt,
-  type ResumeWork,
-  type Work,
+  type AnalysisWork,
+  type ProjectRecord,
   type WorkingTreeAnalysis,
   type WorkingTreeAnalysisRecord,
   type WorkspaceInspectionHints,
@@ -29,10 +30,10 @@ export class Projects {
   private workingTreeAnalysisPending = new Map<string, { promise: Promise<WorkingTreeAnalysis> }>();
   constructor(private core: StateCarry) {}
 
-  private hash(action: string, workId: string | null, command: Command) {
+  private hash(action: string, projectId: string | null, command: Command) {
     return this.core.ids.hash({
       action,
-      workId,
+      projectId,
       expectedRevision: command.expectedRevision,
       payload: command.payload,
     });
@@ -49,25 +50,24 @@ export class Projects {
     return previous;
   }
 
-  private connection(work: Work): Connection {
-    const connection = this.core.repo.get('connection', work.projectId);
-    if (!connection || connection.workId !== work.id)
+  private connection(work: ProjectRecord): Connection {
+    const connection = this.core.repo.get('connection', work.connectionId);
+    if (!connection || connection.projectId !== work.id)
       throw new DomainError('NOT_FOUND', 'Project connection not found.', 404);
     return connection;
   }
 
-  private profile(work: Work): ProjectProfile {
-    const profile = work.projectProfile;
+  private profile(work: ProjectRecord): ProjectProfile {
     return {
-      title: profile?.title ?? this.connection(work).title,
-      purpose: profile?.purpose ?? '',
-      focused: profile?.focused ?? false,
-      iconAsset: profile?.iconAsset ?? null,
-      bannerAsset: profile?.bannerAsset ?? null,
+      title: work.title,
+      purpose: work.purposes.map((purpose) => purpose.text).join('\n'),
+      focused: work.focused,
+      iconAsset: work.iconAsset,
+      bannerAsset: work.bannerAsset,
     };
   }
 
-  private revision(work: Work, command: Command) {
+  private revision(work: ProjectRecord, command: Command) {
     if (work.revision !== command.expectedRevision)
       throw new DomainError(
         'REVISION_CONFLICT',
@@ -76,12 +76,18 @@ export class Projects {
       );
   }
 
-  private receipt(command: Command, hash: string, action: string, work: Work, resultId: string) {
+  private receipt(
+    command: Command,
+    hash: string,
+    action: string,
+    work: ProjectRecord,
+    resultId: string,
+  ) {
     const receipt: Receipt = {
       id: command.requestId,
       command: action,
       bodyHash: hash,
-      workId: work.id,
+      projectId: work.id,
       committedRevision: work.revision,
       resultId,
       createdAt: this.core.clock.now(),
@@ -91,22 +97,22 @@ export class Projects {
   }
 
   private commit(
-    workId: string,
+    projectId: string,
     action: string,
     command: Command,
-    change: (work: Work, connection: Connection) => void,
+    change: (work: ProjectRecord, connection: Connection) => void,
     topic?: 'profile' | 'sources' | 'observation' | 'working-tree-analysis' | 'overview',
   ): Receipt {
-    const hash = this.hash(action, workId, command);
+    const hash = this.hash(action, projectId, command);
     const result = this.core.repo.transaction(() => {
       const previous = this.replay(command, hash);
       if (previous) return previous;
-      const work = this.core.work(workId);
+      const work = this.core.project(projectId);
       this.revision(work, command);
       change(work, this.connection(work));
-      return this.receipt(command, hash, action, this.core.work(workId), work.projectId);
+      return this.receipt(command, hash, action, this.core.project(projectId), work.connectionId);
     });
-    this.core.events.changed(workId, topic);
+    this.core.events.changed(projectId, topic);
     return result;
   }
 
@@ -137,7 +143,7 @@ export class Projects {
       recentCommits: snapshot.recentCommits ?? [],
       fileFingerprint: snapshot.fileFingerprint ?? snapshot.fingerprint ?? null,
       inventoryFingerprint: snapshot.inventoryFingerprint ?? null,
-      files: (snapshot.files ?? snapshot.fileObservations ?? []).map((file) => ({
+      files: (snapshot.files ?? []).map((file) => ({
         path: file.path,
         hash: file.hash,
         size: file.size ?? null,
@@ -158,28 +164,51 @@ export class Projects {
       untrackedCount: snapshot.untrackedCount ?? 0,
       diffPreview: snapshot.diffPreview ?? '',
       fileFingerprint: snapshot.fileFingerprint ?? snapshot.fingerprint ?? null,
-      files: (snapshot.files ?? snapshot.fileObservations ?? []).map((file) => ({
-        path: file.path,
-        hash: file.hash,
-      })),
+      files: (snapshot.files ?? []).map((file) => ({ path: file.path, hash: file.hash })),
     });
   }
 
+  private executionResults(work: ProjectRecord, observation: ProjectObservation) {
+    return (this.core.repo.get('projectExecution', work.id)?.requests ?? [])
+      .slice(-5)
+      .flatMap((id) => {
+        const comparison = this.core.repo.get('projectExecution', work.id)?.comparisons[id];
+        const request = this.core.repo.get('continuation', id);
+        if (!comparison || !request) return [];
+        return [
+          {
+            requestId: id,
+            source: request.externalReport ? ('user-report' as const) : ('agent-report' as const),
+            report: (request.externalReport ?? request.execution?.report ?? '').slice(0, 8000),
+            doneWhen: request.target.payload.doneWhen,
+            checks: request.execution?.checks ?? [],
+            current:
+              this.core.repo.get('projectScope', work.id)?.observedWorkspaceBasis ===
+                observation.semanticKey &&
+              this.core.repo.get('projectScope', work.id)?.observation?.basis === comparison.basis,
+            accepted:
+              this.core.repo.get('projectExecution', work.id)?.accepted.includes(id) ?? false,
+          },
+        ];
+      });
+  }
+
   private semanticKey(
-    work: Work,
+    work: ProjectRecord,
     observation: ProjectObservation,
     outputLanguage: 'en' | 'ko',
   ): string {
     return this.core.ids.hash({
       evidence: observation.semanticKey,
+      executionResults: this.executionResults(work, observation),
       outputLanguage,
       projectTitle: this.profile(work).title,
       analysis: this.core.summary.configuration(),
     });
   }
 
-  private analysisRecordId(workId: string, semanticKey: string): string {
-    return this.core.ids.hash(['working-tree-analysis', workId, semanticKey]);
+  private analysisRecordId(projectId: string, semanticKey: string): string {
+    return this.core.ids.hash(['working-tree-analysis', projectId, semanticKey]);
   }
 
   private withoutAnalysis(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
@@ -200,41 +229,27 @@ export class Projects {
     };
   }
 
-  latestObservation(workId: string): ProjectObservation | null {
-    const stored = this.core.repo.get('projectObservation', workId);
-    if (stored) return stored;
-    const legacy = this.core.repo.get('work', workId)?.resume?.workspaceAfter;
-    const parsed = workspaceSnapshotSchema.safeParse(legacy);
-    if (!parsed.success) return null;
-    const snapshot = this.withoutAnalysis(parsed.data);
-    return {
-      id: workId,
-      workId,
-      checkedAt: snapshot.checkedAt,
-      probeKey: this.core.ids.hash(['legacy-project-observation', workId, snapshot.checkedAt]),
-      inspectionKey: this.inspectionKey(snapshot),
-      semanticKey: this.semanticEvidenceKey(snapshot),
-      snapshot,
-    };
+  latestObservation(projectId: string): ProjectObservation | null {
+    return this.core.repo.get('projectObservation', projectId);
   }
 
-  latestSnapshot(workId: string, outputLanguage: 'en' | 'ko' = 'en'): WorkspaceSnapshot {
-    const work = this.core.work(workId);
+  latestSnapshot(projectId: string, outputLanguage: 'en' | 'ko' = 'en'): WorkspaceSnapshot {
+    const work = this.core.project(projectId);
     const connection = this.connection(work);
-    const observation = this.latestObservation(workId);
+    const observation = this.latestObservation(projectId);
     if (!observation) return this.unknownSnapshot(connection.cwd);
     const snapshot = this.withoutAnalysis(observation.snapshot);
     if (!snapshot.dirty) return snapshot;
     const semanticKey = this.semanticKey(work, observation, outputLanguage);
     const record = this.core.repo.get(
       'workingTreeAnalysis',
-      this.analysisRecordId(workId, semanticKey),
+      this.analysisRecordId(projectId, semanticKey),
     );
     return record ? { ...snapshot, workingTreeAnalysis: record.result } : snapshot;
   }
 
   private async analyzeObservation(
-    work: Work,
+    work: ProjectRecord,
     observation: ProjectObservation,
     outputLanguage: 'en' | 'ko',
   ): Promise<WorkspaceSnapshot> {
@@ -251,18 +266,59 @@ export class Projects {
         projectTitle: this.profile(work).title,
         outputLanguage,
         snapshot,
+        executionResults: this.executionResults(work, observation),
       });
       this.workingTreeAnalysisPending.set(recordId, { promise });
-      const result = await promise;
+      const rawResult = await promise;
+      const previous = this.core.repo
+        .list('workingTreeAnalysis')
+        .filter((item) => item.projectId === work.id)
+        .sort((a, b) => b.generatedAt.localeCompare(a.generatedAt))[0];
+      const pathKey = (files: string[]) => JSON.stringify([...files].sort());
+      const result = {
+        ...rawResult,
+        groups: rawResult.groups.map((group) => {
+          const matches =
+            previous?.result.groups.filter((old) => pathKey(old.files) === pathKey(group.files)) ??
+            [];
+          const unique =
+            rawResult.groups.filter((other) => pathKey(other.files) === pathKey(group.files))
+              .length === 1;
+          return {
+            ...group,
+            id:
+              unique && matches.length === 1 && matches[0].id
+                ? matches[0].id
+                : this.core.ids.next(),
+          };
+        }),
+      };
+
       const record: WorkingTreeAnalysisRecord = {
         id: recordId,
-        workId: work.id,
+        projectId: work.id,
         semanticKey,
         outputLanguage,
         result,
         generatedAt: this.core.clock.now(),
       };
       this.core.repo.put('workingTreeAnalysis', record);
+      this.core.workMatcher.replaceProposals(
+        work.id,
+        'working-tree-group',
+        record.result.groups.map((group) => ({
+          key: workingTreeGroupKey(group),
+          source: 'working-tree-group',
+          title: group.title,
+          state: 'active',
+          currentState: group.currentState,
+          uncertainty: group.openItems[0] ?? null,
+          nextAction: group.suggestedNextStep,
+          doneWhen: group.doneWhen,
+          evidenceBasis: observation.semanticKey,
+        })),
+        outputLanguage,
+      );
       this.core.events.changed(work.id, 'working-tree-analysis');
       return { ...snapshot, workingTreeAnalysis: result };
     } catch (error) {
@@ -280,22 +336,22 @@ export class Projects {
   }
 
   async analyzeLatest(
-    workId: string,
+    projectId: string,
     outputLanguage: 'en' | 'ko' = 'en',
   ): Promise<WorkspaceSnapshot> {
-    const work = this.core.work(workId);
-    const observation = this.latestObservation(workId);
-    if (!observation) return this.latestSnapshot(workId, outputLanguage);
+    const work = this.core.project(projectId);
+    const observation = this.latestObservation(projectId);
+    if (!observation) return this.latestSnapshot(projectId, outputLanguage);
     return this.analyzeObservation(work, observation, outputLanguage);
   }
 
   async observe(
-    workId: string,
+    projectId: string,
     outputLanguage: 'en' | 'ko' = 'en',
     hints?: WorkspaceInspectionHints,
     analyze = true,
   ): Promise<WorkspaceSnapshot> {
-    const work = this.core.work(workId);
+    const work = this.core.project(projectId);
     const connection = this.connection(work);
     const inspector = this.core.projectInspector;
     if (!inspector)
@@ -303,7 +359,7 @@ export class Projects {
         'CAPABILITY_UNSUPPORTED',
         'Project workspace inspection is unavailable.',
       );
-    const previous = this.latestObservation(workId);
+    const previous = this.latestObservation(projectId);
     let probeKey: string;
     let snapshot: WorkspaceSnapshot;
     if (inspector.probeAsync || inspector.probe) {
@@ -337,8 +393,8 @@ export class Projects {
     }
     snapshot = this.withoutAnalysis(snapshot);
     const observation: ProjectObservation = {
-      id: workId,
-      workId,
+      id: projectId,
+      projectId,
       checkedAt: snapshot.checkedAt,
       probeKey,
       inspectionKey: this.inspectionKey(snapshot),
@@ -347,7 +403,7 @@ export class Projects {
     };
     this.core.repo.put('projectObservation', observation);
     if (previous?.inspectionKey !== observation.inspectionKey)
-      this.core.events.changed(workId, 'observation');
+      this.core.events.changed(projectId, 'observation');
     return analyze
       ? this.analyzeObservation(work, observation, outputLanguage)
       : observation.snapshot;
@@ -355,11 +411,11 @@ export class Projects {
 
   registrations(): ProjectRegistrations {
     return {
-      projects: this.core.repo.list('work').map((work) => {
+      projects: this.core.repo.list('project').map((work) => {
         const connection = this.connection(work);
         const profile = this.profile(work);
         return {
-          workId: work.id,
+          projectId: work.id,
           connectionId: connection.id,
           ...profile,
           cwd: connection.cwd,
@@ -374,25 +430,31 @@ export class Projects {
     return {
       // Registration order is stable. Only the user's explicit focus is stored;
       // this service does not invent an attention score or a priority ranking.
-      projects: this.core.repo.list('work').map((work): ProjectWorkspaceEntry => {
+      projects: this.core.repo.list('project').map((work): ProjectWorkspaceEntry => {
         const connection = this.connection(work);
         const profile = this.profile(work);
-        let resume: ResumeWork | null = null;
+        let analysis: AnalysisWork | null = null;
         let decisions = { acceptedKeys: [] as string[], pausedKeys: [] as string[] };
         if (this.core.isConnectionActive(connection)) {
           try {
-            resume = this.core.resumes.view(work.id);
-            decisions = this.core.resumes.decisionKeys(work.id, resume.candidates);
+            analysis = this.core.analyses.view(work.id);
+            decisions = this.core.analyses.decisionKeys(work.id, analysis.candidates);
           } catch {
             // Preparation/read failures never turn a raw error or model response
             // into the explanation, and never erase manually supplied context.
-            resume = {
-              workId: work.id,
+            analysis = {
+              projectId: work.id,
               title: profile.title,
               cwd: connection.cwd,
               revision: work.revision,
-              goalText: work.goal?.origin === 'user-input' ? work.goal.text : null,
-              goalOrigin: work.goal?.origin === 'user-input' ? 'user-input' : 'inferred',
+              goalText:
+                this.core.directionIntent(work.id)?.origin === 'user-input'
+                  ? this.core.directionIntent(work.id)!.text
+                  : null,
+              goalOrigin:
+                this.core.directionIntent(work.id)?.origin === 'user-input'
+                  ? 'user-input'
+                  : 'inferred',
               sessionCount: this.core.links(work.id).filter((link) => link.status === 'linked')
                 .length,
               state: 'unavailable',
@@ -401,7 +463,7 @@ export class Projects {
               blockedActions: ['Check the connected records before continuing.'],
               version: '',
               candidates: [],
-              busy: this.core.resumes.isRunning(work.id),
+              busy: this.core.analyses.isRunning(work.id),
               error: 'The saved context could not be checked.',
               stale: true,
               updatesAvailable: false,
@@ -412,7 +474,7 @@ export class Projects {
           }
         }
         return {
-          workId: work.id,
+          projectId: work.id,
           connectionId: connection.id,
           ...profile,
           focused: profile.focused,
@@ -421,14 +483,14 @@ export class Projects {
           disconnectedAt: connection.removedAt ?? null,
           ...decisions,
           collecting: this.core.isCollecting(work.id),
-          resume,
+          analysis,
         };
       }),
     };
   }
 
-  async workspace(workId: string, outputLanguage: 'en' | 'ko' = 'en') {
-    return this.latestSnapshot(workId, outputLanguage);
+  async workspace(projectId: string, outputLanguage: 'en' | 'ko' = 'en') {
+    return this.latestSnapshot(projectId, outputLanguage);
   }
 
   create(command: Command): Receipt {
@@ -460,41 +522,46 @@ export class Projects {
         );
       const existing = matches[0];
       if (existing) {
-        const work = this.core.work(existing.workId);
-        if (work.projectId !== existing.id)
+        const work = this.core.project(existing.projectId);
+        if (work.connectionId !== existing.id)
           throw new DomainError('NOT_FOUND', 'Project connection not found.', 404);
         return {
           receipt: this.receipt(command, hash, 'project-reuse', work, existing.id),
           created: false,
         };
       }
-      const workId = this.core.ids.next();
+      const projectId = this.core.ids.next();
       const connectionId = this.core.ids.next();
       const now = this.core.clock.now();
-      const work: Work = {
-        id: workId,
-        projectId: connectionId,
+      const work: ProjectRecord = {
+        id: projectId,
+        connectionId: connectionId,
         title: input.title,
-        projectProfile: {
-          title: input.title,
-          purpose: input.purpose,
-          focused: false,
-          iconAsset: null,
-          bannerAsset: null,
-        },
-        ...(input.goal
-          ? { goal: { text: input.goal, origin: 'user-input' as const, confirmedAt: now } }
-          : {}),
+        cwd,
+        purposes: input.purpose
+          ? [
+              {
+                id: this.core.ids.hash(['project-purpose', projectId]),
+                text: input.purpose,
+                origin: 'user',
+                confirmed: true,
+              },
+            ]
+          : [],
+        focused: false,
+        iconAsset: null,
+        bannerAsset: null,
+        lifecycle: 'active',
         revision: 1,
         linkVersion: 1,
         inputVersion: '',
         latestSummaryId: null,
         createdAt: now,
       };
-      this.core.repo.put('work', work);
+      this.core.repo.put('project', work);
       this.core.repo.put('connection', {
         id: connectionId,
-        workId,
+        projectId,
         title: input.title,
         cwd,
         threadIds: [...new Set(input.threadIds)],
@@ -504,10 +571,11 @@ export class Projects {
         revision: 1,
         createdAt: now,
       });
+      if (input.goal) this.core.projectModel.setDirection(projectId, input.goal, false, false);
       for (const threadId of new Set(input.threadIds))
         this.core.repo.put('link', {
-          id: this.core.ids.hash([workId, threadId]),
-          workId,
+          id: this.core.ids.hash([projectId, threadId]),
+          projectId,
           threadId,
           title: threadId,
           status: 'linked',
@@ -522,21 +590,21 @@ export class Projects {
         created: true,
       };
     });
-    if (result.created) this.core.events.changed(result.receipt.workId);
+    if (result.created) this.core.events.changed(result.receipt.projectId);
     return result.receipt;
   }
 
-  settings(workId: string, command: Command): Receipt {
+  settings(projectId: string, command: Command): Receipt {
     const profile = projectProfileSchema.parse(command.payload);
     return this.commit(
-      workId,
+      projectId,
       'project-settings',
       command,
       (work, connection) => {
         if (profile.focused && !this.profile(work).focused) {
           const focused = this.core.repo
-            .list('work')
-            .filter((other) => other.id !== workId && other.projectProfile?.focused);
+            .list('project')
+            .filter((other) => other.id !== projectId && other.focused);
           if (focused.length >= 3)
             throw new DomainError(
               'VALIDATION',
@@ -544,10 +612,15 @@ export class Projects {
               409,
             );
         }
-        this.core.repo.put('work', {
+        this.core.repo.put('project', {
           ...work,
           title: profile.title,
-          projectProfile: profile,
+          purposes: profile.purpose
+            ? [{ id: 'primary-purpose', text: profile.purpose, origin: 'user', confirmed: true }]
+            : [],
+          focused: profile.focused,
+          iconAsset: profile.iconAsset ?? null,
+          bannerAsset: profile.bannerAsset ?? null,
           revision: work.revision + 1,
         });
         this.core.repo.put('connection', { ...connection, title: profile.title });
@@ -556,12 +629,12 @@ export class Projects {
     );
   }
 
-  sources(workId: string, command: Command): Receipt {
+  sources(projectId: string, command: Command): Receipt {
     const input = projectSourcesSchema.parse(command.payload);
-    const hash = this.hash('project-sources', workId, command);
+    const hash = this.hash('project-sources', projectId, command);
     const previous = this.replay(command, hash);
     if (previous) return previous;
-    const work = this.core.work(workId);
+    const work = this.core.project(projectId);
     const connection = this.connection(work);
     const result = this.core.updateConnectionScope(
       connection.id,
@@ -580,15 +653,15 @@ export class Projects {
             }).filter(([id]) => input.threadIds.includes(id)),
           ),
       },
-      workId,
+      projectId,
     );
-    this.core.questions.forgetWork(workId);
+    this.core.questions.forgetWork(projectId);
     return result;
   }
 
-  disconnect(workId: string, command: Command): Receipt {
+  disconnect(projectId: string, command: Command): Receipt {
     this.emptyPayload(command);
-    const result = this.commit(workId, 'project-disconnect', command, (work, connection) => {
+    const result = this.commit(projectId, 'project-disconnect', command, (work, connection) => {
       if (connection.removedAt)
         throw new DomainError('VALIDATION', 'This project is already disconnected.');
       this.core.repo.put('connection', {
@@ -596,19 +669,19 @@ export class Projects {
         removedAt: this.core.clock.now(),
         revision: connection.revision + 1,
       });
-      this.core.repo.put('work', {
+      this.core.repo.put('project', {
         ...work,
-        projectProfile: { ...this.profile(work) },
+        lifecycle: 'disconnected',
         revision: work.revision + 1,
       });
     });
-    this.core.questions.forgetWork(workId);
+    this.core.questions.forgetWork(projectId);
     return result;
   }
 
-  restore(workId: string, command: Command): Receipt {
+  restore(projectId: string, command: Command): Receipt {
     this.emptyPayload(command);
-    return this.commit(workId, 'project-restore', command, (work, connection) => {
+    return this.commit(projectId, 'project-restore', command, (work, connection) => {
       if (!connection.removedAt)
         throw new DomainError('VALIDATION', 'This project is already connected.');
       this.core.repo.put('connection', {
@@ -616,11 +689,7 @@ export class Projects {
         removedAt: null,
         revision: connection.revision + 1,
       });
-      this.core.repo.put('work', {
-        ...work,
-        projectProfile: { ...this.profile(work) },
-        revision: work.revision + 1,
-      });
+      this.core.repo.put('project', { ...work, lifecycle: 'active', revision: work.revision + 1 });
     });
   }
 
@@ -629,19 +698,19 @@ export class Projects {
       throw new DomainError('VALIDATION', 'This action does not accept additional settings.');
   }
 
-  deletionPreview(workId: string) {
-    return projectDeletionPlan(this.core, workId).preview;
+  deletionPreview(projectId: string) {
+    return projectDeletionPlan(this.core, projectId).preview;
   }
 
-  delete(workId: string, command: Command): Receipt {
+  delete(projectId: string, command: Command): Receipt {
     const input = projectDeletionSchema.parse(command.payload);
-    const hash = this.hash('project-delete', workId, command);
+    const hash = this.hash('project-delete', projectId, command);
     const result = this.core.repo.transaction(() => {
       const previous = this.replay(command, hash);
       if (previous) return previous;
-      const work = this.core.work(workId);
+      const work = this.core.project(projectId);
       this.revision(work, command);
-      const plan = projectDeletionPlan(this.core, workId);
+      const plan = projectDeletionPlan(this.core, projectId);
       if (plan.preview.blocked)
         throw new DomainError('PROJECT_BUSY', plan.preview.explanation, 409);
       if (input.token !== plan.preview.token)
@@ -651,20 +720,20 @@ export class Projects {
           409,
         );
       for (const { kind, entity } of plan.rows)
-        if (kind !== 'work') this.core.repo.remove(kind, entity.id);
+        if (kind !== 'project') this.core.repo.remove(kind, entity.id);
       for (const source of plan.exclusive) this.core.repo.remove('source', source.id);
-      this.core.repo.remove('work', workId);
+      this.core.repo.remove('project', projectId);
       return this.receipt(
         command,
         hash,
         'project-delete',
         { ...work, revision: work.revision + 1 },
-        workId,
+        projectId,
       );
     });
-    this.core.questions.forgetWork(workId);
-    this.core.resumes.forget(workId);
-    this.core.events.changed(workId);
+    this.core.questions.forgetWork(projectId);
+    this.core.analyses.forget(projectId);
+    this.core.events.changed(projectId);
     return result;
   }
 }

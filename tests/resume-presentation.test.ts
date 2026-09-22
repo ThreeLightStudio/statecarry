@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   manualContinuation,
   manualContinuationText,
-  presentResumeWork,
+  presentProjectAnalysis,
   presentCoordination,
   continuationText,
   presentResumeProgress,
-  resumeWorkStatus,
-  type ResumeWork,
+  analysisWorkStatus,
+  type AnalysisWork,
 } from '@statecarry/presentation';
 
 const candidate = {
@@ -29,9 +29,9 @@ const candidate = {
   },
 };
 
-function work(patch: Partial<ResumeWork> = {}): ResumeWork {
+function work(patch: Partial<AnalysisWork> = {}): AnalysisWork {
   return {
-    workId: 'work-a',
+    projectId: 'work-a',
     title: 'Export fix',
     cwd: '/project',
     version: 'v1',
@@ -64,11 +64,11 @@ describe('resume presentation status', () => {
     ['limited when the brief time is unknown', work({ generatedAt: null }), 'limited'],
     ['failed when the latest check failed', work({ error: 'offline' }), 'failed'],
   ])('%s', (_name, value, expected) => {
-    expect(resumeWorkStatus(value as ResumeWork).state).toBe(expected);
+    expect(analysisWorkStatus(value as AnalysisWork).state).toBe(expected);
   });
 
   it('keeps the state decision and blocked actions in the UI-independent view model', () => {
-    const view = presentResumeWork(work({ updatesAvailable: true }));
+    const view = presentProjectAnalysis(work({ updatesAvailable: true }));
     expect(view.state).toBe('limited');
     expect(view.status.canAct).toBe(false);
     expect(view.blockedActions).toContain('send-continuation');
@@ -78,7 +78,7 @@ describe('resume presentation status', () => {
   });
 
   it('does not expose a new-session target while the work is limited', () => {
-    const view = presentResumeWork(
+    const view = presentProjectAnalysis(
       work({
         session: {
           create: 'supported',
@@ -104,11 +104,11 @@ describe('resume presentation status', () => {
         { ...candidate, status: 'waiting', nextAction: null, doneWhen: null, actionSource: null },
       ],
     });
-    expect(presentResumeWork(value).selected?.target.newSession.available).toBe(false);
+    expect(presentProjectAnalysis(value).selected?.target.newSession.available).toBe(false);
   });
 
   it('preserves a producer-provided explanation and blocked action policy', () => {
-    const view = presentResumeWork(
+    const view = presentProjectAnalysis(
       work({
         state: 'limited',
         stateDetail: 'The project check is still running.',
@@ -122,11 +122,11 @@ describe('resume presentation status', () => {
   });
 
   it('does not call an empty explicitly-ready work item ready', () => {
-    expect(resumeWorkStatus(work({ state: 'ready', candidates: [] })).state).toBe('empty');
+    expect(analysisWorkStatus(work({ state: 'ready', candidates: [] })).state).toBe('empty');
   });
 
   it('does not repeat a ready explanation after newer records require review', () => {
-    const result = resumeWorkStatus(
+    const result = analysisWorkStatus(
       work({ state: 'ready', stateDetail: 'This brief is ready to use.', updatesAvailable: true }),
     );
     expect(result.canAct).toBe(false);
@@ -134,7 +134,7 @@ describe('resume presentation status', () => {
   });
 
   it('keeps a retained brief in the limited state after a check error', () => {
-    const view = presentResumeWork(
+    const view = presentProjectAnalysis(
       work({
         state: 'limited',
         error: 'A connected record could not be read.',
@@ -150,7 +150,7 @@ describe('resume presentation status', () => {
 describe('manual continuation', () => {
   it('builds stable pasteable text from the same payload used by a session handoff', () => {
     const current = work({ goalText: 'Ship the export fix' });
-    const view = presentResumeWork(current).selected!;
+    const view = presentProjectAnalysis(current).selected!;
     const handoff = manualContinuation(view, current)!;
     expect(handoff.payload.goal).toBe('Ship the export fix');
     expect(handoff.text).toBe(
@@ -176,7 +176,7 @@ describe('manual continuation', () => {
     const current = work({
       candidates: [{ ...candidate, nextAction: null, doneWhen: null, actionSource: null }],
     });
-    const view = presentResumeWork(current).selected!;
+    const view = presentProjectAnalysis(current).selected!;
     expect(manualContinuation(view, current)).toBeNull();
     expect(manualContinuationText(view, current)).toBeNull();
   });
@@ -187,14 +187,14 @@ describe('manual continuation', () => {
         { ...candidate, status: 'done', nextAction: 'Run it again', doneWhen: 'It passes' },
       ],
     });
-    const view = presentResumeWork(current).selected!;
+    const view = presentProjectAnalysis(current).selected!;
     expect(manualContinuationText(view, current)).toBeNull();
   });
 });
 
 describe('goal-oriented progress presentation', () => {
   it('keeps the recorded current state and reason instead of replacing them with evidence counts', () => {
-    const view = presentResumeWork(work()).selected!;
+    const view = presentProjectAnalysis(work()).selected!;
     const summary = presentResumeProgress(view);
     expect(summary.completed).toBe(candidate.currentState);
     expect(summary.completed).not.toMatch(/\b\d+\b/);

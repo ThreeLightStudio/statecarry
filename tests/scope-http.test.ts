@@ -140,29 +140,28 @@ describe('actual loopback HTTP contract with simulated provider', () => {
       expect((await call('/projects', 'GET', undefined, { Host: 'foreign.test' })).status).toBe(
         403,
       );
-      expect((await call('/connections', 'POST', {})).status).toBe(400);
+      expect((await call('/projects', 'POST', {})).status).toBe(400);
       const input = {
         requestId: 'connect-once',
         expectedRevision: 0,
         payload: {
           title: 'HTTP test',
+          purpose: 'Verify the project HTTP contract.',
           cwd: '/tmp/example',
           threadIds: ['thread-a'],
           startTurnIds: {},
           discover: false,
         },
       };
-      const first = await call('/connections', 'POST', input);
+      const first = await call('/projects', 'POST', input);
       expect(first.status).toBe(200);
-      expect((await call('/connections', 'POST', input)).body).toEqual(first.body);
-      expect((await call('/commands/connect-once')).body.id).toBe('connect-once');
+      expect((await call('/projects', 'POST', input)).body).toEqual(first.body);
+      expect((await call(`/projects/${first.body.projectId}/commands/connect-once`)).body.id).toBe(
+        'connect-once',
+      );
       expect(
-        (
-          await call(`/work-contexts/${first.body.workId}/execute`, 'POST', {
-            ...input,
-            payload: {},
-          })
-        ).status,
+        (await call(`/projects/${first.body.projectId}/execute`, 'POST', { ...input, payload: {} }))
+          .status,
       ).toBe(404);
       expect((await call('/messages/send', 'POST', { ...input, payload: {} })).status).toBe(404);
     } finally {

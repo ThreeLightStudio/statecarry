@@ -4,11 +4,11 @@ import type {
   Freshness,
   Link,
   SummaryRevision,
-  Work,
+  ProjectRecord,
 } from '@statecarry/contracts';
 
 export function assessFreshness(
-  work: Work,
+  work: ProjectRecord,
   connection: Connection,
   links: Link[],
   checkpoints: Checkpoint[],

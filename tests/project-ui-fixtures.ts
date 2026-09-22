@@ -1,16 +1,18 @@
+import { projectNowBundle, requiredProjectGateway } from './project-gateway-fixture';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { expect, vi } from 'vitest';
 import type {
   ProjectGateway,
+  ProjectNowBundle,
   ProjectWorkspace,
   ProjectWorkspaceEntry,
-  ResumeGateway,
-  ResumeMemory,
+  AnalysisGateway,
+  AnalysisMemory,
 } from '@statecarry/presentation';
 import type { Capabilities, Receipt, WorkspaceSnapshot } from '@statecarry/contracts';
 import { Root } from '../apps/web/src/Root';
-import { LocalResumeMemory } from '../apps/web/src/adapters/resume-memory';
+import { LocalProjectDraftMemory } from '../apps/web/src/adapters/project-draft-memory';
 import { source } from './helpers';
 
 const requireWeb = createRequire(resolve('apps/web/package.json'));
@@ -23,7 +25,7 @@ export const now = '2026-09-15T10:00:00Z';
 
 export function projectEntry(id = 'alpha'): ProjectWorkspaceEntry {
   return {
-    workId: id,
+    projectId: id,
     connectionId: `connection-${id}`,
     title: `Project ${id}`,
     cwd: `/synthetic/${id}`,
@@ -33,8 +35,8 @@ export function projectEntry(id = 'alpha'): ProjectWorkspaceEntry {
     disconnectedAt: null,
     acceptedKeys: [],
     pausedKeys: [],
-    resume: {
-      workId: id,
+    analysis: {
+      projectId: id,
       title: `Project ${id}`,
       cwd: `/synthetic/${id}`,
       version: 'resume-v1',
@@ -81,7 +83,7 @@ export function testReceipt(id: string, revision = 8): Receipt {
     id: `receipt-${id}`,
     command: 'ui-test',
     bodyHash: 'test',
-    workId: id,
+    projectId: id,
     committedRevision: revision,
     resultId: id,
     createdAt: now,
@@ -114,6 +116,7 @@ export function projectUiFixture(entries = [projectEntry()]) {
     discoveryIntervalMs: 60000,
   };
   const projectGateway: ProjectGateway = {
+    ...requiredProjectGateway(() => rows),
     capabilities: vi.fn(async () => capabilities),
     chooseFolder: vi.fn(async () => ({ path: null })),
     chooseProjectAsset: vi.fn(async (_id, kind) => ({
@@ -123,10 +126,15 @@ export function projectUiFixture(entries = [projectEntry()]) {
           : '22222222-2222-2222-2222-222222222222.jpg',
     })),
     list: vi.fn(async () => structuredClone(rows)),
+    now: vi.fn(async (id) => {
+      const entry = rows.projects.find((item) => item.projectId === id);
+      if (!entry) throw new Error(`Missing synthetic project ${id}`);
+      return structuredClone(projectNowBundle(entry));
+    }),
     workspace: vi.fn(
       async (id) =>
         structuredClone(
-          rows.projects.find((entry) => entry.workId === id)?.resume?.workspace ?? {
+          rows.projects.find((entry) => entry.projectId === id)?.analysis?.workspace ?? {
             cwd: `/synthetic/${id}`,
             status: 'unknown',
             branch: null,
@@ -140,7 +148,7 @@ export function projectUiFixture(entries = [projectEntry()]) {
     observe: vi.fn(
       async (id) =>
         structuredClone(
-          rows.projects.find((entry) => entry.workId === id)?.resume?.workspace ?? {
+          rows.projects.find((entry) => entry.projectId === id)?.analysis?.workspace ?? {
             cwd: `/synthetic/${id}`,
             status: 'unknown',
             branch: null,
@@ -154,7 +162,7 @@ export function projectUiFixture(entries = [projectEntry()]) {
     analyzeWorkspace: vi.fn(
       async (id) =>
         structuredClone(
-          rows.projects.find((entry) => entry.workId === id)?.resume?.workspace ?? {
+          rows.projects.find((entry) => entry.projectId === id)?.analysis?.workspace ?? {
             cwd: `/synthetic/${id}`,
             status: 'unknown',
             branch: null,
@@ -171,10 +179,10 @@ export function projectUiFixture(entries = [projectEntry()]) {
     disconnect: vi.fn(async (id) => testReceipt(id)),
     restore: vi.fn(async (id) => testReceipt(id)),
     deletionPreview: vi.fn(async (id) => ({
-      workId: id,
+      projectId: id,
       title: `Project ${id}`,
       token: 'preview-token',
-      revision: rows.projects.find((entry) => entry.workId === id)!.revision,
+      revision: rows.projects.find((entry) => entry.projectId === id)!.revision,
       ownedRecords: 12,
       exclusiveSources: 2,
       sharedSources: 3,
@@ -183,7 +191,7 @@ export function projectUiFixture(entries = [projectEntry()]) {
         'The selected application records are removed permanently. Original files, shared source copies, minimal receipts, separate diagnostic files, and backups are retained.',
     })),
     delete: vi.fn(async (id) => {
-      rows.projects = rows.projects.filter((entry) => entry.workId !== id);
+      rows.projects = rows.projects.filter((entry) => entry.projectId !== id);
       return testReceipt(id);
     }),
     connections: vi.fn(async () =>
@@ -191,10 +199,10 @@ export function projectUiFixture(entries = [projectEntry()]) {
         .filter((entry) => !entry.disconnectedAt)
         .map((entry) => ({
           id: entry.connectionId,
-          workId: entry.workId,
+          projectId: entry.projectId,
           title: entry.title,
           cwd: entry.cwd,
-          threadIds: [`thread-${entry.workId}`],
+          threadIds: [`thread-${entry.projectId}`],
           startTurnIds: {},
           discover: false,
           revision: 1,
@@ -205,18 +213,18 @@ export function projectUiFixture(entries = [projectEntry()]) {
     turns: vi.fn(async () => ({ turns: [] })),
     evidence: vi.fn(async (_owner, id) => ({ ...source(RAW_SOURCE), id })),
   };
-  const resumeGateway: ResumeGateway = {
+  const analysisGateway: AnalysisGateway = {
     list: vi.fn(async () => []),
     refresh: vi.fn(async () => {}),
     localize: vi.fn(async (id, outputLanguage) => {
-      const entry = rows.projects.find((item) => item.workId === id);
-      if (entry?.resume) entry.resume.outputLanguage = outputLanguage;
+      const entry = rows.projects.find((item) => item.projectId === id);
+      if (entry?.analysis) entry.analysis.outputLanguage = outputLanguage;
     }),
     setGoal: vi.fn(async () => {}),
     correct: vi.fn(async () => {}),
     subscribe: () => () => {},
   };
-  return { rows, projectGateway, resumeGateway };
+  return { rows, projectGateway, analysisGateway };
 }
 
 export function installBrowser() {
@@ -237,7 +245,7 @@ export function browserDrafts() {
       values.set(key, value);
     },
   };
-  return { values, memory: () => new LocalResumeMemory(() => storage) };
+  return { values, memory: () => new LocalProjectDraftMemory(() => storage) };
 }
 
 export const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -249,14 +257,14 @@ export async function settle() {
 
 export async function mountProjectRoot(
   projectGateway: ProjectGateway,
-  resumeGateway: ResumeGateway,
-  resumeMemory?: ResumeMemory,
+  analysisGateway: AnalysisGateway,
+  analysisMemory?: AnalysisMemory,
 ) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
   await act(async () => {
-    root.render(createElement(Root, { projectGateway, resumeGateway, resumeMemory }));
+    root.render(createElement(Root, { projectGateway, analysisGateway, analysisMemory }));
     await tick();
   });
   await settle();

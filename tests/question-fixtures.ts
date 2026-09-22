@@ -61,7 +61,7 @@ export async function questionHarness(records = questionRecords) {
   const create = () =>
     h.core.questions.create(id, {
       requestId: crypto.randomUUID(),
-      summaryId: h.core.work(id).latestSummaryId,
+      summaryId: h.core.project(id).latestSummaryId,
       claimId: 'next',
     });
   return { h, id, create };

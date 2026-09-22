@@ -227,21 +227,21 @@ describe('stage 6 relations, freshness and scope', () => {
       repo = new SQLiteRepository(join(dir, 'data'));
       const h = harness(repo);
       h.reader.read = (id) => reader.read(id);
-      const workId = h.core.connect({
+      const projectId = h.core.connect({
         requestId: identity.next(),
         expectedRevision: 0,
         payload: { title: 'External record fixture', cwd: dir, threadIds: [tid], discover: false },
-      }).workId;
-      await h.core.collect(workId);
-      const first = h.core.sources(workId)[0];
+      }).projectId;
+      await h.core.collect(projectId);
+      const first = h.core.sources(projectId)[0];
       // Simulates a conversation continuing outside StateCarry, with actual filesystem IO.
       await appendFile(path, record('The prerequisite has changed; do not use the old Next.'));
-      await h.core.collect(workId);
-      expect(h.core.sources(workId)).toHaveLength(2);
+      await h.core.collect(projectId);
+      expect(h.core.sources(projectId)).toHaveLength(2);
       expect(h.repo.get('source', first.id)).toEqual(first);
-      expect(h.core.sources(workId)[1].locator.line).toBe(4);
-      expect(h.core.freshness(workId).summary).toBe('missing');
-      expect(h.core.sources(workId)[1].text).toContain('prerequisite has changed');
+      expect(h.core.sources(projectId)[1].locator.line).toBe(4);
+      expect(h.core.freshness(projectId).summary).toBe('missing');
+      expect(h.core.sources(projectId)[1].text).toContain('prerequisite has changed');
       await reader.close();
     } finally {
       repo?.close();
@@ -356,7 +356,7 @@ describe('stage 6 relations, freshness and scope', () => {
       requestId: identity.next(),
       expectedRevision: 0,
       payload: { title: 'B', cwd: '/b', threadIds: ['b'], discover: false },
-    }).workId;
+    }).projectId;
     let finish!: () => void;
     const stalled = new Promise<void>((r) => {
       finish = r;
@@ -370,6 +370,19 @@ describe('stage 6 relations, freshness and scope', () => {
     expect(h.core.sources(first)).toHaveLength(0);
     finish();
     await vi.waitFor(() => expect(h.core.sources(first)).toHaveLength(1));
+  });
+  it('does not reprocess idle projects on every background tick', () => {
+    const h = harness();
+    h.connect();
+    const process = vi.spyOn(h.core, 'process');
+    const loop = new BackgroundLoop(h.core);
+    loop.deferExisting(1000);
+
+    loop.tick(1001);
+    loop.tick(2000);
+    loop.tick(3000);
+
+    expect(process).not.toHaveBeenCalled();
   });
 });
 
@@ -402,7 +415,7 @@ describe('two real fixture repositories, three synthetic sessions and SQLite rec
               threadIds: i ? ['b'] : ['a', 'a-next'],
               discover: false,
             },
-          }).workId,
+          }).projectId,
       );
       for (const id of works) {
         await h.core.collect(id);
@@ -417,7 +430,7 @@ describe('two real fixture repositories, three synthetic sessions and SQLite rec
           draftRevision: 0,
         });
       const receipt = h.core.mutate(works[0], 'drafts', draft); // Transport may lose this response after durable commit.
-      const job = repo.list('job').find((j) => j.workId === works[0] && j.status === 'applied')!;
+      const job = repo.list('job').find((j) => j.projectId === works[0] && j.status === 'applied')!;
       repo.put('job', {
         ...job,
         status: 'checking',
@@ -458,7 +471,7 @@ describe('two real fixture repositories, three synthetic sessions and SQLite rec
       id: 'e',
       kind: 'return',
       at: AT,
-      workId: null,
+      projectId: null,
       summaryId: null,
       targetId: null,
       result: 'observed',

@@ -13,10 +13,11 @@ import {
   type ProjectController,
   type ProjectCreateInput,
   type ProjectSourcesInput,
-  type ProjectTaskView,
   type ProjectView,
+  type ProjectNowView,
+  type PresentedProjectAction,
   type RecordRange,
-  type SavedResumeEdits,
+  type ProjectDrafts,
   type WorkingTreeView,
 } from '@statecarry/presentation';
 import '@/styles/globals.css';
@@ -28,6 +29,9 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import {
+  ArrowLeft,
+  MessageCircle,
+  Info,
   Download,
   Folder,
   GitBranch,
@@ -38,6 +42,8 @@ import {
   Settings as SettingsIcon,
 } from 'lucide-react';
 import './project-workspace.css';
+import { WorkDiscussion } from './WorkDiscussion';
+import { ProjectNowActionMode } from './ProjectNowAction';
 
 type WorkspaceState = ReturnType<ProjectController['getSnapshot']>;
 type Navigate = (href: string) => void;
@@ -55,7 +61,7 @@ type DirtyWorkPreview = {
   lastCommit?: string;
   summary: string;
 };
-const emptyEdits: SavedResumeEdits = { goalDraft: null, actionDrafts: [], expanded: [], scroll: 0 };
+const emptyEdits: ProjectDrafts = { goalDraft: null, actionDrafts: [], expanded: [], scroll: 0 };
 const responseLanguageKey = 'statecarry.response-language.v1';
 const updateUiPreviewKey = 'statecarry.developer.update-ui-preview.v1';
 const dirtyWorkPreviewKey = 'statecarry.developer.dirty-work-preview.v1';
@@ -99,7 +105,7 @@ const dirtyWorkPreviewScenarios: Record<
     deletions: 58,
     files: [
       'apps/web/src/ui/ProjectWorkspace.tsx',
-      'apps/web/src/ui/project-workspace.css',
+      'apps/web/src/ui/projects.css',
       'apps/desktop/src/app-updater.ts',
       'tests/project-updater-ui.test.tsx',
     ],
@@ -117,7 +123,7 @@ const dirtyWorkPreviewScenarios: Record<
         openItems: ['Review whether the continuation handoff is sufficient in real use.'],
         files: [
           'apps/web/src/ui/ProjectWorkspace.tsx',
-          'apps/web/src/ui/project-workspace.css',
+          'apps/web/src/ui/projects.css',
           'apps/desktop/src/app-updater.ts',
           'tests/project-updater-ui.test.tsx',
         ],
@@ -257,7 +263,7 @@ function writeResponseLanguage(language: 'en' | 'ko') {
   }
 }
 
-function legacyButtonVariant(className?: string) {
+function buttonVariantForClass(className?: string) {
   if (className?.includes('pw-button--primary')) return 'default' as const;
   if (className?.includes('pw-button--quiet')) return 'ghost' as const;
   if (className?.includes('pw-button--danger')) return 'destructive' as const;
@@ -267,7 +273,7 @@ function legacyButtonVariant(className?: string) {
 function Button({ className, variant, ...props }: ComponentProps<typeof UiButton>) {
   return (
     <UiButton
-      variant={variant ?? legacyButtonVariant(className)}
+      variant={variant ?? buttonVariantForClass(className)}
       className={cn('pw-button', className)}
       {...props}
     />
@@ -276,7 +282,7 @@ function Button({ className, variant, ...props }: ComponentProps<typeof UiButton
 
 function routeButtonClass(className?: string) {
   if (!className?.includes('pw-button')) return className;
-  return cn(buttonVariants({ variant: legacyButtonVariant(className) }), className);
+  return cn(buttonVariants({ variant: buttonVariantForClass(className) }), className);
 }
 
 const cardSurface =
@@ -348,7 +354,10 @@ function OverviewDate({ value }: { value: string | null }) {
 
 export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
-  const [railCollapsed, setRailCollapsed] = useState(false);
+  const [railCollapsed, setRailCollapsed] = useState(
+    () =>
+      typeof window !== 'undefined' && (window.matchMedia?.('(max-width: 720px)').matches ?? false),
+  );
   const [updateUiPreview, setUpdateUiPreview] = useState(readUpdateUiPreview);
   const [dirtyWorkPreview, setDirtyWorkPreview] =
     useState<DirtyWorkPreviewScenario>(readDirtyWorkPreview);
@@ -358,7 +367,7 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
   const previewUpdate = previewAppUpdate(updateUiPreview, updateUiPreviewPhase);
   const appUpdate = previewUpdate ?? state.appUpdate;
   const { route } = state;
-  const project = state.projects.find((item) => item.id === route.workId);
+  const project = state.projects.find((item) => item.id === route.projectId);
   const workspaceStatus = state.loading
     ? 'Finding projects…'
     : state.loadingDetails
@@ -428,7 +437,7 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
   useEffect(() => {
     const heading = mainRef.current?.querySelector<HTMLElement>('h1');
     heading?.focus({ preventScroll: true });
-  }, [route.page, route.workId, !!project]);
+  }, [route.page, route.projectId, !!project]);
   useEffect(() => {
     if (route.page !== 'project' || !project) return;
     const id = project.id;
@@ -669,6 +678,7 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
             />
           ) : (
             <ProjectPage
+              key={project.id}
               project={project}
               state={state}
               controller={controller}
@@ -1284,9 +1294,12 @@ function WorkingTreeCard({
   tree: DirtyWorkPreview | WorkingTreeView;
   developerPreview?: boolean;
   loading?: boolean;
-  onContinue?: () => void;
+  onContinue?: (groupIndexes?: number[]) => void;
 }) {
   const [showFiles, setShowFiles] = useState(false);
+  const [selectedGroups, setSelectedGroups] = useState<number[]>([]);
+  const groups = tree.groups ?? [];
+  const multipleGroups = groups.length > 1 && !!onContinue;
   if (tree.kind === 'clean' && !developerPreview) return null;
 
   if (tree.kind === 'clean') {
@@ -1379,12 +1392,37 @@ function WorkingTreeCard({
           </div>
         )}
       </dl>
-      {tree.groups && tree.groups.length > 0 && (
+      {groups.length > 0 && (
         <div className="pw-uncommitted-groups">
-          {tree.groups.map((group) => (
+          {multipleGroups && !developerPreview && (
+            <div className="pw-uncommitted-scope">
+              <strong>Choose what to carry forward</strong>
+              <p className="pw-small">
+                These changes look like separate pieces of work. Select only the group or groups you
+                want to continue. The copied handoff will leave the rest out of scope.
+              </p>
+            </div>
+          )}
+          {groups.map((group, index) => (
             <article className="pw-uncommitted-group" key={group.title}>
               <div className="pw-uncommitted-group-heading">
-                <h3>{group.title}</h3>
+                <div className="pw-uncommitted-group-title">
+                  {multipleGroups && !developerPreview && (
+                    <input
+                      type="checkbox"
+                      aria-label={`Include ${group.title}`}
+                      checked={selectedGroups.includes(index)}
+                      onChange={(event) =>
+                        setSelectedGroups((current) =>
+                          event.target.checked
+                            ? [...current, index].sort((a, b) => a - b)
+                            : current.filter((item) => item !== index),
+                        )
+                      }
+                    />
+                  )}
+                  <h3>{group.title}</h3>
+                </div>
                 <span className="pw-small">
                   {group.files.length} file{group.files.length === 1 ? '' : 's'}
                 </span>
@@ -1446,9 +1484,17 @@ function WorkingTreeCard({
         </section>
       )}
       <div className="pw-actions" aria-label="Uncommitted work preview actions">
-        <Button type="button" disabled={developerPreview || loading} onClick={onContinue}>
-          Copy handoff for new Codex session
-        </Button>
+        {onContinue && (
+          <Button
+            type="button"
+            disabled={
+              developerPreview || loading || (multipleGroups && selectedGroups.length === 0)
+            }
+            onClick={() => onContinue(multipleGroups ? selectedGroups : undefined)}
+          >
+            Copy handoff for new Codex session
+          </Button>
+        )}
         <Button
           type="button"
           className="pw-button--quiet"
@@ -1466,717 +1512,446 @@ function WorkingTreeCard({
   );
 }
 
-function ProjectPage({
+function ProjectPage(props: ProjectProps & { dirtyWorkPreview: DirtyWorkPreviewScenario }) {
+  return <ProjectNowProjectPage {...props} />;
+}
+
+function projectNowHeading(view: ProjectNowView): string {
+  if (view.work) return view.work.title;
+  if (view.state === 'idle') return 'Nothing to do right now';
+  if (view.state === 'disconnected') return 'Project disconnected';
+  if (view.state === 'needs-direction') return 'Decide the current direction';
+  if (view.state === 'choose-work') return 'Choose current work';
+  if (view.state === 'complete') return 'Choose what comes next';
+  return 'Current project state';
+}
+
+type ProjectNowActionEntry = {
+  kind: PresentedProjectAction['kind'];
+  selectionKey: string | null;
+  requestId: string | null;
+  releaseId: string | null;
+  mode:
+    | 'continue'
+    | 'verify'
+    | 'policy'
+    | 'review'
+    | 'direction'
+    | 'result'
+    | 'new-work'
+    | 'release';
+};
+
+function projectNowActionEntryMode(
+  kind: PresentedProjectAction['kind'],
+): ProjectNowActionEntry['mode'] {
+  switch (kind) {
+    case 'continue-work':
+    case 'resume-work':
+      return 'continue';
+    case 'review-result':
+      return 'result';
+    case 'review-direction':
+    case 'define-direction':
+      return 'direction';
+    case 'choose-next-work':
+      return 'new-work';
+    case 'review-release':
+      return 'release';
+    case 'review-work':
+    case 'review-completion':
+    case 'review-work-plan':
+      return 'review';
+    case 'reconnect-project':
+    case 'start-work':
+    case 'choose-current-work':
+    case 'stop-work':
+    case 'continue-despite-direction-conflict':
+      throw new Error(`Project action ${kind} is handled before action-mode entry.`);
+  }
+}
+
+function ProjectNowProjectPage({
   project,
   state,
   controller,
   onNavigate,
   dirtyWorkPreview,
 }: ProjectProps & { dirtyWorkPreview: DirtyWorkPreviewScenario }) {
-  const edits = state.edits[project.id] ?? emptyEdits;
-  const selectedKey = state.route.candidateKey ?? edits.selectedKey;
-  const selected =
-    selectedKey !== undefined
-      ? project.tasks.find((task) => task.key === selectedKey)
-      : (project.tasks.find((task) => task.status !== 'accepted' && task.status !== 'paused') ??
-        project.tasks[0]);
-  const allAccepted =
-    project.tasks.length > 0 && project.tasks.every((task) => task.status === 'accepted');
-  const currentDecision = allAccepted ? undefined : selected;
-  const otherTasks = project.tasks.filter((task) => task.key !== currentDecision?.key);
+  const view = state.projectNow[project.id];
+  const loading = state.projectNowLoading[project.id] ?? false;
+  const initializing = state.projectNowInitializing[project.id] ?? false;
   const busy = state.busyWorkId === project.id;
+  const edits = state.edits[project.id] ?? emptyEdits;
   const workingTree = state.workingTrees[project.id];
   const workingTreeLoading = state.workingTreeLoading[project.id] ?? false;
-  const [workingTreeCopyStatus, setWorkingTreeCopyStatus] = useState('');
-  const continueWorkingTree = async () => {
-    const text = await controller.workingTreeHandoff(project.id);
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      setWorkingTreeCopyStatus(
-        'Repository handoff copied. Start a new Codex session in this project and paste it there.',
-      );
-    } catch {
-      setWorkingTreeCopyStatus(
-        'Could not copy the repository handoff. No project files were changed.',
-      );
-    }
-  };
-  const missing = selectedKey !== undefined && !selected;
+  const workingTreeAnalysisLoading = state.workingTreeAnalysisLoading[project.id] ?? false;
+  const [mode, setMode] = useState<'default' | 'action'>('default');
+  const [actionEntry, setActionEntry] = useState<ProjectNowActionEntry | null>(null);
+  const [otherOpen, setOtherOpen] = useState(false);
+  const requestedNow = useRef(false);
+
   useEffect(() => {
-    if (selectedKey === undefined && selected) controller.select(project.id, selected.key);
-  }, [controller, project.id, selectedKey, selected?.key]);
+    if (!view && !loading && !state.error && !requestedNow.current) {
+      requestedNow.current = true;
+      void controller.readProjectNow(project.id);
+    }
+  }, [controller, loading, project.id, state.error, view]);
+
+  const openActionMode = (
+    kind: PresentedProjectAction['kind'],
+    workItemId: string | null,
+    requestId: string | null,
+    releaseId: string | null = null,
+  ) => {
+    const targetWorkId = workItemId ?? view?.work?.id ?? null;
+    setActionEntry({
+      kind,
+      selectionKey: targetWorkId,
+      requestId,
+      releaseId,
+      mode: projectNowActionEntryMode(kind),
+    });
+    setMode('action');
+  };
+
+  const runAction = async (action: PresentedProjectAction) => {
+    if (action.kind === 'reconnect-project') {
+      await controller.restore(project.id);
+      return;
+    }
+    if (action.kind === 'start-work' && action.workItemId) {
+      await controller.selectWorkItem(project.id, action.workItemId);
+      setOtherOpen(false);
+      return;
+    }
+    if (action.kind === 'resume-work' && action.workItemId) {
+      const resumed = await controller.resumeWorkItem(project.id, action.workItemId);
+      if (resumed) openActionMode('continue-work', action.workItemId, action.requestId);
+      return;
+    }
+    if (action.kind === 'choose-current-work') {
+      setOtherOpen(true);
+      return;
+    }
+    if (action.kind === 'stop-work' && action.workItemId) {
+      await controller.stopWorkItem(project.id, action.workItemId);
+      return;
+    }
+    if (action.kind === 'continue-despite-direction-conflict') {
+      await controller.continueDirectionConflict(project.id);
+      return;
+    }
+    openActionMode(action.kind, action.workItemId, action.requestId, action.releaseId);
+  };
+
   return (
-    <>
+    <div className="pw-project-detail pw-project-now-page">
+      <RouteLink className="pw-project-back" href="#/projects" onNavigate={onNavigate}>
+        <ArrowLeft size={15} aria-hidden="true" /> Back to projects
+      </RouteLink>
+
       {project.bannerAsset && (
         <div className="pw-project-cover" aria-hidden="true">
           <img src={projectAssetUrl(project.bannerAsset)} alt="" />
         </div>
       )}
-      <header className="pw-hero">
-        <div className="pw-hero-copy">
-          <div className="pw-card-meta">{project.focused && <Badge>Your focus</Badge>}</div>
-          <div className="pw-project-title-row">
-            {project.iconAsset && (
-              <img
-                className="pw-project-title-icon"
-                src={projectAssetUrl(project.iconAsset)}
-                alt=""
-                aria-hidden="true"
-              />
-            )}
-            <h1 tabIndex={-1}>{project.title}</h1>
-          </div>
+
+      <header className="pw-now-project-header">
+        <div className="pw-card-meta">{project.focused && <Badge>Your focus</Badge>}</div>
+        <div className="pw-now-project-identity">
+          {project.iconAsset && (
+            <img
+              className="pw-project-title-icon"
+              src={projectAssetUrl(project.iconAsset)}
+              alt=""
+              aria-hidden="true"
+            />
+          )}
+          <h1 tabIndex={-1}>{project.title}</h1>
         </div>
       </header>
-      {project.disconnected ? (
-        <section className="pw-empty">
-          <h2>This project is disconnected</h2>
-          <p>{project.stateDescription}</p>
+
+      <section className="pw-now-direction" aria-label="Project direction">
+        <span className="pw-small">Current direction</span>
+        <p>{view?.direction?.text ?? (project.goal || project.purpose || 'No direction set.')}</p>
+        {view && view.state !== 'disconnected' && (
           <Button
-            className="pw-button pw-button--primary"
-            disabled={!state.online || busy}
-            onClick={() => void controller.restore(project.id)}
+            className="pw-button pw-button--quiet"
+            disabled={busy}
+            onClick={() => openActionMode('define-direction', view.work?.id ?? null, null)}
           >
-            Reconnect project
+            Change direction
           </Button>
+        )}
+      </section>
+
+      {view?.checking && (
+        <p className="pw-now-checking" role="status">
+          <LoaderCircle size={14} aria-hidden="true" /> Checking recent changes
+        </p>
+      )}
+      {!view?.checking && workingTreeAnalysisLoading && (
+        <p className="pw-now-checking" role="status">
+          <LoaderCircle size={14} aria-hidden="true" /> Analyzing repository changes…
+        </p>
+      )}
+
+      {mode === 'action' && view ? (
+        <section className="pw-now-action-mode" aria-label="Current work action">
+          <Button className="pw-button pw-button--quiet" onClick={() => setMode('default')}>
+            <ArrowLeft size={14} aria-hidden="true" /> Back to current work
+          </Button>
+          <div className="pw-now-mode-context">
+            <span className="pw-small">
+              {actionEntry?.mode === 'release' ? 'Release & delivery' : 'Current work'}
+            </span>
+            <strong>
+              {actionEntry?.mode === 'release' ? project.title : projectNowHeading(view)}
+            </strong>
+          </div>
+          {actionEntry ? (
+            <ProjectNowActionMode
+              project={project}
+              controller={controller}
+              data={state.decisions[project.id]}
+              view={view}
+              edits={edits}
+              actionKind={actionEntry.kind}
+              mode={actionEntry.mode}
+              requestId={actionEntry.requestId}
+              releaseId={actionEntry.releaseId}
+              selectionKey={actionEntry.selectionKey}
+              release={state.releases[project.id]}
+              releaseLoading={state.releaseLoading[project.id] ?? false}
+              onBack={() => setMode('default')}
+              onVerify={() =>
+                setActionEntry((entry) => (entry ? { ...entry, mode: 'verify' } : entry))
+              }
+              onPolicy={() =>
+                setActionEntry((entry) => (entry ? { ...entry, mode: 'policy' } : entry))
+              }
+            />
+          ) : (
+            <p role="status">Choose an action from the current work.</p>
+          )}
         </section>
-      ) : (
+      ) : view ? (
         <>
-          <section className="pw-direction" aria-label="Project direction">
-            <span className="pw-eyebrow">Direction</span>
-            {project.detailsLoading ? (
-              <>
-                <p>{project.purpose || 'Loading project direction…'}</p>
-                <LoadingLines label="Loading project direction" lines={1} />
-              </>
-            ) : edits.goalDraft ? (
-              <GoalEditor project={project} edits={edits} controller={controller} busy={busy} />
-            ) : (
-              <>
-                <p>{project.goal || project.purpose || 'No direction set.'}</p>
-                {!project.goalConfirmed && project.goal && (
-                  <span className="pw-small">
-                    StateCarry inferred this goal from the available project information. Confirm it
-                    or set your own.
-                  </span>
-                )}
+          <section className="pw-now-work" aria-labelledby="pw-now-work-title">
+            <h2 id="pw-now-work-title">{projectNowHeading(view)}</h2>
+
+            <p className="pw-now-current-state">{view.currentState}</p>
+
+            {view.stillToCheck && (
+              <div className="pw-now-uncertainty">
+                <span className="pw-small">Still to check</span>
+                <p>{view.stillToCheck}</p>
+              </div>
+            )}
+
+            {view.notice && (
+              <aside
+                className={cn('pw-now-notice', `pw-now-notice--${view.notice.level}`)}
+                aria-label={view.notice.title}
+              >
                 <div>
+                  <strong>{view.notice.title}</strong>
+                  <p>{view.notice.text}</p>
+                  {view.notice.reason && <span className="pw-small">{view.notice.reason}</span>}
+                </div>
+                {view.notice.kind === 'result-ready' && (
                   <Button
                     className="pw-button pw-button--quiet"
-                    onClick={() => controller.editGoal(project.id)}
+                    disabled={busy}
+                    onClick={() =>
+                      openActionMode(
+                        'review-result',
+                        view.notice?.workItemId ?? null,
+                        view.notice?.requestId ?? null,
+                      )
+                    }
                   >
-                    {project.goal ? 'Edit direction' : 'Set direction'}
+                    Review result
                   </Button>
-                </div>
-              </>
-            )}
-          </section>
-          <section className="pw-current-decision" aria-labelledby="current-decision-heading">
-            <div className="pw-section-head">
-              <h2 id="current-decision-heading">Current decision</h2>
-            </div>
-            {project.detailsLoading ? (
-              <div className={cn(cardSurface, 'pw-card pw-current-decision-card')}>
-                <LoadingLines label="Loading current decision" lines={4} />
-              </div>
-            ) : missing ? (
-              <section className="pw-empty">
-                <h3>The selected work is no longer available</h3>
-                <p>Your writing is kept. Choose another item from Other work.</p>
-              </section>
-            ) : currentDecision ? (
-              <TaskDetail
-                key={`${project.id}:${currentDecision.key}`}
-                project={project}
-                task={currentDecision}
-                edits={edits}
-                controller={controller}
-                onNavigate={onNavigate}
-                busy={busy}
-              />
-            ) : allAccepted ? (
-              <section className="pw-empty">
-                <h3>No next work has been chosen.</h3>
-                <p>The recorded work is complete.</p>
-                <Button className="pw-button" onClick={() => controller.editGoal(project.id)}>
-                  Set a new direction
-                </Button>
-              </section>
-            ) : (
-              <ProjectSetup
-                project={project}
-                state={state}
-                controller={controller}
-                onNavigate={onNavigate}
-              />
-            )}
-          </section>
-
-          <section className="pw-context-section" aria-labelledby="project-context-heading">
-            <div className="pw-section-head">
-              <h2 id="project-context-heading">Context</h2>
-            </div>
-            <div className="pw-context-list">
-              {project.detailsLoading ? (
-                <div className="pw-context-item">
-                  <strong>Project context</strong>
-                  <LoadingLines label="Loading project context" lines={2} />
-                </div>
-              ) : dirtyWorkPreview !== 'off' ? (
-                <details className="pw-context-item">
-                  <summary>Working tree preview</summary>
-                  <UncommittedWorkPreview scenario={dirtyWorkPreview} />
-                </details>
-              ) : workingTree && workingTree.kind !== 'clean' ? (
-                <details className="pw-context-item">
-                  <summary>
-                    <span>Working tree changed</span>
-                    <span className="pw-small">
-                      {workingTree.fileCount} file{workingTree.fileCount === 1 ? '' : 's'}
-                      {workingTree.groups.length > 0
-                        ? ` · ${workingTree.groups.length} work group${workingTree.groups.length === 1 ? '' : 's'}`
-                        : ''}
-                    </span>
-                  </summary>
-                  <WorkingTreeCard
-                    tree={workingTree}
-                    loading={workingTreeLoading}
-                    onContinue={() => void continueWorkingTree()}
-                  />
-                  {workingTreeCopyStatus && <p className="pw-small">{workingTreeCopyStatus}</p>}
-                </details>
-              ) : workingTreeLoading ? (
-                <div className="pw-context-item">
-                  <strong>Working tree</strong>
-                  <span className="pw-small">Checking current Git working tree…</span>
-                </div>
-              ) : null}
-
-              <div className="pw-context-item">
-                <strong>Overview</strong>
-                {(project.updating || !project.canDecide) && (
-                  <span className="pw-small">
-                    {project.updating
-                      ? 'Checking for changes. Your saved overview stays in place.'
-                      : project.stateDescription}
-                  </span>
                 )}
-                <div className="pw-actions">
-                  <OverviewDate value={project.generatedAt} />
+                {['release-ready', 'delivery-problem', 'release-confirmation'].includes(
+                  view.notice.kind,
+                ) && (
                   <Button
                     className="pw-button pw-button--quiet"
-                    disabled={!project.canRefresh || busy}
-                    onClick={() => void controller.prepare(project.id)}
+                    disabled={busy}
+                    onClick={() =>
+                      openActionMode('review-release', null, null, view.notice?.releaseId ?? null)
+                    }
                   >
-                    Update overview
+                    Review release
                   </Button>
+                )}
+              </aside>
+            )}
+
+            {view.nextText && view.primaryAction && (
+              <div className="pw-now-next">
+                <span className="pw-small">Next</span>
+                <p>{view.nextText}</p>
+                <div className="pw-now-actions">
+                  <Button
+                    className="pw-button pw-button--primary"
+                    disabled={busy}
+                    onClick={() => void runAction(view.primaryAction!)}
+                  >
+                    {view.primaryAction.label}
+                  </Button>
+                  {view.secondaryActions.map((action) => (
+                    <Button
+                      key={`${action.kind}:${action.workItemId ?? ''}:${action.requestId ?? ''}`}
+                      className="pw-button pw-button--quiet"
+                      disabled={busy}
+                      onClick={() => void runAction(action)}
+                    >
+                      {action.label}
+                    </Button>
+                  ))}
                 </div>
               </div>
-
-              <div className="pw-context-item">
-                <strong>Basis</strong>
-                <span className="pw-small">Project files · Git · optional Codex conversations</span>
-                <RouteLink href={`${projectHref(project.id)}/settings`} onNavigate={onNavigate}>
-                  Project settings
-                </RouteLink>
-              </div>
-            </div>
+            )}
           </section>
 
-          {!project.detailsLoading && (otherTasks.length > 0 || project.dismissed.length > 0) && (
-            <section className="pw-other-work" aria-labelledby="other-work-heading">
-              <details>
-                <summary id="other-work-heading">Other work · {otherTasks.length}</summary>
-                {otherTasks.length > 0 && (
-                  <nav className="pw-other-work-list" aria-label="Choose other work">
-                    {otherTasks.map((task) => (
-                      <RouteLink
-                        key={task.key}
-                        href={projectHref(project.id, task.key)}
-                        onNavigate={onNavigate}
-                        beforeNavigate={() => controller.select(project.id, task.key)}
-                      >
-                        <Badge kind={task.status}>{task.statusLabel}</Badge>
-                        <span>{task.title}</span>
-                      </RouteLink>
-                    ))}
-                  </nav>
-                )}
-                {project.dismissed.length > 0 && (
-                  <details className="pw-details">
-                    <summary>Set aside · {project.dismissed.length}</summary>
-                    <div className="pw-stack">
-                      {project.dismissed.map((task) => (
-                        <Card className="pw-card space-y-3.5 p-6" key={task.key}>
-                          <p>{task.title}</p>
-                          <Button
-                            className="pw-button"
-                            disabled={!project.canDecide || busy}
-                            onClick={() => void controller.correct(project.id, task.key, 'restore')}
-                          >
-                            Resume task
-                          </Button>
-                        </Card>
-                      ))}
-                    </div>
-                  </details>
-                )}
+          {view.otherWorkCount > 0 && (
+            <section className="pw-now-other-work" aria-label="Other work">
+              <details
+                open={otherOpen}
+                onToggle={(event) => setOtherOpen(event.currentTarget.open)}
+              >
+                <summary>Other work · {view.otherWorkCount}</summary>
+                <div className="pw-now-other-work-list">
+                  {view.otherWork.map((item) => (
+                    <Button
+                      key={item.id}
+                      className="pw-now-other-work-item"
+                      aria-label={`Choose ${item.title}`}
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() =>
+                        void (item.source === 'proposal'
+                          ? controller.selectProposal(project.id, item.id)
+                          : controller.selectWorkItem(project.id, item.id))
+                      }
+                    >
+                      <span>{item.title}</span>
+                      <span className="pw-small">{item.statusLabel}</span>
+                      {item.currentState && <span>{item.currentState}</span>}
+                      {item.uncertainty && <span className="pw-small">{item.uncertainty}</span>}
+                      {item.nextAction && <span className="pw-small">{item.nextAction}</span>}
+                    </Button>
+                  ))}
+                </div>
               </details>
             </section>
           )}
-        </>
-      )}
-    </>
-  );
-}
 
-function ProjectSetup({ project, state, controller, onNavigate }: ProjectProps) {
-  const edits = state.edits[project.id] ?? emptyEdits;
-  const busy = state.busyWorkId === project.id;
-  return (
-    <section className="pw-empty">
-      {project.goal ? (
-        <>
-          <h3>No current work is available.</h3>
-          <p>Update the overview to look for the next useful decision.</p>
-          <div className="pw-actions">
-            <Button
-              className="pw-button pw-button--primary"
-              disabled={!project.canRefresh || busy}
-              onClick={() => void controller.prepare(project.id)}
-            >
-              {busy || project.stateLabel === 'Updating overview'
-                ? 'Updating overview…'
-                : 'Update overview'}
-            </Button>
-          </div>
-        </>
-      ) : edits.goalDraft ? (
-        <GoalEditor project={project} edits={edits} controller={controller} busy={busy} />
-      ) : (
-        <>
-          <h3>Choose a direction first.</h3>
-          <p>Record what result you want this project to move toward.</p>
-          <Button
-            className="pw-button pw-button--primary"
-            onClick={() => controller.editGoal(project.id)}
-          >
-            Set direction
-          </Button>
-        </>
-      )}
-      {!project.sourceCount && (
-        <RouteLink href={`${projectHref(project.id)}/settings`} onNavigate={onNavigate}>
-          Add Codex conversations
-        </RouteLink>
-      )}
-    </section>
-  );
-}
-
-function GoalEditor({
-  project,
-  edits,
-  controller,
-  busy,
-}: {
-  project: ProjectView;
-  edits: SavedResumeEdits;
-  controller: ProjectController;
-  busy: boolean;
-}) {
-  const draft = edits.goalDraft!;
-  const stale = draft.version !== project.version;
-  const unchanged = !stale && draft.text.trim() === project.goal.trim();
-  return (
-    <form
-      className="pw-form"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void controller.saveGoal(project.id);
-      }}
-    >
-      <label>
-        Goal
-        <Textarea
-          name="goal"
-          maxLength={400}
-          value={draft.text}
-          onChange={(event) => controller.editGoal(project.id, event.target.value)}
-        />
-      </label>
-      {stale && (
-        <div className="pw-notice">
-          <p>
-            This draft was written against an earlier overview. Compare it with the current project
-            before saving.
-          </p>
-          <Button
-            type="button"
-            className="pw-button"
-            disabled={!project.canEdit || busy}
-            onClick={() => controller.rebaseGoal(project.id)}
-          >
-            I reviewed the latest goal
-          </Button>
-        </div>
-      )}
-      <div className="pw-actions">
-        <Button
-          className="pw-button pw-button--primary"
-          disabled={!project.canEdit || busy || stale || unchanged || !draft.text.trim()}
-        >
-          Save goal
-        </Button>
-        <Button
-          type="button"
-          className="pw-button pw-button--quiet"
-          onClick={() => controller.discardGoal(project.id)}
-        >
-          Discard draft
-        </Button>
-        <span className="pw-small">Draft saved in this browser.</span>
-        {unchanged && <span className="pw-small">No goal changes to save.</span>}
-      </div>
-    </form>
-  );
-}
-
-function TaskDetail({
-  project,
-  task,
-  edits,
-  controller,
-  onNavigate,
-  busy,
-}: WorkspaceProps & {
-  project: ProjectView;
-  task: ProjectTaskView;
-  edits: SavedResumeEdits;
-  busy: boolean;
-}) {
-  const draft = edits.actionDrafts.find(([key]) => key === task.key)?.[1];
-  const [copyStatus, setCopyStatus] = useState('');
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-  const canDecide = project.canDecide && !busy;
-  const detailKey = `basis:${task.key}`;
-  const detailsOpen = edits.expanded.includes(detailKey);
-  const decision =
-    task.status === 'accepted'
-      ? 'This task is complete. Leave it here, or choose another goal.'
-      : task.status === 'paused'
-        ? 'This task is paused. Resume it when you are ready.'
-        : task.status === 'waiting'
-          ? 'Wait for the required input, or clarify what is missing.'
-          : task.status === 'review'
-            ? 'Review the result, then accept it or describe what needs changing.'
-            : (task.canAct || task.rechecking) && task.nextAction
-              ? task.nextAction
-              : 'Clarify the current situation before choosing an action.';
-  const copyTask = async () => {
-    try {
-      const text = await controller.handoff(project.id, task.key);
-      if (!text || !mounted.current) return;
-      await navigator.clipboard.writeText(text);
-      if (mounted.current) setCopyStatus('Task context copied. No work was started.');
-    } catch {
-      if (mounted.current) setCopyStatus('Could not copy this task. Your task is still here.');
-    }
-  };
-  return (
-    <article
-      className={cn(cardSurface, 'pw-card pw-current-decision-card')}
-      aria-label="Selected task"
-    >
-      <div className="pw-card-meta">
-        <Badge kind={task.status}>{task.statusLabel}</Badge>
-        <span className="pw-small">{task.sourceLabel}</span>
-      </div>
-      <h2>{task.title}</h2>
-      <div className="pw-current-situation">
-        <span className="pw-eyebrow">Current situation</span>
-        <p>{task.currentState}</p>
-      </div>
-      <section className="pw-decision" aria-label="Your next choice">
-        <div className="pw-decision-main">
-          <span className="pw-eyebrow">Your next choice</span>
-          <p>{decision}</p>
-        </div>
-        <dl className="pw-facts">
-          <div>
-            <dt>Why this matters</dt>
-            <dd>{task.reason}</dd>
-          </div>
-          <div>
-            <dt>{task.status === 'accepted' ? 'What this acceptance covers' : 'Done when'}</dt>
-            <dd>
-              {task.doneWhen || 'No completion condition is set yet. Add one before continuing.'}
-            </dd>
-          </div>
-        </dl>
-        {task.prerequisites.length > 0 && (
-          <section className="pw-notice" aria-label="What still needs confirmation">
-            <h3>What still needs confirmation</h3>
-            {task.prerequisites.map((item, index) => (
-              <p key={index}>{item}</p>
-            ))}
-          </section>
-        )}
-        {task.status === 'accepted' || task.status === 'paused' ? (
-          <div className="pw-actions">
-            <Button
-              className="pw-button"
-              disabled={!canDecide}
-              onClick={() => void controller.correct(project.id, task.key, 'restore')}
-            >
-              {task.status === 'accepted' ? 'Reopen task' : 'Resume task'}
-            </Button>
-          </div>
-        ) : task.status === 'review' ? (
-          <>
-            <div className="pw-actions">
-              <Button
-                className="pw-button pw-button--primary"
-                disabled={!canDecide}
-                onClick={() => void controller.correct(project.id, task.key, 'done')}
-              >
-                Accept result
-              </Button>
-              <Button
-                className="pw-button"
-                onClick={() => controller.editAction(project.id, task.key)}
-              >
-                Edit next step
-              </Button>
-            </div>
-            <details className="pw-details">
-              <summary>More actions</summary>
-              <div className="pw-actions">
-                <Button
-                  className="pw-button pw-button--quiet"
-                  disabled={!canDecide}
-                  onClick={() => void controller.correct(project.id, task.key, 'paused')}
-                >
-                  Pause task
-                </Button>
-              </div>
-            </details>
-          </>
-        ) : (
-          <>
-            <div className="pw-actions">
-              {task.canAct && task.destinationUrl && (
-                <a
-                  className={cn(
-                    buttonVariants({ variant: 'default' }),
-                    'pw-button pw-button--primary',
-                  )}
-                  href={task.destinationUrl}
-                >
-                  Open Codex conversation
-                </a>
-              )}
-              {task.canAct && (
-                <Button
-                  className={`pw-button${task.destinationUrl ? '' : ' pw-button--primary'}`}
-                  disabled={busy}
-                  onClick={() => void copyTask()}
-                >
-                  Copy task context
-                </Button>
-              )}
-            </div>
-            <details className="pw-details">
-              <summary>More actions</summary>
-              <div className="pw-actions">
-                {task.canAct && (
+          <section className="pw-context-section" aria-labelledby="project-context-heading">
+            <details className="pw-context-disclosure">
+              <summary id="project-context-heading">Project context</summary>
+              <div className="pw-context-list">
+                {dirtyWorkPreview !== 'off' ? (
+                  <details className="pw-context-item">
+                    <summary>Working tree preview</summary>
+                    <UncommittedWorkPreview scenario={dirtyWorkPreview} />
+                  </details>
+                ) : workingTree && workingTree.kind !== 'clean' ? (
+                  <details className="pw-context-item">
+                    <summary>
+                      Repository changes · {workingTree.fileCount} file
+                      {workingTree.fileCount === 1 ? '' : 's'}
+                    </summary>
+                    <WorkingTreeCard tree={workingTree} loading={workingTreeLoading} />
+                  </details>
+                ) : workingTreeLoading ? (
+                  <div className="pw-context-item">
+                    <strong>Repository changes</strong>
+                    <span className="pw-small">Checking the current project state…</span>
+                  </div>
+                ) : null}
+                <div className="pw-context-item">
+                  <strong>Overview</strong>
+                  <div className="pw-actions">
+                    <OverviewDate value={project.generatedAt} />
+                    <Button
+                      className="pw-button pw-button--quiet"
+                      disabled={!project.canRefresh || busy}
+                      onClick={() => void controller.prepare(project.id)}
+                    >
+                      Update overview
+                    </Button>
+                  </div>
+                </div>
+                <div className="pw-context-item">
+                  <strong>Sources</strong>
+                  <span className="pw-small">
+                    Project files · Git · optional Codex conversations
+                  </span>
+                  <RouteLink href={`${projectHref(project.id)}/settings`} onNavigate={onNavigate}>
+                    Project settings
+                  </RouteLink>
+                </div>
+                <div className="pw-context-item">
+                  <strong>Release & delivery</strong>
+                  <span className="pw-small">
+                    Keep implementation completion separate from delivery state.
+                  </span>
                   <Button
-                    className="pw-button"
-                    disabled={!canDecide}
-                    onClick={() => void controller.correct(project.id, task.key, 'done')}
+                    className="pw-button pw-button--quiet"
+                    disabled={busy}
+                    onClick={() => openActionMode('review-release', null, null, null)}
                   >
-                    Mark complete
+                    Review release
                   </Button>
-                )}
-                <Button
-                  className="pw-button"
-                  onClick={() => controller.editAction(project.id, task.key)}
-                >
-                  Edit next step
-                </Button>
-                <Button
-                  className="pw-button pw-button--quiet"
-                  disabled={!canDecide}
-                  onClick={() => void controller.correct(project.id, task.key, 'paused')}
-                >
-                  Pause task
-                </Button>
+                </div>
               </div>
             </details>
-          </>
-        )}
-        {task.canAct && (
-          <p className="pw-small">
-            Opening Codex does not send a message or start work. Copying includes supporting source
-            excerpts.
-          </p>
-        )}
-        {copyStatus && (
-          <p className="pw-small" role="status">
-            {copyStatus}
-          </p>
-        )}
-      </section>
-      {draft && (
-        <form
-          className="pw-form pw-decision"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void controller.saveAction(project.id, task.key);
-          }}
-        >
-          <h3>Edit next step</h3>
-          <label>
-            Next step
-            <Textarea
-              name="next-action"
-              maxLength={1200}
-              value={draft.action}
-              onChange={(event) =>
-                controller.editAction(project.id, task.key, event.target.value, draft.done)
-              }
-            />
-          </label>
-          <label>
-            Done when
-            <Textarea
-              name="done-when"
-              maxLength={1200}
-              value={draft.done}
-              onChange={(event) =>
-                controller.editAction(project.id, task.key, draft.action, event.target.value)
-              }
-            />
-          </label>
-          {draft.version !== project.version && (
-            <div className="pw-notice">
-              <p>This draft uses an earlier overview. Review the current task before saving it.</p>
-              <Button
-                className="pw-button"
-                type="button"
-                disabled={!project.canEdit || busy}
-                onClick={() => controller.rebaseAction(project.id, task.key)}
-              >
-                I reviewed the latest task
-              </Button>
-            </div>
-          )}
-          <div className="pw-actions">
+          </section>
+        </>
+      ) : loading ? (
+        <section className="pw-now-loading" role="status">
+          <LoaderCircle size={16} aria-hidden="true" />
+          <div>
+            <strong>
+              {initializing
+                ? 'Analyzing this project for the first time…'
+                : 'Reading project state…'}
+            </strong>
+            <p>
+              {initializing
+                ? 'StateCarry is checking the current project before creating its first work view.'
+                : 'StateCarry is preparing the current work view.'}
+            </p>
+          </div>
+        </section>
+      ) : (
+        <section className="pw-now-loading">
+          <div>
+            <strong>StateCarry could not prepare this project.</strong>
+            <p>Try again to check the current project and prepare its work view.</p>
             <Button
-              className="pw-button pw-button--primary"
-              disabled={
-                !project.canEdit ||
-                busy ||
-                draft.version !== project.version ||
-                !draft.action.trim() ||
-                !draft.done.trim()
-              }
+              className="pw-button"
+              onClick={() => {
+                requestedNow.current = true;
+                void controller.readProjectNow(project.id);
+              }}
             >
-              Save next step
-            </Button>
-            <Button
-              className="pw-button pw-button--quiet"
-              type="button"
-              onClick={() => controller.discardAction(project.id, task.key)}
-            >
-              Discard draft
+              Try again
             </Button>
           </div>
-        </form>
+        </section>
       )}
-      <details
-        className="pw-details"
-        open={detailsOpen}
-        onToggle={(event) => {
-          const open = event.currentTarget.open;
-          if (open !== detailsOpen) controller.expand(project.id, detailKey, open);
-        }}
-      >
-        <summary>What is this based on?</summary>
-        <div className="pw-source-summary" aria-label="Sources">
-          {task.evidenceSources.map((source) => (
-            <div key={source.kind} className="pw-source-summary-item">
-              <strong>{source.label}</strong>
-              <span>{source.detail}</span>
-            </div>
-          ))}
-        </div>
-        {task.evidenceExplanation.map((text, index) => (
-          <p key={index}>{text}</p>
-        ))}
-        <p className="pw-small">
-          The overview time shows when this overview was created, not when its sources were
-          observed.
-        </p>
-      </details>
-      <details className="pw-details">
-        <summary>This task isn&apos;t relevant</summary>
-        <p>Set this task aside. You can restore it later.</p>
-        <Button
-          className="pw-button"
-          disabled={!canDecide}
-          onClick={() => void controller.correct(project.id, task.key, 'wrong-work')}
-        >
-          Set aside
-        </Button>
-      </details>
-      <details className="pw-details">
-        <summary>Inspect original records</summary>
-        <p className="pw-small">
-          Open an original to check exact wording. Your task and unfinished writing stay here.
-        </p>
-        <div className="pw-actions">
-          {task.originals.map((source) => (
-            <RouteLink
-              key={source.id}
-              className="pw-button"
-              href={projectRouteHref({
-                page: 'original',
-                workId: project.id,
-                candidateKey: task.key,
-                sourceId: source.id,
-              })}
-              onNavigate={onNavigate}
-            >
-              {source.label}
-            </RouteLink>
-          ))}
-          {task.destinationUrl && (
-            <a
-              className={cn(buttonVariants({ variant: 'outline' }), 'pw-button')}
-              href={task.destinationUrl}
-            >
-              Open original Codex conversation
-            </a>
-          )}
-        </div>
-        {!task.originals.length && !task.destinationUrl && (
-          <p className="pw-small">No original record is available for this task.</p>
-        )}
-      </details>
-    </article>
+    </div>
   );
 }
 
 function OriginalInspection({ project, state, onNavigate }: ProjectProps) {
-  const inspection = state.inspection?.workId === project.id ? state.inspection : null;
+  const inspection = state.inspection?.projectId === project.id ? state.inspection : null;
   return (
     <>
       <header className="pw-hero">
@@ -2188,11 +1963,7 @@ function OriginalInspection({ project, state, onNavigate }: ProjectProps) {
             task.
           </p>
         </div>
-        <RouteLink
-          className="pw-button"
-          href={projectHref(project.id, state.route.candidateKey)}
-          onNavigate={onNavigate}
-        >
+        <RouteLink className="pw-button" href={projectHref(project.id)} onNavigate={onNavigate}>
           Return to this task
         </RouteLink>
       </header>
@@ -2336,9 +2107,11 @@ function CreateProject({ controller, onNavigate }: WorkspaceProps) {
     const result = await controller.create(input);
     if (!result || !mounted.current || controller.getSnapshot().route.page !== 'new') return;
     if (result.reused) {
-      const project = controller.getSnapshot().projects.find((entry) => entry.id === result.workId);
-      setReusedProject({ id: result.workId, title: project?.title ?? 'the saved project' });
-    } else onNavigate(projectHref(result.workId));
+      const project = controller
+        .getSnapshot()
+        .projects.find((entry) => entry.id === result.projectId);
+      setReusedProject({ id: result.projectId, title: project?.title ?? 'the saved project' });
+    } else onNavigate(projectHref(result.projectId));
   };
   return (
     <>
@@ -2821,7 +2594,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
   const [assetError, setAssetError] = useState('');
   const mounted = useRef(true);
   const sourceRequest = useRef(0);
-  const preview = state.deletion?.workId === project.id ? state.deletion : null;
+  const preview = state.deletion?.projectId === project.id ? state.deletion : null;
   const busy = state.busyWorkId === project.id;
   useEffect(() => {
     setConfirmRemoval(false);
@@ -2842,7 +2615,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
     try {
       const connections = await controller.connections();
       if (!mounted.current || generation !== sourceRequest.current) return;
-      const connection = connections.find((item) => item.workId === project.id);
+      const connection = connections.find((item) => item.projectId === project.id);
       if (!connection) {
         setSourceError('Codex conversation settings could not be found. Try again.');
         return;
@@ -2941,7 +2714,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
   const disconnect = async () => {
     const saved = await controller.disconnect(project.id);
     const route = controller.getSnapshot().route;
-    if (saved && route.page === 'settings' && route.workId === project.id) onNavigate('#/home');
+    if (saved && route.page === 'settings' && route.projectId === project.id) onNavigate('#/home');
   };
   const previewRemoval = async () => {
     setPreviewing(true);
@@ -2951,7 +2724,8 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
   const remove = async () => {
     const removed = await controller.remove(project.id);
     const route = controller.getSnapshot().route;
-    if (removed && route.page === 'settings' && route.workId === project.id) onNavigate('#/home');
+    if (removed && route.page === 'settings' && route.projectId === project.id)
+      onNavigate('#/home');
   };
   return (
     <>

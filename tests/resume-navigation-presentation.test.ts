@@ -1,8 +1,8 @@
 import { it, expect } from 'vitest';
-import { presentResumeWork, type ResumeWork } from '@statecarry/presentation';
+import { presentProjectAnalysis, type AnalysisWork } from '@statecarry/presentation';
 
-const work = (navigation: NonNullable<ResumeWork['navigation']>): ResumeWork => ({
-  workId: 'work-nav',
+const work = (navigation: NonNullable<AnalysisWork['navigation']>): AnalysisWork => ({
+  projectId: 'work-nav',
   title: 'Navigation',
   cwd: '/project',
   version: 'v1',
@@ -35,7 +35,7 @@ const work = (navigation: NonNullable<ResumeWork['navigation']>): ResumeWork => 
 });
 
 it('only presents a conversation link when navigation capability is verified', () => {
-  const invalid = presentResumeWork(
+  const invalid = presentProjectAnalysis(
     work({
       precision: 'thread',
       state: 'invalid',
@@ -44,7 +44,7 @@ it('only presents a conversation link when navigation capability is verified', (
     }),
   );
   expect(invalid.selected?.target.existing.available).toBe(false);
-  const verified = presentResumeWork(
+  const verified = presentProjectAnalysis(
     work({
       precision: 'thread',
       state: 'verified-route',
@@ -63,7 +63,7 @@ it('does not present a Codex conversation target for project-inspection candidat
     detail: 'Route verified.',
   });
   value.candidates[0] = { ...value.candidates[0], threadId: 'project-inspection' };
-  const target = presentResumeWork(value).selected!.target.existing;
+  const target = presentProjectAnalysis(value).selected!.target.existing;
   expect(target.available).toBe(false);
   expect(target.url).toBeUndefined();
   expect(target.detail).toContain('local project inspection');

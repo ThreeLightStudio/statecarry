@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { SavedResumeEdits } from '@statecarry/presentation';
-import { LocalResumeMemory } from '../apps/web/src/adapters/resume-memory';
+import type { ProjectDrafts } from '@statecarry/presentation';
+import { LocalProjectDraftMemory } from '../apps/web/src/adapters/project-draft-memory';
 import { harness } from './helpers';
 import {
   act,
@@ -21,7 +21,7 @@ import {
 beforeEach(installBrowser);
 afterEach(() => vi.unstubAllGlobals());
 
-function draft(): SavedResumeEdits {
+function draft(): ProjectDrafts {
   return {
     selectedKey: 'old-task',
     goalDraft: { text: 'An obsolete draft goal', version: 'old-version' },
@@ -51,7 +51,7 @@ function browserStorage() {
       values.delete(key);
     }),
   };
-  return { values, storage, memory: () => new LocalResumeMemory(() => storage) };
+  return { values, storage, memory: () => new LocalProjectDraftMemory(() => storage) };
 }
 
 function freshProject() {
@@ -60,7 +60,7 @@ function freshProject() {
     title: 'StateCarry',
     purpose: 'Return to projects with understandable context.',
   });
-  Object.assign(entry.resume!, {
+  Object.assign(entry.analysis!, {
     sessionCount: 0,
     goalText: null,
     goalOrigin: 'inferred',
@@ -84,7 +84,7 @@ it.each([
     const before = structuredClone(entry);
     const h = projectUiFixture([entry]);
     window.history.replaceState(null, '', '#/new');
-    const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+    const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
     try {
       await typeField(mounted.host, 'input[name="title"]', 'Do not replace the name');
       await typeField(mounted.host, 'textarea[name="purpose"]', 'Do not replace the purpose');
@@ -107,12 +107,12 @@ it.each([
       expect(h.projectGateway.create).not.toHaveBeenCalled();
       await follow(mounted.host, '#/project/alpha');
       expect(h.rows.projects).toEqual([before]);
-      expect(mounted.host.textContent).toContain(before.resume!.goalText);
+      expect(mounted.host.textContent).toContain(before.analysis!.goalText);
       expect(h.projectGateway.settings).not.toHaveBeenCalled();
       expect(h.projectGateway.sources).not.toHaveBeenCalled();
       expect(h.projectGateway.restore).not.toHaveBeenCalled();
-      expect(h.resumeGateway.refresh).not.toHaveBeenCalled();
-      expect(h.resumeGateway.correct).not.toHaveBeenCalled();
+      expect(h.analysisGateway.refresh).not.toHaveBeenCalled();
+      expect(h.analysisGateway.correct).not.toHaveBeenCalled();
     } finally {
       await mounted.unmount();
     }
@@ -122,7 +122,7 @@ it.each([
 it('keeps the same basename in a different absolute folder available for registration', async () => {
   const h = projectUiFixture();
   window.history.replaceState(null, '', '#/new');
-  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
   try {
     await typeField(mounted.host, 'input[name="cwd"]', '/another/alpha');
     await typeField(mounted.host, 'input[name="title"]', 'Another alpha');
@@ -139,7 +139,7 @@ it('keeps the same basename in a different absolute folder available for registr
       discover: false,
     });
     expect(window.location.hash).toBe('#/project/new-project');
-    expect(h.resumeGateway.refresh).toHaveBeenCalledExactlyOnceWith('new-project');
+    expect(h.analysisGateway.refresh).toHaveBeenCalledExactlyOnceWith('new-project');
   } finally {
     await mounted.unmount();
   }
@@ -151,7 +151,7 @@ it('fills the absolute project path from the local folder picker and keeps manua
     path: '/picked/local-project',
   });
   window.history.replaceState(null, '', '#/new');
-  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
   try {
     await press(mounted.host, 'Choose folder');
     expect(h.projectGateway.chooseFolder).toHaveBeenCalledTimes(1);
@@ -177,7 +177,7 @@ it('fills the absolute project path from the local folder picker and keeps manua
 it('uses the folder name when a new project is registered without a separate name', async () => {
   const h = projectUiFixture([]);
   window.history.replaceState(null, '', '#/new');
-  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
   try {
     await typeField(mounted.host, 'input[name="cwd"]', '/another/project-alpha');
     expect(button(mounted.host, 'Add project').disabled).toBe(false);
@@ -191,7 +191,7 @@ it('uses the folder name when a new project is registered without a separate nam
       recordRanges: {},
       discover: false,
     });
-    expect(h.resumeGateway.refresh).toHaveBeenCalledExactlyOnceWith('new-project');
+    expect(h.analysisGateway.refresh).toHaveBeenCalledExactlyOnceWith('new-project');
   } finally {
     await mounted.unmount();
   }
@@ -200,15 +200,15 @@ it('uses the folder name when a new project is registered without a separate nam
 it('opens a disconnected registration without restoring it or creating another registration', async () => {
   const entry = projectEntry();
   entry.disconnectedAt = now;
-  entry.resume = null;
+  entry.analysis = null;
   const h = projectUiFixture([entry]);
   window.history.replaceState(null, '', '#/new');
-  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
   try {
     await typeField(mounted.host, 'input[name="cwd"]', '/synthetic/alpha/');
     expect(mounted.host.textContent).toContain('This folder is already a project');
     await follow(mounted.host, '#/project/alpha');
-    expect(mounted.host.textContent).toContain('This project is disconnected');
+    expect(mounted.host.textContent).toContain('The project is disconnected');
     expect(h.projectGateway.create).not.toHaveBeenCalled();
     expect(h.projectGateway.restore).not.toHaveBeenCalled();
     expect(h.rows.projects[0].disconnectedAt).toBe(now);
@@ -223,7 +223,7 @@ it('requires review instead of arbitrarily choosing among legacy duplicate folde
   b.cwd = a.cwd;
   const h = projectUiFixture([a, b]);
   window.history.replaceState(null, '', '#/new');
-  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
   try {
     await typeField(mounted.host, 'input[name="cwd"]', a.cwd);
     expect(mounted.host.textContent).toContain('This folder is used by more than one project');
@@ -253,9 +253,16 @@ it('uses the real server reuse receipt when another registration was absent from
       discover: false,
     },
   });
-  const beforeWork = core.core.work(original.workId);
+  const beforeWork = core.core.project(original.projectId);
   const beforeConnection = core.core.connection(original.resultId);
   const h = projectUiFixture([]);
+  h.projectGateway.registrations = vi.fn(async () => core.core.projects.registrations());
+  vi.mocked(h.projectGateway.registrations).mockResolvedValueOnce({ projects: [] });
+  h.projectGateway.now = vi.fn(async (id) => ({
+    model: core.core.projectModel.view(id),
+    now: core.core.now.resolve(id),
+    initialized: true,
+  }));
   h.projectGateway.list = vi.fn(async () => core.core.projects.list());
   vi.mocked(h.projectGateway.list).mockResolvedValueOnce({ projects: [] });
   h.projectGateway.create = vi.fn(async (input) =>
@@ -266,7 +273,7 @@ it('uses the real server reuse receipt when another registration was absent from
     }),
   );
   window.history.replaceState(null, '', '#/new');
-  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
   try {
     await typeField(mounted.host, 'input[name="cwd"]', '/synthetic//statecarry/');
     await typeField(mounted.host, 'input[name="title"]', 'Attempted replacement');
@@ -276,17 +283,17 @@ it('uses the real server reuse receipt when another registration was absent from
     expect(h.projectGateway.create).toHaveBeenCalledTimes(1);
     expect(await vi.mocked(h.projectGateway.create).mock.results[0].value).toMatchObject({
       command: 'project-reuse',
-      workId: original.workId,
+      projectId: original.projectId,
     });
     expect(window.location.hash).toBe('#/new');
     expect(mounted.host.textContent).toContain('This folder is already a project');
     expect(mounted.host.textContent).toContain('do not replace the existing project');
-    expect(core.core.work(original.workId)).toEqual(beforeWork);
+    expect(core.core.project(original.projectId)).toEqual(beforeWork);
     expect(core.core.connection(original.resultId)).toEqual(beforeConnection);
-    await follow(mounted.host, `#/project/${original.workId}`);
+    await follow(mounted.host, `#/project/${original.projectId}`);
     expect(mounted.host.textContent).toContain('Keep original goal');
     expect(core.core.projects.list().projects).toHaveLength(1);
-    expect(h.resumeGateway.refresh).not.toHaveBeenCalled();
+    expect(h.analysisGateway.refresh).not.toHaveBeenCalled();
     expect(core.counts()).toEqual({ generationCalls: 0, checkCalls: 0, openCalls: 0 });
   } finally {
     await mounted.unmount();
@@ -297,7 +304,7 @@ it('prunes old browser IDs on the successful full list and starts the new projec
   const entry = freshProject();
   const disconnected = projectEntry('disconnected');
   disconnected.disconnectedAt = now;
-  disconnected.resume = null;
+  disconnected.analysis = null;
   const h = projectUiFixture([entry, disconnected]);
   const data = browserStorage();
   for (const id of ['old-registration-a', 'old-registration-b', 'disconnected'])
@@ -306,27 +313,30 @@ it('prunes old browser IDs on the successful full list and starts the new projec
   data.storage.setItem('statecarry.work.v1.disconnected', 'Keep disconnected detail draft');
   data.storage.setItem('another-app', 'keep');
   window.history.replaceState(null, '', '#/project/new-statecarry');
-  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway, data.memory());
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway, data.memory());
   try {
     expect(data.memory().read('old-registration-a')).toBeNull();
     expect(data.memory().read('old-registration-b')).toBeNull();
     expect(data.storage.getItem('statecarry.work.v1.old-registration-a')).toBeNull();
-    expect(data.storage.getItem('statecarry.work.v1.disconnected')).toBe(
-      'Keep disconnected detail draft',
-    );
-    expect(data.memory().read('disconnected')).toEqual(draft());
+    expect(data.storage.getItem('statecarry.work.v1.disconnected')).toBeNull();
+    expect(data.memory().read('disconnected')).toMatchObject({
+      goalDraft: draft().goalDraft,
+      actionDrafts: draft().actionDrafts,
+    });
+    expect(data.memory().read('disconnected')).not.toHaveProperty('selectedKey');
     expect(data.storage.getItem('another-app')).toBe('keep');
     expect(mounted.host.textContent).not.toContain('obsolete');
     expect(mounted.host.querySelector('[aria-label="Selected task"]')).toBeNull();
     expect(mounted.host.textContent).not.toContain('No next task has been chosen');
-    expect(mounted.host.textContent).toContain('Choose a direction first.');
-    expect(button(mounted.host, 'Set direction')).toBeTruthy();
-    await press(mounted.host, 'Set direction');
-    expect(mounted.host.querySelector<HTMLTextAreaElement>('textarea[name="goal"]')?.value).toBe(
-      '',
-    );
-    expect(data.memory().read('new-statecarry')?.goalDraft?.text).toBe('');
-    expect(h.resumeGateway.refresh).not.toHaveBeenCalled();
+    expect(mounted.host.textContent).toContain('Decide the current direction');
+    expect(button(mounted.host, 'Define direction')).toBeTruthy();
+    expect(data.memory().read('new-statecarry')).toMatchObject({
+      goalDraft: null,
+      actionDrafts: [],
+      expanded: [],
+      scroll: 0,
+    });
+    expect(h.analysisGateway.refresh).not.toHaveBeenCalled();
   } finally {
     await mounted.unmount();
   }
@@ -338,11 +348,10 @@ it('does not recreate a pruned old key when the displayed project disappears dur
   data.memory().write('alpha', draft());
   data.storage.setItem('statecarry.work.v1.alpha', 'Old detail draft');
   window.history.replaceState(null, '', '#/project/alpha');
-  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway, data.memory());
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway, data.memory());
   try {
-    expect(mounted.host.querySelector<HTMLTextAreaElement>('textarea[name="goal"]')?.value).toBe(
-      'An obsolete draft goal',
-    );
+    expect(mounted.host.textContent).toContain('Ship the alpha export');
+    expect(mounted.host.textContent).not.toContain('An obsolete draft goal');
     h.rows.projects = [freshProject()];
     Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
     await act(async () => {
@@ -358,8 +367,13 @@ it('does not recreate a pruned old key when the displayed project disappears dur
     await follow(mounted.host, '#/home');
     await go('#/project/new-statecarry');
     expect(mounted.host.textContent).not.toContain('obsolete');
-    expect(data.memory().read('new-statecarry')).toBeNull();
-    expect(h.resumeGateway.refresh).not.toHaveBeenCalled();
+    expect(data.memory().read('new-statecarry')).toMatchObject({
+      goalDraft: null,
+      actionDrafts: [],
+      expanded: [],
+      scroll: 0,
+    });
+    expect(h.analysisGateway.refresh).not.toHaveBeenCalled();
   } finally {
     await mounted.unmount();
   }
@@ -374,17 +388,25 @@ it('preserves old keys when the full-list read fails and reports a subsequent st
     throw new Error('RAW_PRUNE_FAILURE');
   });
   window.history.replaceState(null, '', '#/home');
-  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway, data.memory());
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway, data.memory());
   try {
     expect(data.storage.removeItem).not.toHaveBeenCalled();
-    expect(data.memory().read('old-registration')).toEqual(draft());
+    expect(data.memory().read('old-registration')).toMatchObject({
+      goalDraft: draft().goalDraft,
+      actionDrafts: draft().actionDrafts,
+    });
     await press(mounted.host, 'Try again');
     expect(mounted.host.textContent).toContain('Old browser drafts could not be cleared');
     expect(mounted.host.textContent).not.toContain('RAW_PRUNE_FAILURE');
     expect(mounted.host.textContent).not.toContain('RAW_LIST_FAILURE');
     await go('#/project/new-statecarry');
     expect(mounted.host.textContent).not.toContain('An obsolete draft goal');
-    expect(data.memory().read('new-statecarry')).toBeNull();
+    expect(data.memory().read('new-statecarry')).toMatchObject({
+      goalDraft: null,
+      actionDrafts: [],
+      expanded: [],
+      scroll: 0,
+    });
   } finally {
     await mounted.unmount();
   }
@@ -397,7 +419,7 @@ it('keeps Codex context optional before an explicit first analysis, with no infe
   h.projectGateway.connections = vi.fn(async () => [
     {
       id: entry.connectionId,
-      workId: entry.workId,
+      projectId: entry.projectId,
       title: entry.title,
       cwd: entry.cwd,
       threadIds,
@@ -414,14 +436,14 @@ it('keeps Codex context optional before an explicit first analysis, with no infe
   }));
   h.projectGateway.sources = vi.fn(async (id, _revision, input) => {
     threadIds = [...input.threadIds];
-    entry.resume!.sessionCount = threadIds.length;
+    entry.analysis!.sessionCount = threadIds.length;
     return testReceipt(id);
   });
   window.history.replaceState(null, '', '#/project/new-statecarry');
-  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
   try {
-    expect(mounted.host.textContent).toContain('Choose a direction first.');
-    expect(button(mounted.host, 'Set direction')).toBeTruthy();
+    expect(mounted.host.textContent).toContain('Decide the current direction');
+    expect(button(mounted.host, 'Define direction')).toBeTruthy();
     await follow(mounted.host, '#/project/new-statecarry/settings');
     expect(mounted.host.textContent).toContain('Codex conversations');
     await press(mounted.host, 'Find related conversations');
@@ -430,13 +452,13 @@ it('keeps Codex context optional before an explicit first analysis, with no infe
       .querySelector<HTMLInputElement>('input')!;
     await act(async () => checkbox.click());
     await press(mounted.host, 'Save conversations');
-    expect(h.resumeGateway.refresh).not.toHaveBeenCalled();
+    expect(h.analysisGateway.refresh).not.toHaveBeenCalled();
     await follow(mounted.host, '#/project/new-statecarry');
     expect(mounted.host.querySelector('[aria-label="Selected task"]')).toBeNull();
-    expect(button(mounted.host, 'Set direction')).toBeTruthy();
-    expect(h.resumeGateway.refresh).not.toHaveBeenCalled();
-    expect(h.resumeGateway.setGoal).not.toHaveBeenCalled();
-    expect(entry.resume!.goalText).toBeNull();
+    expect(button(mounted.host, 'Define direction')).toBeTruthy();
+    expect(h.analysisGateway.refresh).not.toHaveBeenCalled();
+    expect(h.analysisGateway.setGoal).not.toHaveBeenCalled();
+    expect(entry.analysis!.goalText).toBeNull();
   } finally {
     await mounted.unmount();
   }

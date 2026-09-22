@@ -1,16 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { ProjectWorkspace, ResumeGateway } from '@statecarry/presentation';
+import type { WorkspaceSnapshot } from '@statecarry/contracts';
 import {
   act,
-  button,
   deferred,
   installBrowser,
   mountProjectRoot,
-  press,
-  projectEntry,
   projectUiFixture,
-  typeField,
 } from './project-ui-fixtures';
 
 beforeEach(installBrowser);
@@ -19,61 +15,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it('keeps the real project explanation and editor stable while a burst of changes is checked', async () => {
-  const h = projectUiFixture([projectEntry('alpha'), projectEntry('beta')]);
-  let changed!: Parameters<NonNullable<ResumeGateway['subscribe']>>[0];
-  h.resumeGateway.subscribe = (listener) => {
-    changed = listener;
-    return () => {};
-  };
-  window.history.replaceState(null, '', '#/project/alpha');
-  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
-  try {
-    await press(mounted.host, 'Edit direction');
-    await typeField(mounted.host, 'textarea[name="goal"]', 'Keep my unfinished goal');
-    const goal = mounted.host.querySelector<HTMLTextAreaElement>('textarea[name="goal"]')!;
-    goal.focus();
-    goal.setSelectionRange(4, 8);
-    const nextChoice = mounted.host.querySelector('.pw-decision-main')!.textContent;
-    const nextRead = deferred<ProjectWorkspace>();
-    vi.mocked(h.projectGateway.list).mockImplementationOnce(() => nextRead.promise);
-    vi.useFakeTimers();
-    await act(async () => {
-      for (let count = 0; count < 20; count++) changed({ workId: 'alpha' });
-    });
-    expect(mounted.host.querySelector('.pw-decision-main')!.textContent).toBe(nextChoice);
-    expect(mounted.host.querySelector('[aria-labelledby="project-context-heading"]')).toBeTruthy();
-    expect(mounted.host.textContent).not.toContain('Reading saved state…');
-    expect(goal.value).toBe('Keep my unfinished goal');
-    expect(document.activeElement).toBe(goal);
-    expect([goal.selectionStart, goal.selectionEnd]).toEqual([4, 8]);
-    expect(button(mounted.host, 'Save goal').disabled).toBe(true);
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(150);
-    });
-    expect(h.projectGateway.list).toHaveBeenCalledTimes(2);
-    await act(async () => {
-      nextRead.resolve(structuredClone(h.rows));
-    });
-    expect(button(mounted.host, 'Save goal').disabled).toBe(false);
-    expect(mounted.host.querySelector('.pw-decision-main')!.textContent).toBe(nextChoice);
-    expect(document.activeElement).toBe(goal);
-    expect(goal.value).toBe('Keep my unfinished goal');
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(60000);
-    });
-    expect(h.projectGateway.list).toHaveBeenCalledTimes(2);
-    expect(h.resumeGateway.refresh).not.toHaveBeenCalled();
-  } finally {
-    vi.useRealTimers();
-    await mounted.unmount();
-  }
-});
-
 it('checks once on app return, with no periodic read or analysis', async () => {
   const h = projectUiFixture();
   window.history.replaceState(null, '', '#/project/alpha');
-  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
   try {
     expect(h.projectGateway.list).toHaveBeenCalledTimes(1);
     await vi.waitFor(() => expect(h.projectGateway.observe).toHaveBeenCalledTimes(1));
@@ -97,16 +42,123 @@ it('checks once on app return, with no periodic read or analysis', async () => {
     });
     expect(h.projectGateway.list).toHaveBeenCalledTimes(2);
     expect(h.projectGateway.observe).toHaveBeenCalledTimes(2);
+    expect(h.projectGateway.analyzeWorkspace).not.toHaveBeenCalled();
     expect(mounted.host.querySelector('.pw-app-header .pw-workspace-status')).toBeNull();
     expect(mounted.host.querySelector('.pw-app-header')?.textContent).toContain('Send feedback');
     expect(mounted.host.querySelector('.pw-app-header')?.textContent).not.toContain(
       'Check for changes',
     );
-    expect(h.resumeGateway.refresh).not.toHaveBeenCalled();
-    expect(h.resumeGateway.setGoal).not.toHaveBeenCalled();
-    expect(h.resumeGateway.correct).not.toHaveBeenCalled();
+    expect(h.analysisGateway.refresh).not.toHaveBeenCalled();
+    expect(h.analysisGateway.setGoal).not.toHaveBeenCalled();
+    expect(h.analysisGateway.correct).not.toHaveBeenCalled();
   } finally {
     vi.useRealTimers();
+    await mounted.unmount();
+  }
+});
+
+it('keeps the first stream connection from starting the full workspace read before ProjectNow', async () => {
+  const h = projectUiFixture();
+  const originalNow = h.projectGateway.now!;
+  const pendingNow = deferred<Awaited<ReturnType<typeof originalNow>>>();
+  h.projectGateway.registrations = vi.fn(async () => ({
+    projects: h.rows.projects.map((entry) => ({
+      projectId: entry.projectId,
+      connectionId: entry.connectionId,
+      title: entry.title,
+      cwd: entry.cwd,
+      purpose: entry.purpose,
+      focused: entry.focused,
+      iconAsset: entry.iconAsset ?? null,
+      bannerAsset: entry.bannerAsset ?? null,
+      revision: entry.revision,
+      disconnectedAt: entry.disconnectedAt,
+    })),
+  }));
+  h.projectGateway.now = vi.fn(() => pendingNow.promise);
+  let connected!: (state: 'connected' | 'disconnected') => void;
+  h.analysisGateway.subscribe = (_listener, onConnection) => {
+    connected = onConnection!;
+    return () => {};
+  };
+  window.history.replaceState(null, '', '#/project/alpha');
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
+  try {
+    await act(async () => {
+      connected('connected');
+    });
+    expect(h.projectGateway.list).not.toHaveBeenCalled();
+
+    await act(async () => {
+      pendingNow.resolve(await originalNow('alpha'));
+    });
+    await vi.waitFor(() => expect(h.projectGateway.list).toHaveBeenCalledTimes(2));
+  } finally {
+    await mounted.unmount();
+  }
+});
+
+it('keeps saved project content visible while semantic repository analysis runs', async () => {
+  const h = projectUiFixture();
+  const workspace: WorkspaceSnapshot = {
+    cwd: '/synthetic/alpha',
+    root: '/synthetic/alpha',
+    branch: 'main',
+    commit: 'synthetic-commit',
+    dirty: true,
+    changedPaths: ['src/current.ts'],
+    changedFiles: [{ path: 'src/current.ts', status: 'modified' }],
+    changedFileCount: 1,
+    additions: 3,
+    deletions: 1,
+    untrackedCount: 0,
+    diffPreview: '+current change',
+    recentCommits: [],
+    status: 'checked',
+    checkedAt: '2026-09-21T13:00:00Z',
+    limitations: [],
+    files: [],
+  };
+  h.rows.projects[0].analysis!.workspace = structuredClone(workspace);
+  h.projectGateway.observe = vi.fn(async () => structuredClone(workspace));
+  const pendingAnalysis = deferred<WorkspaceSnapshot>();
+  h.projectGateway.analyzeWorkspace = vi.fn(() => pendingAnalysis.promise);
+  window.history.replaceState(null, '', '#/project/alpha');
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
+  try {
+    await vi.waitFor(() => expect(h.projectGateway.analyzeWorkspace).toHaveBeenCalledTimes(1));
+    expect(mounted.host.textContent).toContain('Analyzing repository changes…');
+    expect(mounted.host.textContent).toContain('Ship the alpha export');
+    expect(mounted.host.textContent).not.toContain('Saved project state is unavailable.');
+
+    await act(async () => {
+      pendingAnalysis.resolve({
+        ...workspace,
+        workingTreeAnalysis: { summary: 'One current change.', groups: [] },
+      });
+    });
+    await vi.waitFor(() =>
+      expect(mounted.host.textContent).not.toContain('Analyzing repository changes…'),
+    );
+    expect(mounted.host.textContent).toContain('Ship the alpha export');
+  } finally {
+    await mounted.unmount();
+  }
+});
+
+it('does not turn passive observation failure into a global project error', async () => {
+  const h = projectUiFixture();
+  h.projectGateway.observe = vi.fn(async () => {
+    throw new Error('synthetic observation failure');
+  });
+  window.history.replaceState(null, '', '#/project/alpha');
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
+  try {
+    await vi.waitFor(() => expect(h.projectGateway.observe).toHaveBeenCalledTimes(1));
+    expect(mounted.host.textContent).toContain('Ship the alpha export');
+    expect(mounted.host.textContent).not.toContain('StateCarry could not complete that action.');
+    expect(mounted.host.textContent).not.toContain('Saved project state is unavailable.');
+  } finally {
     await mounted.unmount();
   }
 });

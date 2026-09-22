@@ -714,6 +714,10 @@
   @apply mb-7 grid gap-1.5 border-b border-border px-1 pb-5;
 }
 
+.pw-direction-heading {
+  @apply flex items-center justify-between gap-4;
+}
+
 .pw-direction > p {
   @apply text-[17px] font-medium leading-7 text-foreground;
 }
@@ -733,19 +737,487 @@
 }
 
 .pw-current-decision-card {
-  @apply grid gap-4;
-}
-
-.pw-current-situation {
-  @apply grid gap-1.5;
-}
-
-.pw-context-list {
   @apply grid gap-3;
 }
 
+.pw-decision-focus,
+.pw-choice-decision {
+  @apply grid gap-4;
+}
+
+.pw-decision-intro {
+  @apply text-muted-foreground;
+}
+
+.pw-decision-choice-list {
+  @apply grid gap-2.5;
+}
+
+.pw-decision-choice-list a {
+  @apply flex items-start gap-3 rounded-md border border-border bg-background px-4 py-3 text-sm no-underline;
+}
+
+.pw-decision-choice-list a:hover {
+  @apply bg-muted/50;
+}
+
+.pw-choice-copy {
+  @apply grid min-w-0 gap-1;
+}
+
+.pw-current-work-heading {
+  @apply flex items-center justify-between gap-4;
+}
+
+.pw-project-detail {
+  width: min(100%, 720px);
+  margin-inline: auto;
+  padding-bottom: 64px;
+}
+.pw-project-back {
+  @apply mb-5 inline-flex items-center gap-2 text-sm text-muted-foreground no-underline;
+}
+.pw-project-back:hover {
+  @apply text-foreground;
+}
+.pw-project-detail .pw-hero {
+  @apply mb-2;
+}
+.pw-project-detail .pw-hero h1 {
+  @apply text-[26px] leading-9 tracking-tight;
+}
+.pw-project-detail .pw-hero .pw-card-meta:empty {
+  display: none;
+}
+.pw-project-detail .pw-direction {
+  @apply mb-0 flex flex-wrap items-baseline justify-start gap-x-2 gap-y-1 px-0 pb-6;
+}
+.pw-project-detail .pw-direction > p {
+  @apply m-0 text-sm font-normal leading-6 text-muted-foreground;
+}
+.pw-project-detail .pw-direction-heading {
+  @apply text-sm;
+}
+.pw-project-detail .pw-direction > div:last-child:not(.pw-direction-heading) {
+  @apply ml-auto;
+}
+.pw-project-detail .pw-direction .pw-button--quiet {
+  @apply text-xs text-muted-foreground;
+}
+.pw-project-detail .pw-current-decision {
+  @apply mt-8;
+}
+.pw-project-detail .pw-current-decision-card {
+  @apply rounded-none border-0 bg-transparent p-0 shadow-none;
+}
+.pw-return-decision {
+  @apply gap-5;
+}
+.pw-return-decision > h2 {
+  @apply m-0 text-[27px] font-semibold leading-snug tracking-tight;
+  text-wrap: balance;
+}
+.pw-return-decision h3 {
+  @apply text-lg font-semibold leading-7;
+}
+.pw-return-decision .pw-current-work-heading {
+  @apply justify-start gap-3;
+}
+.pw-work-status {
+  @apply w-fit rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-accent-foreground;
+}
+.pw-return-story {
+  @apply grid gap-3 text-base leading-7;
+}
+.pw-return-story > p {
+  @apply m-0;
+}
+.pw-return-observation {
+  @apply flex items-start gap-3 rounded-md bg-muted/60 px-4 py-3.5 text-sm leading-6;
+}
+.pw-return-observation > svg {
+  @apply mt-0.5 shrink-0 text-muted-foreground;
+}
+.pw-return-observation strong {
+  @apply text-sm font-medium;
+}
+.pw-return-observation p {
+  @apply m-0 text-muted-foreground;
+}
+.pw-return-outcome {
+  @apply text-foreground;
+}
+.pw-return-outcome strong {
+  @apply font-normal;
+}
+.pw-return-actions {
+  @apply grid w-full grid-cols-1 gap-2;
+}
+.pw-return-actions > button,
+.pw-return-actions > a {
+  @apply min-h-11 w-full justify-center;
+}
+.pw-return-actions > .pw-button--quiet {
+  @apply min-h-9 text-muted-foreground;
+}
+.pw-return-decision > .pw-details {
+  @apply border-t border-border pt-5;
+}
+.pw-discussion-context {
+  @apply -mt-2 mb-0 text-sm leading-6 text-muted-foreground;
+}
+.pw-stopped-followup {
+  @apply grid gap-4 border-y border-border py-6;
+}
+.pw-stopped-actions {
+  @apply grid grid-cols-2 gap-3;
+}
+.pw-stopped-actions > button {
+  @apply h-auto min-h-11 whitespace-normal;
+}
+.pw-discuss-link {
+  @apply h-auto justify-start gap-2 border-0 bg-transparent px-0 py-2 text-muted-foreground shadow-none;
+}
+.pw-project-detail .pw-context-disclosure {
+  @apply rounded-none border-0 border-t border-border bg-transparent px-0 py-4;
+}
+.pw-project-detail .pw-context-disclosure > summary {
+  @apply text-sm font-normal text-muted-foreground;
+}
+.pw-project-detail .pw-context-disclosure > summary .pw-small {
+  display: none;
+}
+.pw-project-detail .pw-other-work {
+  @apply mt-1;
+}
+.pw-project-now-page {
+  @apply grid grid-cols-1 gap-0;
+}
+.pw-now-project-header {
+  @apply mb-2 grid gap-1;
+}
+.pw-now-project-header .pw-card-meta:empty {
+  display: none;
+}
+.pw-now-project-identity {
+  @apply flex items-center gap-2.5;
+}
+.pw-now-project-identity h1 {
+  @apply m-0 text-base font-medium leading-6 text-muted-foreground;
+}
+.pw-now-direction {
+  @apply flex flex-wrap items-baseline gap-x-2 gap-y-1 border-b border-border pb-6;
+}
+.pw-now-direction > p {
+  @apply m-0 text-sm leading-6 text-muted-foreground;
+}
+.pw-now-checking {
+  @apply mt-4 inline-flex w-fit items-center gap-2 text-xs text-muted-foreground;
+}
+.pw-now-checking > svg,
+.pw-now-loading > svg {
+  @apply animate-spin;
+}
+.pw-now-work {
+  @apply mt-8 grid min-w-0 grid-cols-1 gap-6;
+}
+.pw-now-work > h2 {
+  @apply m-0 text-[32px] font-semibold leading-[1.25] tracking-tight;
+  text-wrap: balance;
+}
+.pw-now-current-state {
+  @apply m-0 text-base leading-7 text-foreground;
+}
+.pw-now-uncertainty {
+  @apply grid gap-1.5;
+}
+.pw-now-uncertainty > p {
+  @apply m-0 text-base leading-7 text-foreground;
+}
+.pw-now-next {
+  @apply grid gap-2.5 pt-1;
+}
+.pw-now-next > p {
+  @apply m-0 text-[17px] font-medium leading-7 text-foreground;
+}
+.pw-now-actions {
+  @apply mt-1 flex flex-wrap items-center gap-3;
+}
+.pw-now-actions > .pw-button--primary {
+  @apply min-h-11;
+}
+.pw-now-actions > .pw-button--quiet {
+  @apply h-auto min-h-9 px-1 text-muted-foreground;
+}
+.pw-now-notice {
+  @apply grid gap-3 border-y border-border py-4;
+}
+.pw-now-notice > div {
+  @apply grid gap-1;
+}
+.pw-now-notice strong {
+  @apply text-sm font-semibold;
+}
+.pw-now-notice p {
+  @apply m-0 text-sm leading-6;
+}
+.pw-now-notice--quiet {
+  @apply text-muted-foreground;
+}
+.pw-now-notice--attention {
+  @apply border-l-2 pl-4;
+}
+.pw-now-notice--immediate {
+  @apply border-l-4 pl-4;
+}
+.pw-now-notice > .pw-button--quiet {
+  @apply w-fit px-0;
+}
+.pw-now-other-work {
+  @apply mt-8 border-t border-border pt-4;
+}
+.pw-now-other-work > details > summary {
+  @apply cursor-pointer text-sm text-muted-foreground;
+}
+.pw-now-other-work-list {
+  @apply mt-3 grid grid-cols-1 gap-1;
+}
+.pw-now-other-work-item {
+  @apply grid h-auto w-full min-w-0 grid-cols-1 justify-items-start gap-1 px-0 py-2 text-left whitespace-normal;
+}
+.pw-now-other-work-item > span:first-child {
+  @apply min-w-0 text-sm break-words text-foreground;
+}
+.pw-now-other-work-item > .pw-small {
+  @apply shrink-0;
+}
+.pw-now-action-mode {
+  @apply mt-6 grid gap-5;
+}
+.pw-now-action-mode > .pw-button--quiet {
+  @apply h-auto w-fit gap-2 px-0;
+}
+.pw-now-mode-context {
+  @apply grid gap-1 border-b border-border pb-4;
+}
+.pw-now-mode-context strong {
+  @apply text-lg font-semibold;
+}
+.pw-now-loading {
+  @apply mt-8 flex items-start gap-3 text-muted-foreground;
+}
+.pw-now-loading > div {
+  @apply grid gap-1;
+}
+.pw-now-loading strong {
+  @apply text-sm font-medium text-foreground;
+}
+.pw-now-loading p {
+  @apply m-0 text-sm leading-6;
+}
+@media (max-width: 600px) {
+  .pw-now-work > h2 {
+    @apply text-[28px];
+  }
+  .pw-now-actions {
+    @apply grid grid-cols-1;
+  }
+  .pw-now-actions > .pw-button--primary {
+    @apply w-full;
+  }
+  .pw-now-actions > .pw-button--quiet {
+    @apply w-fit justify-start;
+  }
+  .pw-return-decision > h2 {
+    @apply text-2xl;
+  }
+  .pw-stopped-actions {
+    @apply grid-cols-1;
+  }
+  .pw-project-detail .pw-direction > div:last-child:not(.pw-direction-heading) {
+    @apply ml-0;
+  }
+}
+
+.pw-working-tree-choice-list {
+  @apply grid gap-2.5;
+}
+
+.pw-working-tree-choice {
+  @apply h-auto w-full justify-start whitespace-normal px-4 py-4 text-left;
+}
+
+.pw-working-tree-choice > span {
+  @apply grid min-w-0 gap-1.5;
+}
+
+.pw-working-tree-choice strong {
+  @apply text-sm font-semibold text-foreground;
+}
+
+.pw-working-tree-change-scope {
+  @apply justify-self-start;
+}
+
+.pw-working-tree-followup,
+.pw-working-tree-review {
+  @apply grid gap-4 border-t border-border pt-5;
+}
+
+.pw-working-tree-evidence {
+  @apply border-t border-border pt-4;
+}
+
+.pw-working-tree-evidence > summary,
+.pw-working-tree-source > summary {
+  @apply cursor-pointer font-medium;
+}
+
+.pw-working-tree-evidence[open] > summary {
+  @apply mb-4;
+}
+
+.pw-working-tree-review--compact {
+  @apply border-t-0 pt-0;
+}
+
+.pw-working-tree-basis-block {
+  @apply grid gap-1.5 text-sm;
+}
+
+.pw-working-tree-basis-block p,
+.pw-working-tree-basis-block ul {
+  @apply m-0;
+}
+
+.pw-working-tree-basis-block ul {
+  @apply grid gap-1.5 pl-5;
+}
+
+.pw-working-tree-source {
+  @apply text-sm;
+}
+
+.pw-working-tree-source ul {
+  @apply mt-3 grid gap-1.5 pl-5;
+}
+
+.pw-working-tree-source code {
+  @apply break-all;
+}
+
+.pw-working-tree-meta {
+  @apply m-0 grid gap-x-6 gap-y-3 text-sm;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.pw-working-tree-meta > div {
+  @apply grid gap-1 border-t border-border pt-3;
+}
+
+.pw-working-tree-meta dt {
+  @apply text-xs font-semibold text-muted-foreground;
+}
+
+.pw-working-tree-meta dd {
+  @apply m-0 break-words;
+}
+
+.pw-working-tree-raw pre {
+  @apply mt-3 max-h-[420px] overflow-auto rounded-md bg-muted p-4 text-xs leading-5 whitespace-pre-wrap;
+}
+
+.pw-working-tree-move-on {
+  @apply gap-3;
+}
+
+.pw-task-discussion {
+  @apply grid gap-5 border-t border-border pt-5;
+}
+.pw-task-discussion > h3 {
+  @apply m-0 flex items-center gap-2 text-base font-medium;
+}
+.pw-discussion-invitation {
+  @apply m-0 text-sm leading-6 text-muted-foreground;
+}
+.pw-task-discussion-turns {
+  @apply grid gap-6;
+}
+.pw-task-discussion-turn {
+  @apply grid gap-4;
+}
+.pw-task-discussion-question {
+  @apply grid justify-self-end gap-1 text-sm;
+  max-width: 85%;
+}
+.pw-task-discussion-question > span {
+  @apply text-right;
+}
+.pw-task-discussion-question > p {
+  @apply m-0 rounded-lg bg-accent px-4 py-3 text-accent-foreground;
+}
+.pw-discussion-reply {
+  @apply grid items-start gap-3;
+  grid-template-columns: 28px minmax(0, 1fr);
+}
+.pw-discussion-avatar {
+  @apply flex size-7 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground;
+}
+.pw-task-discussion-answer {
+  @apply grid min-w-0 gap-3 text-sm leading-6;
+}
+.pw-task-discussion-answer > div {
+  @apply grid gap-2 rounded-md bg-muted/50 px-4 py-3;
+}
+.pw-task-discussion-answer p {
+  @apply m-0;
+}
+.pw-task-discussion-form {
+  @apply grid gap-3;
+}
+.pw-discussion-compose {
+  @apply grid items-end gap-3;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.pw-discussion-compose textarea {
+  @apply min-h-12 resize-y;
+}
+.pw-discussion-compose > button {
+  @apply min-h-12;
+}
+.pw-discussion-organize {
+  @apply min-h-11 w-full;
+}
+.pw-discussion-saved {
+  @apply m-0 text-center;
+}
+.pw-return-decision,
+.pw-task-discussion {
+  overflow-wrap: anywhere;
+}
+
+.pw-task-adjustment {
+  @apply border-t border-border pt-5;
+}
+
+.pw-context-list {
+  @apply mt-3 grid gap-2;
+}
+
+.pw-context-disclosure {
+  @apply rounded-lg border border-border bg-card px-4 py-3.5;
+}
+
+.pw-context-disclosure > summary {
+  @apply flex cursor-pointer list-none items-center justify-between gap-4 font-semibold;
+}
+
+.pw-context-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
 .pw-context-item {
-  @apply grid gap-2 rounded-lg border border-border bg-card px-4 py-3.5;
+  @apply grid gap-2 border-t border-border px-0 py-3;
 }
 
 .pw-context-item summary {
@@ -761,7 +1233,7 @@
 }
 
 .pw-context-item[open] > summary {
-  @apply mb-3;
+  @apply mb-2;
 }
 
 .pw-context-item .pw-uncommitted-work {
@@ -794,41 +1266,135 @@
 }
 
 .pw-decision {
-  @apply mt-6 grid gap-[18px] pt-6;
+  @apply mt-5 grid gap-[18px] pt-5;
+}
+
+.pw-decision-layout {
+  @apply grid gap-6;
+  grid-template-columns: minmax(0, 1.9fr) minmax(260px, 0.9fr);
+}
+
+.pw-decision-primary {
+  @apply grid content-start gap-[18px];
+}
+
+.pw-decision-support {
+  @apply grid content-start gap-5 border-l border-border pl-6;
+}
+
+.pw-decision-core {
+  @apply overflow-hidden rounded-lg border border-border;
 }
 
 .pw-decision-main {
-  @apply grid gap-2 rounded-md bg-accent p-[22px];
+  @apply grid gap-2 bg-accent px-5 py-[18px];
 }
 
 .pw-decision-main p {
-  @apply text-xl font-medium leading-[1.45] text-accent-foreground;
+  @apply text-[19px] font-semibold leading-[1.45] text-accent-foreground;
 }
 
-.pw-facts,
+.pw-done-when {
+  @apply grid gap-2 border-t border-border bg-card px-5 py-4;
+}
+
+.pw-done-when p {
+  @apply text-[15px] font-medium leading-6 text-foreground;
+}
+
+.pw-decision-context,
 .pw-state-grid,
 .pw-source-summary {
   @apply m-0 grid;
 }
 
-.pw-facts {
-  @apply gap-5;
+.pw-decision-context {
+  @apply gap-4;
 }
 
-.pw-facts div,
+.pw-decision-context div,
 .pw-state-grid div {
   @apply grid gap-1.5;
 }
 
-.pw-facts dt,
+.pw-decision-context dt,
 .pw-state-grid dt {
   @apply text-xs text-muted-foreground;
   font-weight: 650;
 }
 
-.pw-facts dd,
+.pw-decision-context dd,
 .pw-state-grid dd {
   @apply m-0;
+}
+
+.pw-fact-secondary {
+  @apply text-muted-foreground;
+}
+
+.pw-decision-update {
+  @apply flex items-start gap-3 border-t border-border pt-4;
+}
+
+.pw-decision-refresh {
+  @apply flex items-center justify-between gap-4 rounded-md border border-border bg-muted/40 px-4 py-3.5;
+}
+
+.pw-decision-refresh p {
+  @apply mt-1;
+}
+
+.pw-review-stage {
+  @apply grid gap-5 rounded-lg border border-border bg-muted/30 px-5 py-5;
+}
+
+.pw-review-targets {
+  @apply grid gap-3;
+}
+
+.pw-review-targets > details {
+  @apply rounded-md border border-border bg-background px-4 py-3;
+}
+
+.pw-review-targets > details > summary {
+  @apply cursor-pointer font-medium;
+}
+
+.pw-review-files {
+  @apply mt-3 grid gap-3 border-t border-border pt-3 text-sm;
+}
+
+.pw-review-files > div {
+  @apply grid gap-1;
+}
+
+.pw-review-files ul {
+  @apply m-0 grid gap-1.5 pl-5;
+}
+
+.pw-review-files code {
+  @apply break-all;
+}
+
+.pw-review-diff {
+  @apply border-t border-border pt-3;
+}
+
+.pw-review-diff > summary {
+  @apply cursor-pointer font-medium;
+}
+
+.pw-review-diff pre {
+  @apply mt-3 max-h-[420px] overflow-auto rounded-md bg-muted p-4 text-xs leading-5 whitespace-pre-wrap;
+}
+
+.pw-decision-update-indicator {
+  @apply mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-primary;
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--primary) 12%, transparent);
+}
+
+.pw-decision-update p {
+  @apply mt-1;
 }
 
 .pw-uncommitted-work {
@@ -896,12 +1462,24 @@
   @apply mt-4 grid gap-3;
 }
 
+.pw-uncommitted-scope {
+  @apply grid gap-1 rounded-lg border border-border bg-muted/30 px-4 py-3.5;
+}
+
 .pw-uncommitted-group {
   @apply grid gap-3 rounded-lg border border-border bg-card/70 px-4 py-4;
 }
 
 .pw-uncommitted-group-heading {
   @apply flex min-w-0 items-center justify-between gap-3;
+}
+
+.pw-uncommitted-group-title {
+  @apply flex min-w-0 items-start gap-2.5;
+}
+
+.pw-uncommitted-group-title input {
+  @apply mt-0.5;
 }
 
 .pw-uncommitted-group-state {
@@ -950,11 +1528,11 @@
 }
 
 .pw-source-summary {
-  @apply grid-cols-3 gap-3;
+  @apply gap-2;
 }
 
 .pw-source-summary-item {
-  @apply grid content-start gap-1 rounded-md border border-border bg-muted p-3.5;
+  @apply grid content-start gap-1 border-t border-border py-3;
 }
 
 .pw-source-summary-item span {
@@ -1012,6 +1590,18 @@
 
 .pw-details[open] > * + * {
   @apply mt-4;
+}
+
+.pw-decision-basis {
+  @apply text-sm;
+}
+
+.pw-original-records {
+  @apply border-t border-border pt-4;
+}
+
+.pw-original-records > summary {
+  @apply cursor-pointer font-medium;
 }
 
 .pw-form {
@@ -1116,7 +1706,21 @@
   }
 }
 
+@media (max-width: 920px) {
+  .pw-decision-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pw-decision-support {
+    @apply border-l-0 border-t pt-5 pl-0;
+  }
+}
+
 @media (max-width: 720px) {
+  .pw-beta-popover {
+    @apply fixed top-[60px] right-4 left-4 w-auto;
+  }
+
   .pw-shell {
     @apply block;
   }
@@ -1167,7 +1771,8 @@
   .pw-focus-grid,
   .pw-task-nav,
   .pw-state-grid,
-  .pw-source-summary {
+  .pw-source-summary,
+  .pw-working-tree-meta {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -1205,5 +1810,147 @@
   .pw-loading-line,
   .pw-loading-surface {
     animation: none !important;
+  }
+}
+
+/* Project detail: one reading column, with the decision stronger than its sources. */
+.pw-decision-flow {
+  font-size: 16px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+.pw-decision-flow h2 {
+  font-size: 32px;
+  line-height: 1.3;
+  letter-spacing: -0.025em;
+  margin: 1rem 0 1.5rem;
+}
+.pw-decision-flow h3 {
+  margin: 1.5rem 0 0.75rem;
+}
+.pw-decision-flow p {
+  max-width: 68ch;
+}
+.pw-decision-flow .pw-field {
+  margin-block: 1rem;
+}
+.pw-decision-flow select {
+  max-width: 100%;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--background);
+}
+.pw-decision-flow pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.5;
+  max-height: 28rem;
+  overflow: auto;
+  padding: 0.75rem;
+}
+.pw-decision-facts {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr);
+  gap: 0.8rem 1.25rem;
+  margin: 1.5rem 0;
+}
+.pw-decision-facts dt {
+  font-weight: 600;
+}
+.pw-decision-facts dd {
+  margin: 0;
+}
+.pw-decision-choices {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.65rem;
+  margin: 1.5rem 0;
+}
+.pw-decision-choices > p {
+  font-size: 14px;
+  margin: 0 0 0.5rem;
+}
+.pw-decision-secondary,
+.pw-decision-flow .pw-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.pw-decision-uncertain {
+  border-left: 3px solid currentColor;
+  padding-left: 1rem;
+  margin-block: 1.25rem;
+}
+.pw-decision-scopes {
+  border: 0;
+  padding: 0;
+  margin: 1.5rem 0;
+}
+.pw-decision-scopes > div {
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.pw-decision-scopes label,
+.pw-decision-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+}
+.pw-decision-flow input[type='checkbox'] {
+  margin-top: 0.5rem;
+  flex-shrink: 0;
+}
+.pw-decision-confirm {
+  margin-block: 1.5rem;
+}
+.pw-decision-result {
+  border-top: 1px solid var(--border);
+  margin-top: 2rem;
+  padding-top: 1rem;
+}
+.pw-decision-report {
+  white-space: pre-wrap;
+  max-width: 68ch;
+}
+.pw-decision-approval {
+  border-left: 3px solid currentColor;
+  padding-left: 1rem;
+  margin-block: 1rem;
+}
+.pw-decision-flow button:focus-visible,
+.pw-decision-flow summary:focus-visible,
+.pw-decision-flow input:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}
+@media (max-width: 600px) {
+  .pw-decision-flow h2 {
+    font-size: 28px;
+  }
+  .pw-decision-facts {
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
+  }
+  .pw-decision-facts dd {
+    margin-bottom: 0.8rem;
+  }
+  .pw-decision-flow .pw-actions,
+  .pw-decision-secondary,
+  .pw-decision-choices {
+    width: 100%;
+    flex-direction: column;
+  }
+  .pw-decision-flow button {
+    white-space: normal;
+    height: auto;
+    min-height: 44px;
+  }
+  .pw-decision-flow .pw-actions > button,
+  .pw-decision-choices > button,
+  .pw-decision-secondary > button {
+    width: 100%;
   }
 }

@@ -1,3 +1,4 @@
+import { initializeDatabase } from './beta-cutover';
 import { DatabaseSync } from 'node:sqlite';
 import {
   mkdirSync,
@@ -14,7 +15,7 @@ import type { Entities, StateRepository } from '@statecarry/core';
 import { DomainError } from '@statecarry/contracts';
 
 export class SQLiteRepository implements StateRepository {
-  readonly db: DatabaseSync;
+  readonly db!: DatabaseSync;
   private lockPath: string;
   private token = randomUUID();
   private inTransaction = false;
@@ -53,19 +54,13 @@ export class SQLiteRepository implements StateRepository {
       const file = join(directory, 'statecarry.sqlite');
       this.db = new DatabaseSync(file);
       chmodSync(file, 0o600);
-      this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=3000;
-        CREATE TABLE IF NOT EXISTS schema_version(version INTEGER NOT NULL);
-        INSERT INTO schema_version SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM schema_version);
-        CREATE TABLE IF NOT EXISTS work_owners(id TEXT PRIMARY KEY);
-        CREATE TABLE IF NOT EXISTS entities(kind TEXT NOT NULL, id TEXT NOT NULL, owner_id TEXT REFERENCES work_owners(id), body TEXT NOT NULL CHECK(json_valid(body)), PRIMARY KEY(kind,id));
-        CREATE INDEX IF NOT EXISTS entities_owner ON entities(owner_id,kind);`);
-      const schema = this.db.prepare('SELECT version FROM schema_version').get() as {
-        version: number;
-      };
-      if (schema.version !== 1) throw new Error(`Unsupported database version ${schema.version}`);
+      initializeDatabase(this.db, directory);
       const integrity = this.db.prepare('PRAGMA quick_check').get() as Record<string, unknown>;
       if (Object.values(integrity)[0] !== 'ok') throw new Error('Database integrity check failed');
     } catch (e) {
+      try {
+        this.db!.close();
+      } catch {}
       this.releaseLock();
       throw e;
     }
@@ -105,31 +100,15 @@ export class SQLiteRepository implements StateRepository {
         throw new DomainError('STORAGE_UNAVAILABLE', 'Immutable revision cannot be replaced', 500);
       }
     }
-    if (kind === 'work')
-      this.db.prepare('INSERT OR IGNORE INTO work_owners(id) VALUES(?)').run(entity.id);
+    if (kind === 'project')
+      this.db.prepare('INSERT OR IGNORE INTO project_owners(id) VALUES(?)').run(entity.id);
     const owner =
-      [
-        'explanation',
-        'explanationJob',
-        'questionExecution',
-        'summary',
-        'overlay',
-        'draft',
-        'visit',
-        'job',
-        'link',
-        'checkpoint',
-        'handoff',
-        'continuation',
-        'projectObservation',
-        'workingTreeAnalysis',
-        'receipt',
-      ].includes(kind) &&
-      'workId' in entity &&
-      // A deletion receipt is an idempotency record, not a live project owner.
-      !(kind === 'receipt' && 'command' in entity && entity.command === 'project-delete')
-        ? entity.workId
-        : null;
+      kind === 'project' ||
+      (kind === 'receipt' && 'command' in entity && entity.command === 'project-delete')
+        ? null
+        : 'projectId' in entity && typeof entity.projectId === 'string'
+          ? entity.projectId
+          : null;
     this.db
       .prepare(
         'INSERT INTO entities(kind,id,owner_id,body) VALUES(?,?,?,?) ON CONFLICT(kind,id) DO UPDATE SET owner_id=excluded.owner_id,body=excluded.body',
@@ -138,7 +117,7 @@ export class SQLiteRepository implements StateRepository {
   }
   remove<K extends keyof Entities>(kind: K, id: string): void {
     this.transaction(() => {
-      if (kind === 'work') {
+      if (kind === 'project') {
         // Keep only the existing request ledger so old requests cannot recreate
         // the deleted registration. All content rows must already be removed.
         this.db
@@ -146,7 +125,7 @@ export class SQLiteRepository implements StateRepository {
           .run(id);
       }
       this.db.prepare('DELETE FROM entities WHERE kind=? AND id=?').run(kind, id);
-      if (kind === 'work') this.db.prepare('DELETE FROM work_owners WHERE id=?').run(id);
+      if (kind === 'project') this.db.prepare('DELETE FROM project_owners WHERE id=?').run(id);
     });
   }
   transaction<T>(fn: () => T): T {

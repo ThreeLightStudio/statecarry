@@ -1,3 +1,4 @@
+import { workingTreeGroupKey } from '@statecarry/contracts';
 import { describe, expect, it, vi } from 'vitest';
 import { StateCarry, type ProjectInspector } from '@statecarry/core';
 import { harness, MemoryRepository, source } from './helpers';
@@ -58,7 +59,7 @@ describe('project workspace registration and decisions', () => {
       inspector,
     );
 
-    const snapshot = await core.projects.observe(receipt.workId, 'ko');
+    const snapshot = await core.projects.observe(receipt.projectId, 'ko');
 
     expect(h.summary.analyzeWorkingTree).toHaveBeenCalledWith(
       expect.objectContaining({ projectTitle: 'Export project', outputLanguage: 'ko' }),
@@ -68,11 +69,60 @@ describe('project workspace registration and decisions', () => {
       files: ['src/recovery.ts', 'tests/recovery.test.ts'],
     });
 
-    await core.projects.observe(receipt.workId, 'ko');
+    await core.projects.observe(receipt.projectId, 'ko');
     expect(h.summary.analyzeWorkingTree).toHaveBeenCalledTimes(1);
 
-    await core.projects.observe(receipt.workId, 'en');
+    await core.projects.observe(receipt.projectId, 'en');
     expect(h.summary.analyzeWorkingTree).toHaveBeenCalledTimes(2);
+    h.summary.answerQuestion = async (context) => {
+      const excerpt = context.excerpts[0];
+      return {
+        items: [
+          {
+            id: 'changes',
+            kind: 'record',
+            nature: 'tool-result',
+            text: 'The current project has uncommitted changes.',
+            uncertainty: '',
+            evidence: [
+              { revisionId: excerpt.revisionId, start: excerpt.start, quote: excerpt.text },
+            ],
+          },
+        ],
+        unknowns: ['Whether these changes are worth continuing is your decision.'],
+      };
+    };
+    h.summary.checkQuestion = async (_, answer) => ({
+      checks: answer.items.map((item) => ({
+        itemId: item.id,
+        verdict: 'supported',
+        reason: 'The tool record establishes dirty state.',
+      })),
+      unknownsSafe: true,
+    });
+    const before = core.analyses.view(receipt.projectId);
+    const latest = before.workspace!;
+    core.projectModel.selectProposal(
+      receipt.projectId,
+      workingTreeGroupKey(latest.workingTreeAnalysis!.groups[0]),
+    );
+    const workItem = core.projectModel.view(receipt.projectId).workItems[0];
+    const request = {
+      workItemId: workItem.id,
+      version: before.version,
+      question: 'Is this work worth continuing?',
+      history: [],
+    };
+    const answer = await core.analyses.discuss(receipt.projectId, request);
+    expect(answer.answer.items[0].text).toContain('uncommitted changes');
+    expect(core.projectModel.view(receipt.projectId).workItems[0]).toEqual(workItem);
+    expect(before.sessionCount).toBe(0);
+    await expect(
+      core.analyses.discuss(receipt.projectId, { ...request, version: 'old-basis' }),
+    ).rejects.toMatchObject({ code: 'REVISION_CONFLICT' });
+    await expect(
+      core.analyses.discuss(receipt.projectId, { ...request, workItemId: 'missing-work' }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
   it('preserves independent folders and manual context without sessions, reads or model calls', async () => {
@@ -80,10 +130,10 @@ describe('project workspace registration and decisions', () => {
     const read = vi.spyOn(h.reader, 'read');
     const discover = vi.spyOn(h.reader, 'discover');
     const generate = vi.fn();
-    h.summary.generateResume = generate;
+    h.summary.generateAnalysis = generate;
     const first = registerProject(h, { goal: 'Check a small export.', discover: true });
     const second = registerProject(h, { title: 'Another project', cwd: '/tmp/other-project' });
-    expect(first.receipt.workId).not.toBe(second.receipt.workId);
+    expect(first.receipt.projectId).not.toBe(second.receipt.projectId);
     expect(first.receipt.resultId).not.toBe(second.receipt.resultId);
     expect(h.core.projects.create(first.command)).toEqual(first.receipt);
     expect(() =>
@@ -94,20 +144,20 @@ describe('project workspace registration and decisions', () => {
     ).toThrowError(expect.objectContaining({ code: 'IDEMPOTENCY_CONFLICT' }));
     const connection = h.core.connection(first.receipt.resultId);
     await h.core.discover(connection);
-    await h.core.collect(first.receipt.workId);
-    await h.core.process(first.receipt.workId);
+    await h.core.collect(first.receipt.projectId);
+    await h.core.process(first.receipt.projectId);
     const before = structuredClone((h.repo as MemoryRepository).data);
     const workspace = h.core.projects.list();
     h.core.projects.list();
     expect(workspace.projects).toHaveLength(2);
     expect(workspace.projects[0]).toMatchObject({
-      workId: first.receipt.workId,
+      projectId: first.receipt.projectId,
       connectionId: first.receipt.resultId,
       purpose: 'Make exports easy to resume.',
       title: 'Export project',
       focused: false,
       acceptedKeys: [],
-      resume: { state: 'empty', sessionCount: 0, goalText: 'Check a small export.' },
+      analysis: { state: 'empty', sessionCount: 0, goalText: 'Check a small export.' },
     });
     expect((h.repo as MemoryRepository).data).toEqual(before);
     expect(read).not.toHaveBeenCalled();
@@ -129,13 +179,13 @@ describe('project workspace registration and decisions', () => {
 
   it('keeps up to three explicit Home focus projects and keeps project purpose and title independent of goal', () => {
     const h = harness();
-    const a = registerProject(h, { goal: 'First goal.' }).receipt.workId;
+    const a = registerProject(h, { goal: 'First goal.' }).receipt.projectId;
     const b = registerProject(h, { title: 'Second project', cwd: '/tmp/second-project' }).receipt
-      .workId;
+      .projectId;
     const c = registerProject(h, { title: 'Third project', cwd: '/tmp/third-project' }).receipt
-      .workId;
+      .projectId;
     const d = registerProject(h, { title: 'Fourth project', cwd: '/tmp/fourth-project' }).receipt
-      .workId;
+      .projectId;
     const profileA = { title: 'Export tool', purpose: 'Reusable exports.', focused: true };
     const focusA = h.command(a, profileA);
     h.core.projects.settings(a, focusA);
@@ -148,7 +198,7 @@ describe('project workspace registration and decisions', () => {
       h.command(c, { title: 'Third project', purpose: '', focused: true }),
     );
     expect(
-      h.core.projects.list().projects.map((project) => [project.workId, project.focused]),
+      h.core.projects.list().projects.map((project) => [project.projectId, project.focused]),
     ).toEqual([
       [a, true],
       [b, true],
@@ -169,11 +219,11 @@ describe('project workspace registration and decisions', () => {
       title: 'Export tool',
       purpose: 'Reusable exports.',
       focused: true,
-      resume: { goalText: 'A different current goal.' },
+      analysis: { goalText: 'A different current goal.' },
     });
-    expect(h.core.connection(h.core.work(a).projectId).title).toBe('Export tool');
+    expect(h.core.connection(h.core.project(a).connectionId).title).toBe('Export tool');
     expect(h.core.projects.settings(a, focusA).command).toBe('project-settings');
-    expect(h.core.work(a).projectProfile?.focused).toBe(true);
+    expect(h.core.project(a).focused).toBe(true);
   });
 
   it('preserves unspecified record ranges and supports explicitly removing every source', async () => {
@@ -185,20 +235,20 @@ describe('project workspace registration and decisions', () => {
       goal: 'Keep the selected context.',
       recordRanges: { 'thread-a': range },
     });
-    h.summary.generateResume = async () => ({ candidates: [projectCandidate()] });
-    await h.core.resumes.refresh(receipt.workId);
-    const sources = h.command(receipt.workId, {
+    h.summary.generateAnalysis = async () => ({ candidates: [projectCandidate()] });
+    await h.core.analyses.refresh(receipt.projectId);
+    const sources = h.command(receipt.projectId, {
       threadIds: ['thread-a'],
       startTurnIds: {},
       discover: false,
     });
-    const result = h.core.projects.sources(receipt.workId, sources);
-    expect(h.core.projects.sources(receipt.workId, sources)).toEqual(result);
+    const result = h.core.projects.sources(receipt.projectId, sources);
+    expect(h.core.projects.sources(receipt.projectId, sources)).toEqual(result);
     expect(h.core.connection(receipt.resultId).recordRanges).toEqual({ 'thread-a': range });
     expect(() =>
       h.core.projects.sources(
-        receipt.workId,
-        h.command(receipt.workId, {
+        receipt.projectId,
+        h.command(receipt.projectId, {
           threadIds: ['thread-a'],
           startTurnIds: { unselected: 'turn-a' },
           discover: false,
@@ -206,12 +256,12 @@ describe('project workspace registration and decisions', () => {
       ),
     ).toThrowError(expect.objectContaining({ code: 'VALIDATION' }));
     h.core.projects.sources(
-      receipt.workId,
-      h.command(receipt.workId, { threadIds: [], startTurnIds: {}, discover: true }),
+      receipt.projectId,
+      h.command(receipt.projectId, { threadIds: [], startTurnIds: {}, discover: true }),
     );
     expect(h.core.projects.list().projects[0]).toMatchObject({
       purpose: 'Make exports easy to resume.',
-      resume: {
+      analysis: {
         goalText: 'Keep the selected context.',
         sessionCount: 0,
         candidates: [],
@@ -226,25 +276,25 @@ describe('project workspace registration and decisions', () => {
     const h = harness();
     const id = h.connect();
     const before = h.core.projects.list().projects[0];
-    expect(h.core.work(id).projectProfile).toBeUndefined();
-    const version = h.core.resumes.view(id).version;
-    h.core.resumes.setGoal(id, { version, text: 'A new current goal for the old registration.' });
+    expect(h.core.project(id).purposes).toEqual([]);
+    const version = h.core.analyses.view(id).version;
+    h.core.analyses.setGoal(id, { version, text: 'A new current goal for the old registration.' });
     expect(h.core.projects.list().projects[0]).toMatchObject({
       title: before.title,
       purpose: before.purpose,
       focused: false,
-      resume: { goalText: 'A new current goal for the old registration.' },
+      analysis: { goalText: 'A new current goal for the old registration.' },
     });
-    expect(h.core.work(id).projectProfile?.title).toBe(before.title);
+    expect(h.core.project(id).title).toBe(before.title);
   });
 
   it('keeps the project revision stable when the saved goal text is unchanged', () => {
     const h = harness();
-    const id = registerProject(h, { goal: 'Keep this exact goal.' }).receipt.workId;
-    const before = structuredClone(h.core.work(id));
-    const version = h.core.resumes.view(id).version;
-    const view = h.core.resumes.setGoal(id, { text: '  Keep this exact goal.  ', version });
-    expect(h.core.work(id)).toEqual(before);
+    const id = registerProject(h, { goal: 'Keep this exact goal.' }).receipt.projectId;
+    const before = structuredClone(h.core.project(id));
+    const version = h.core.analyses.view(id).version;
+    const view = h.core.analyses.setGoal(id, { text: '  Keep this exact goal.  ', version });
+    expect(h.core.project(id)).toEqual(before);
     expect(view.version).toBe(version);
   });
 
@@ -258,8 +308,8 @@ describe('project workspace registration and decisions', () => {
       discoveryScope: { startTurnIds: {}, recordRanges: { 'thread-b': range } },
     });
     h.core.projects.sources(
-      receipt.workId,
-      h.command(receipt.workId, {
+      receipt.projectId,
+      h.command(receipt.projectId, {
         threadIds: ['thread-a', 'thread-b'],
         startTurnIds: {},
         discover: false,
@@ -267,8 +317,8 @@ describe('project workspace registration and decisions', () => {
     );
     expect(h.core.connection(receipt.resultId).recordRanges?.['thread-b']).toEqual(range);
     h.core.projects.sources(
-      receipt.workId,
-      h.command(receipt.workId, {
+      receipt.projectId,
+      h.command(receipt.projectId, {
         threadIds: ['thread-a', 'thread-b'],
         startTurnIds: {},
         recordRanges: {},
@@ -281,17 +331,17 @@ describe('project workspace registration and decisions', () => {
   it('never restores focus implicitly through the retained legacy connection endpoints', () => {
     const h = harness();
     const { receipt } = registerProject(h);
-    const id = receipt.workId;
+    const id = receipt.projectId;
     h.core.projects.settings(id, h.command(id, { title: 'Export', purpose: '', focused: true }));
     h.core.removeConnection(receipt.resultId, h.command(id, {}));
-    expect(h.core.work(id).projectProfile?.focused).toBe(false);
+    expect(h.core.project(id).focused).toBe(false);
     h.core.restoreConnection(receipt.resultId, h.command(id, {}));
     expect(h.core.projects.list().projects[0].focused).toBe(false);
   });
 
   it('counts only user decisions on current visible candidates, never an agent completion', async () => {
     const h = harness();
-    const id = registerProject(h, { threadIds: ['thread-a'] }).receipt.workId;
+    const id = registerProject(h, { threadIds: ['thread-a'] }).receipt.projectId;
     const report = {
       ...source('The agent reported the export complete.'),
       actor: 'agent' as const,
@@ -308,16 +358,16 @@ describe('project workspace registration and decisions', () => {
       status: 'done' as const,
       completion: { verified: [{ revisionId: verified.id, quote: verified.text }] },
     };
-    h.summary.generateResume = async () => ({ candidates: [task] });
-    await h.core.resumes.refresh(id);
+    h.summary.generateAnalysis = async () => ({ candidates: [task] });
+    await h.core.analyses.refresh(id);
     expect(h.core.projects.list().projects[0]).toMatchObject({
       acceptedKeys: [],
-      resume: { candidates: [expect.objectContaining({ status: 'done' })] },
+      analysis: { candidates: [expect.objectContaining({ status: 'done' })] },
     });
     const correct = (kind: 'done' | 'paused' | 'restore') =>
-      h.core.resumes.correct(id, {
+      h.core.analyses.correct(id, {
         candidateKey: task.key,
-        version: h.core.resumes.view(id).version,
+        version: h.core.analyses.view(id).version,
         kind,
       });
     correct('done');
@@ -330,7 +380,7 @@ describe('project workspace registration and decisions', () => {
     correct('restore');
     expect(h.core.projects.list().projects[0]).toMatchObject({ acceptedKeys: [], pausedKeys: [] });
     correct('done');
-    const view = h.core.resumes.view(id);
+    const view = h.core.analyses.view(id);
     h.core.projects.settings(
       id,
       h.command(id, {
@@ -339,7 +389,7 @@ describe('project workspace registration and decisions', () => {
         focused: true,
       }),
     );
-    expect(h.core.resumes.view(id).version).toBe(view.version);
+    expect(h.core.analyses.view(id).version).toBe(view.version);
     expect(h.core.projects.list().projects[0].acceptedKeys).toEqual([task.key]);
     h.core.projects.settings(
       id,
@@ -352,27 +402,27 @@ describe('project workspace registration and decisions', () => {
     expect(h.core.projects.list().projects[0]).toMatchObject({
       acceptedKeys: [],
       pausedKeys: [],
-      resume: { candidates: [] },
+      analysis: { candidates: [] },
     });
   });
 
   it('disconnects and restores the same registration without collection or analysis', () => {
     const h = harness();
     const { receipt } = registerProject(h, { goal: 'Preserve this manual goal.' });
-    const id = receipt.workId;
+    const id = receipt.projectId;
     h.core.projects.settings(
       id,
       h.command(id, { title: 'Export', purpose: 'Portable exports.', focused: true }),
     );
-    const before = h.core.work(id);
+    const before = h.core.project(id);
     const remove = h.command(id, {});
     const removed = h.core.projects.disconnect(id, remove);
     expect(h.core.projects.disconnect(id, remove)).toEqual(removed);
     expect(h.core.projects.list().projects[0]).toMatchObject({
-      workId: id,
+      projectId: id,
       connectionId: receipt.resultId,
       focused: true,
-      resume: null,
+      analysis: null,
       disconnectedAt: h.core.clock.now(),
     });
     h.core.projects.settings(
@@ -383,13 +433,13 @@ describe('project workspace registration and decisions', () => {
     h.core.projects.restore(id, restore);
     expect(h.core.projects.restore(id, restore).command).toBe('project-restore');
     expect(h.core.projects.list().projects[0]).toMatchObject({
-      workId: id,
+      projectId: id,
       connectionId: receipt.resultId,
       title: 'Export',
       purpose: 'Portable exports.',
       focused: true,
       disconnectedAt: null,
-      resume: { goalText: before.goal?.text },
+      analysis: { goalText: 'Preserve this manual goal.' },
     });
     expect(h.counts().generationCalls).toBe(0);
     expect(h.repo.list('source')).toEqual([]);
@@ -398,13 +448,13 @@ describe('project workspace registration and decisions', () => {
   it('uses a curated unavailable result while keeping manual context when a saved read fails', () => {
     const h = harness();
     registerProject(h, { goal: 'Keep my goal.' });
-    vi.spyOn(h.core.resumes, 'view').mockImplementation(() => {
+    vi.spyOn(h.core.analyses, 'view').mockImplementation(() => {
       throw new Error('RAW_PROVIDER_PAYLOAD');
     });
     const result = h.core.projects.list();
     expect(result.projects[0]).toMatchObject({
       purpose: 'Make exports easy to resume.',
-      resume: { goalText: 'Keep my goal.', state: 'unavailable', candidates: [] },
+      analysis: { goalText: 'Keep my goal.', state: 'unavailable', candidates: [] },
     });
     expect(JSON.stringify(result)).not.toContain('RAW_PROVIDER_PAYLOAD');
   });

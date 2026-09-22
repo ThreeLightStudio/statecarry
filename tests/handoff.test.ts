@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DomainError, type Command } from '@statecarry/contracts';
-import { Controller, type Gateway, type LocalWorkState } from '@statecarry/presentation';
 import { harness, source, read } from './helpers';
 import { identity } from '../apps/server/src/adapters/identity';
-import { LocalBrowserMemory } from '../apps/web/src/adapters/browser-memory';
 
 async function prepared() {
   const h = harness(),
@@ -12,7 +10,7 @@ async function prepared() {
   await h.core.process(id);
   const payload = {
     threadId: 'thread-a',
-    summaryId: h.core.work(id).latestSummaryId!,
+    summaryId: h.core.project(id).latestSummaryId!,
     evidenceIds: [source().id],
     text: '전송하지 않을 초안',
     draftRevision: 0,
@@ -46,7 +44,7 @@ describe('handoff freshness and receipts', () => {
       observedAt: '2026-09-10T09:00:00.000Z',
     });
     await h.core.collect(id);
-    expect(h.core.work(id).revision).toBe(command.expectedRevision);
+    expect(h.core.project(id).revision).toBe(command.expectedRevision);
     await h.core.openHandoff(id, command);
     expect(h.counts().openCalls).toBe(1);
   });
@@ -97,7 +95,7 @@ describe('handoff freshness and receipts', () => {
     if (change === 'extractor') h.repo.put('summary', { ...summary, extractorVersion: 'old' });
     if (change === 'access') h.repo.put('checkpoint', { ...checkpoint, revisionIds: [] });
     if (change === 'revision')
-      h.repo.put('work', { ...h.core.work(id), revision: command.expectedRevision + 1 });
+      h.repo.put('project', { ...h.core.project(id), revision: command.expectedRevision + 1 });
     if (change === 'capability')
       h.navigator.capability = () => ({
         precision: 'unsupported',
@@ -174,182 +172,5 @@ describe('handoff freshness and receipts', () => {
     expect(h.repo.list('handoff')[0].state).toBe('result-unknown');
     await restored.core.openHandoff(id, command);
     expect(restored.counts().openCalls).toBe(0);
-  });
-});
-
-async function ui() {
-  const t = await prepared(),
-    memory = new Map<string, LocalWorkState>(),
-    sends: Command[] = [];
-  let failStorage = false;
-  const browser = {
-    read: (id: string) => structuredClone(memory.get(id) ?? null),
-    write: (id: string, state: LocalWorkState) => {
-      if (failStorage) throw new Error('quota');
-      memory.set(id, structuredClone(state));
-    },
-  };
-  const gateway: Gateway = {
-    projects: async () => t.h.core.listProjects(),
-    connections: async () => t.h.repo.list('connection'),
-    snapshot: async (id) => t.h.core.snapshot(id),
-    evidence: async (id) => t.h.core.evidence(id),
-    discover: t.h.reader.discover,
-    subscribe: (_listener, connection) => {
-      connection?.('connected');
-      return () => {};
-    },
-    receipt: async (id) => {
-      const receipt = t.h.repo.get('receipt', id);
-      if (!receipt) throw new Error('unavailable');
-      return { ...receipt, handoff: t.h.repo.get('handoff', receipt.resultId) };
-    },
-    command: async (path, command) => {
-      if (path.endsWith('/handoff'))
-        return t.h.core.prepareHandoff(t.id, command.expectedRevision, command.payload);
-      if (path === '/handoffs/open') {
-        sends.push(command);
-        expect(memory.get(t.id)?.openRequest?.requestId).toBe(command.requestId);
-        const { workId, ...payload } = command.payload;
-        return t.h.core.openHandoff(String(workId), { ...command, payload });
-      }
-      return t.h.core.mutate(t.id, 'visits', command);
-    },
-  };
-  const create = async () => {
-    const controller = new Controller(gateway, browser, identity.next);
-    await controller.start(`#/work/${t.id}`);
-    return controller;
-  };
-  const controller = await create();
-  await controller.action({ type: 'draft', value: t.payload.text });
-  await controller.action({ type: 'selectEvidence', id: source().id, selected: true });
-  await controller.action({ type: 'prepareHandoff' });
-  return {
-    ...t,
-    controller,
-    create,
-    gateway,
-    memory,
-    sends,
-    browser,
-    failStorage: () => {
-      failStorage = true;
-    },
-  };
-}
-
-describe('browser request recovery', () => {
-  it('stores before sending and prevents double click and reload from sending twice', async () => {
-    const t = await ui();
-    await Promise.all([
-      t.controller.action({ type: 'openHandoff' }),
-      t.controller.action({ type: 'openHandoff' }),
-    ]);
-    const second = await t.create();
-    await second.action({ type: 'openHandoff' });
-    expect(t.sends).toHaveLength(1);
-    expect(t.h.counts().openCalls).toBe(1);
-    expect(second.getSnapshot().local).toMatchObject({
-      draft: t.payload.text,
-      evidenceIds: [source().id],
-      openRequest: { state: 'dispatched' },
-    });
-    expect(second.getSnapshot().message).toContain('Open request sent');
-  });
-  it('recovers response loss using the same receipt and keeps unknown across unavailable lookup/reload', async () => {
-    const t = await ui(),
-      send = t.gateway.command,
-      receipt = t.gateway.receipt;
-    t.gateway.command = async (path, command) => {
-      await send(path, command);
-      throw new Error('lost response');
-    };
-    t.gateway.receipt = async () => {
-      throw new Error('lost lookup');
-    };
-    await t.controller.action({ type: 'openHandoff' });
-    const requestId = t.controller.getSnapshot().local.openRequest?.requestId;
-    const restored = await t.create();
-    await restored.action({ type: 'openHandoff' });
-    expect(restored.getSnapshot().local.openRequest).toMatchObject({
-      requestId,
-      state: 'result-unknown',
-    });
-    expect(t.sends).toHaveLength(1);
-    t.gateway.receipt = receipt;
-    await restored.action({ type: 'checkHandoff' });
-    expect(restored.getSnapshot().local.openRequest?.state).toBe('dispatched');
-    expect(t.sends).toHaveLength(1);
-  });
-  it('does not dispatch if the request ID cannot be stored', async () => {
-    const t = await ui();
-    t.failStorage();
-    await t.controller.action({ type: 'openHandoff' });
-    expect(t.sends).toHaveLength(0);
-    expect(t.controller.getSnapshot().error).toContain('could not be saved');
-    expect(t.controller.getSnapshot().local.draft).toBe(t.payload.text);
-  });
-  it('requires explicit preparation and a new button press for a failed retry', async () => {
-    const t = await ui();
-    t.h.navigator.open = async () => {
-      throw new Error('OS failed');
-    };
-    await t.controller.action({ type: 'openHandoff' });
-    const first = t.controller.getSnapshot().local.openRequest!.requestId;
-    await t.controller.action({ type: 'openHandoff' });
-    expect(t.sends).toHaveLength(1);
-    await t.controller.action({ type: 'retryHandoff' });
-    expect(t.sends).toHaveLength(1);
-    expect(t.controller.getSnapshot().handoff).not.toBeNull();
-    t.h.navigator.open = async () => {};
-    await t.controller.action({ type: 'openHandoff' });
-    expect(t.sends).toHaveLength(2);
-    expect(t.controller.getSnapshot().local.openRequest?.requestId).not.toBe(first);
-    expect(t.h.repo.list('handoff').map((h) => h.state)).toEqual(['failed', 'dispatched']);
-  });
-  it('preserves draft basis on target changes and edits on collection/summary rejection', async () => {
-    const t = await ui(),
-      basis = t.controller.getSnapshot().local.basisSummaryId;
-    t.h.records([source(), source('later', 'thread-a', 'later')]);
-    await t.h.core.collect(t.id);
-    await t.h.core.process(t.id);
-    await t.controller.refresh();
-    await t.controller.action({ type: 'target', threadId: 'thread-a' });
-    await t.controller.action({ type: 'prepareHandoff' });
-    expect(t.controller.getSnapshot().local).toMatchObject({
-      basisSummaryId: basis,
-      draft: t.payload.text,
-      evidenceIds: [source().id],
-    });
-    expect(t.controller.getSnapshot().error).toContain('update to the current summary');
-    expect(t.sends).toHaveLength(0);
-  });
-  it('keeps legacy browser edits and blocks unreadable persisted requests', () => {
-    const values = new Map<string, string>();
-    const memory = new LocalBrowserMemory(
-      () =>
-        ({
-          getItem: (key: string) => values.get(key) ?? null,
-          setItem: (key: string, value: string) => values.set(key, value),
-        }) as unknown as Storage,
-    );
-    const legacy = {
-      draft: 'keep',
-      evidenceIds: ['e'],
-      expandedIds: [],
-      targetThreadId: 'thread-a',
-      editVersion: 1,
-    };
-    values.set('statecarry.work.v1.w', JSON.stringify(legacy));
-    expect(memory.read('w')?.draft).toBe('keep');
-    values.set(
-      'statecarry.work.v1.w',
-      JSON.stringify({ ...legacy, openRequest: { requestId: 'known' } }),
-    );
-    expect(memory.read('w')).toMatchObject({
-      draft: 'keep',
-      openRequest: { requestId: 'known', state: 'result-unknown' },
-    });
   });
 });

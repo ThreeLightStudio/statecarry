@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildContinuationPayload, continuationText } from '@statecarry/core';
-import type { ResumeCandidate, ResumeWork } from '@statecarry/contracts';
+import type { AnalysisCandidate, AnalysisWork } from '@statecarry/contracts';
 
-const candidate = (overrides: Partial<ResumeCandidate> = {}): ResumeCandidate => ({
+const candidate = (overrides: Partial<AnalysisCandidate> = {}): AnalysisCandidate => ({
   key: 'resume',
   goal: 'Ship the export',
   currentState: 'The export is implemented and its check remains open.',
@@ -17,7 +17,7 @@ const candidate = (overrides: Partial<ResumeCandidate> = {}): ResumeCandidate =>
   ...overrides,
 });
 
-const work = (overrides: Partial<ResumeWork> = {}): ResumeWork => ({
+const work = (overrides: Partial<AnalysisWork> = {}): AnalysisWork => ({
   state: 'ready',
   stateDetail: 'Ready.',
   blockedActions: [],
@@ -26,7 +26,7 @@ const work = (overrides: Partial<ResumeWork> = {}): ResumeWork => ({
   goalText: 'Ship the export',
   goalOrigin: 'user-input',
   sessionCount: 1,
-  workId: 'work-a',
+  projectId: 'work-a',
   title: 'Export',
   cwd: '/tmp/export',
   version: 'version-a',

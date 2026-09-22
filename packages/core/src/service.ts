@@ -1,5 +1,10 @@
-import { Resumes } from './resumes';
+import { ProjectExecutions } from './project-executions';
+import { ProjectAnalyses } from './analyses';
 import { Projects } from './projects';
+import { ProjectModel } from './project-model';
+import { WorkMatcher } from './work-matching';
+import { ProjectNowResolver } from './project-now';
+import { Releases } from './releases';
 import { selectedRecords, goalCandidates, dedicatedRelationship, relationshipKind } from './goals';
 import {
   DomainError,
@@ -21,7 +26,7 @@ import {
   type SourceRead,
   type SourceRevision,
   type SummaryRevision,
-  type Work,
+  type ProjectRecord,
   type WorkspaceSnapshot,
   type WorkspaceFileObservation,
   type WorkspaceInspectionHints,
@@ -89,7 +94,12 @@ export function isControlledVerification(s: SourceRevision): boolean {
 }
 export class StateCarry {
   readonly projects = new Projects(this);
-  readonly resumes = new Resumes(this);
+  readonly executions = new ProjectExecutions(this);
+  readonly projectModel = new ProjectModel(this);
+  readonly workMatcher = new WorkMatcher(this);
+  readonly now = new ProjectNowResolver(this);
+  readonly releases = new Releases(this);
+  readonly analyses = new ProjectAnalyses(this);
   readonly questions = new ContextQuestions(this);
   readonly explanations = new Explanations(this);
   readonly continuations: Continuations;
@@ -135,9 +145,78 @@ export class StateCarry {
       discoveryIntervalMs: 60000,
     };
   }
-  work(id: string): Work {
-    const w = this.repo.get('work', id);
-    if (!w) throw new DomainError('NOT_FOUND', 'Work not found', 404);
+  directionIntent(id: string): import('@statecarry/contracts').GoalIntent | undefined {
+    const direction = this.repo
+      .list('direction')
+      .find(
+        (item) =>
+          item.projectId === id && item.state === 'active' && item.primary && item.confirmed,
+      );
+    return direction
+      ? { text: direction.text, origin: 'user-input', confirmedAt: direction.createdAt }
+      : undefined;
+  }
+  analysisCorrections(id: string) {
+    return this.repo.get('projectAnalysisControl', id)?.corrections ?? [];
+  }
+  storeAnalysis(record: import('@statecarry/contracts').ProjectAnalysisRecord) {
+    this.repo.transaction(() => {
+      this.repo.put('projectAnalysis', record);
+      this.workMatcher.replaceProposals(
+        record.projectId,
+        'analysis-candidate',
+        record.result.candidates
+          .filter(
+            (candidate) =>
+              !this.analysisCorrections(record.projectId).some(
+                (correction) =>
+                  correction.scope === record.result.scope &&
+                  correction.candidateKey === candidate.key &&
+                  correction.kind === 'wrong-work',
+              ),
+          )
+          .map((original) => {
+            const correction = this.analysisCorrections(record.projectId).find(
+              (item) => item.scope === record.result.scope && item.candidateKey === original.key,
+            );
+            const candidate =
+              correction?.kind === 'wrong-action'
+                ? {
+                    ...original,
+                    status: 'active' as const,
+                    nextAction: correction.nextAction ?? null,
+                    doneWhen: correction.doneWhen ?? null,
+                  }
+                : correction && ['done', 'paused'].includes(correction.kind)
+                  ? {
+                      ...original,
+                      status: correction.kind as 'done' | 'paused',
+                      nextAction: null,
+                      doneWhen: null,
+                    }
+                  : original;
+            return {
+              key: `analysis:${candidate.key}`,
+              source: 'analysis-candidate',
+              title: candidate.goal,
+              state: candidate.status,
+              currentState: candidate.currentState,
+              uncertainty: candidate.prerequisites[0] ?? candidate.reason ?? null,
+              nextAction: candidate.nextAction,
+              doneWhen: candidate.doneWhen,
+              evidenceBasis: record.result.scope,
+            };
+          }),
+        record.result.outputLanguage ?? 'en',
+      );
+    });
+  }
+  analysisRecord(id: string) {
+    return this.repo.get('projectAnalysis', id);
+  }
+  project(id: string): ProjectRecord {
+    const w = this.repo.get('project', id);
+    if (!w) throw new DomainError('NOT_FOUND', 'Project not found', 404);
     return w;
   }
   /** Connections are soft-deleted so their source records and project files
@@ -153,7 +232,10 @@ export class StateCarry {
     return this.repo
       .list('connection')
       .filter((connection) => !!connection.removedAt)
-      .map((connection) => ({ connection, workRevision: this.work(connection.workId).revision }));
+      .map((connection) => ({
+        connection,
+        workRevision: this.project(connection.projectId).revision,
+      }));
   }
   connection(connectionId: string, allowRemoved = false): Connection {
     const value = this.repo.get('connection', connectionId);
@@ -161,24 +243,24 @@ export class StateCarry {
       throw new DomainError('NOT_FOUND', 'Connection not found', 404);
     return value;
   }
-  private activeConnectionForWork(workId: string): Connection {
-    const work = this.work(workId);
-    return this.connection(work.projectId);
+  private activeConnectionForWork(projectId: string): Connection {
+    const work = this.project(projectId);
+    return this.connection(work.connectionId);
   }
-  isCollecting(workId: string): boolean {
-    return this.collecting.has(workId);
+  isCollecting(projectId: string): boolean {
+    return this.collecting.has(projectId);
   }
   /** Includes work still unwinding after its durable status has changed. */
-  hasProjectActivity(workId: string): boolean {
-    const work = this.repo.get('work', workId);
+  hasProjectActivity(projectId: string): boolean {
+    const work = this.repo.get('project', projectId);
     return (
-      this.collectionPromises.has(workId) ||
-      this.collecting.has(workId) ||
-      this.processing.has(workId) ||
-      (!!work && this.discovering.has(work.projectId)) ||
-      this.resumes.isRunning(workId) ||
-      this.questions.hasPendingWork(workId) ||
-      this.explanations.hasPendingWork(workId)
+      this.collectionPromises.has(projectId) ||
+      this.collecting.has(projectId) ||
+      this.processing.has(projectId) ||
+      (!!work && this.discovering.has(work.connectionId)) ||
+      this.analyses.isRunning(projectId) ||
+      this.questions.hasPendingWork(projectId) ||
+      this.explanations.hasPendingWork(projectId)
     );
   }
   /** Capture workspace state at the boundary between the core and its local
@@ -202,43 +284,42 @@ export class StateCarry {
       };
     }
   }
-  links(workId: string) {
-    return this.repo.list('link').filter((l) => l.workId === workId);
+  links(projectId: string) {
+    return this.repo.list('link').filter((l) => l.projectId === projectId);
   }
-  sources(workId: string): SourceRevision[] {
+  sources(projectId: string): SourceRevision[] {
     const linked = new Set(
-      this.links(workId)
+      this.links(projectId)
         .filter((l) => l.status === 'linked')
         .map((l) => l.threadId),
     );
     return this.repo
       .list('checkpoint')
-      .filter((c) => c.workId === workId && linked.has(c.threadId))
+      .filter((c) => c.projectId === projectId && linked.has(c.threadId))
       .flatMap((c) =>
         c.revisionIds
           .map((id) => this.repo.get('source', id))
           .filter((s): s is SourceRevision => !!s),
       );
   }
-  private workspaceFileSource(workId: string, id: string): SourceRevision | null {
-    const work = this.work(workId);
-    const snapshots = [work.resume?.workspaceBefore, work.resume?.workspaceAfter];
+  private workspaceFileSource(projectId: string, id: string): SourceRevision | null {
+    const work = this.project(projectId);
+    const snapshots = [
+      this.analysisRecord(work.id)?.result?.workspaceBefore,
+      this.analysisRecord(work.id)?.result?.workspaceAfter,
+    ];
     const file = snapshots
-      .flatMap((snapshot) =>
-        snapshot?.files?.length
-          ? snapshot.files
-          : (snapshot?.fileObservations ?? snapshot?.files ?? []),
-      )
+      .flatMap((snapshot) => (snapshot?.files?.length ? snapshot.files : (snapshot?.files ?? [])))
       .find(
         (item) =>
           (item.revisionId ??
             `workspace-file:${this.ids.hash([item.path, item.hash, item.size ?? null])}`) === id,
       );
     if (!file) return null;
-    const connection = this.repo.get('connection', work.projectId);
+    const connection = this.repo.get('connection', work.connectionId);
     if (!this.isConnectionActive(connection)) return null;
     const linkedThread = connection
-      ? this.links(workId).find(
+      ? this.links(projectId).find(
           (link) => link.status === 'linked' && link.role !== 'controlled-verification',
         )?.threadId
       : undefined;
@@ -257,10 +338,7 @@ export class StateCarry {
       contentHash: file.hash,
       eventAt:
         snapshots.find((snapshot) =>
-          (snapshot?.files?.length
-            ? snapshot.files
-            : (snapshot?.fileObservations ?? snapshot?.files ?? [])
-          ).some(
+          (snapshot?.files?.length ? snapshot.files : (snapshot?.files ?? [])).some(
             (item) =>
               (item.revisionId ??
                 `workspace-file:${this.ids.hash([item.path, item.hash, item.size ?? null])}`) ===
@@ -269,10 +347,7 @@ export class StateCarry {
         )?.checkedAt ?? null,
       observedAt:
         snapshots.find((snapshot) =>
-          (snapshot?.files?.length
-            ? snapshot.files
-            : (snapshot?.fileObservations ?? snapshot?.files ?? [])
-          ).some(
+          (snapshot?.files?.length ? snapshot.files : (snapshot?.files ?? [])).some(
             (item) =>
               (item.revisionId ??
                 `workspace-file:${this.ids.hash([item.path, item.hash, item.size ?? null])}`) ===
@@ -287,17 +362,22 @@ export class StateCarry {
     };
   }
 
-  accessibleSource(workId: string, id: string): SourceRevision | null {
+  accessibleSource(
+    projectId: string,
+    id: string,
+    availableSources?: readonly SourceRevision[],
+  ): SourceRevision | null {
     const source = this.repo.get('source', id);
-    if (!source) return this.workspaceFileSource(workId, id);
-    const work = this.work(workId),
-      connection = this.repo.get('connection', work.projectId);
+    if (!source) return this.workspaceFileSource(projectId, id);
+    const work = this.project(projectId),
+      connection = this.repo.get('connection', work.connectionId);
     if (!this.isConnectionActive(connection)) return null;
-    const link = this.links(workId).find((l) => l.threadId === source.threadId);
+    const link = this.links(projectId).find((l) => l.threadId === source.threadId);
     if (link?.status === 'proposed' && link.evidence.includes(id)) return source;
     if (link?.status !== 'linked') return null;
-    if (this.sources(workId).some((s) => s.key === source.key)) return source;
-    if (this.resumes.retainsEvidence(workId, source)) return source;
+    if ((availableSources ?? this.sources(projectId)).some((s) => s.key === source.key))
+      return source;
+    if (this.analyses.retainsEvidence(projectId, source)) return source;
     const summary = work.latestSummaryId ? this.repo.get('summary', work.latestSummaryId) : null;
     // Missing collection is not permission withdrawal. Preserve a known historical
     // input only while the original access version still matches.
@@ -307,12 +387,12 @@ export class StateCarry {
       ? source
       : null;
   }
-  goalCandidates(workId: string) {
-    return goalCandidates(this, workId);
+  goalCandidates(projectId: string) {
+    return goalCandidates(this, projectId);
   }
-  private jobId(workId: string, inputVersion: string, configurationHash: string) {
+  private jobId(projectId: string, inputVersion: string, configurationHash: string) {
     return this.ids.hash([
-      workId,
+      projectId,
       inputVersion,
       EXTRACTOR_VERSION,
       configurationHash,
@@ -322,8 +402,8 @@ export class StateCarry {
   private configurationHash() {
     return this.ids.hash(this.summary.configuration());
   }
-  private refreshState(work: Work): NonNullable<ReturnContextSnapshot['refresh']> {
-    const jobs = this.repo.list('job').filter((j) => j.workId === work.id);
+  private refreshState(work: ProjectRecord): NonNullable<ReturnContextSnapshot['refresh']> {
+    const jobs = this.repo.list('job').filter((j) => j.projectId === work.id);
     const active =
       jobs.find((j) => j.status === 'result-unknown') ??
       jobs.find((j) => ['summarizing', 'checking', 'queued'].includes(j.status));
@@ -344,15 +424,15 @@ export class StateCarry {
       pending: work.pendingRefresh ?? null,
     };
   }
-  freshness(workId: string) {
-    const work = this.work(workId),
-      connection = this.activeConnectionForWork(workId),
+  freshness(projectId: string) {
+    const work = this.project(projectId),
+      connection = this.activeConnectionForWork(projectId),
       summary = work.latestSummaryId ? this.repo.get('summary', work.latestSummaryId) : null;
     return assessFreshness(
       work,
       connection,
-      this.links(workId),
-      this.repo.list('checkpoint').filter((c) => c.workId === workId),
+      this.links(projectId),
+      this.repo.list('checkpoint').filter((c) => c.projectId === projectId),
       summary,
       this.clock.now(),
       summary?.extractorVersion === EXTRACTOR_VERSION &&
@@ -362,7 +442,7 @@ export class StateCarry {
   }
   listProjects(): ProjectListItem[] {
     return this.listConnections().map((c) => {
-      const w = this.work(c.workId),
+      const w = this.project(c.projectId),
         stored = w.latestSummaryId ? this.repo.get('summary', w.latestSummaryId) : null;
       const s = stored?.sourceRevisionIds.every((id) => this.accessibleSource(w.id, id))
         ? stored
@@ -387,13 +467,13 @@ export class StateCarry {
         id: c.id,
         title: c.title,
         cwd: c.cwd,
-        workId: w.id,
+        projectId: w.id,
         revision: w.revision,
         summaryId: s?.id ?? null,
         freshness: this.freshness(w.id),
         current:
           explanations.find((e) => e.id === view.revision?.id)?.current ||
-          (w.goal
+          (this.directionIntent(w.id)
             ? null
             : (s?.claims.find((x) => x.slot === 'current' && x.verdict === 'supported')?.text ??
               null)),
@@ -437,12 +517,11 @@ export class StateCarry {
         throw new DomainError('VALIDATION', 'Use an absolute project folder path.');
       if (
         this.repo
-          .list('work')
+          .list('project')
           .some(
             (work) =>
-              work.projectProfile &&
-              normalizeProjectFolder(this.repo.get('connection', work.projectId)?.cwd ?? '') ===
-                folder,
+              normalizeProjectFolder(this.repo.get('connection', work.connectionId)?.cwd ?? '') ===
+              folder,
           )
       )
         throw new DomainError(
@@ -451,20 +530,25 @@ export class StateCarry {
           409,
         );
       const id = this.ids.next(),
-        workId = this.ids.next(),
+        projectId = this.ids.next(),
         at = this.clock.now();
       const c: Connection = {
         ...input,
         id,
-        workId,
+        projectId,
         threadIds: [...new Set(input.threadIds)],
         revision: 1,
         createdAt: at,
       };
-      this.repo.put('connection', c);
-      this.repo.put('work', {
-        id: workId,
-        projectId: id,
+      this.repo.put('project', {
+        id: projectId,
+        connectionId: id,
+        cwd: input.cwd,
+        purposes: [],
+        focused: false,
+        iconAsset: null,
+        bannerAsset: null,
+        lifecycle: 'active',
         title: input.title,
         revision: 1,
         linkVersion: 1,
@@ -472,10 +556,11 @@ export class StateCarry {
         latestSummaryId: null,
         createdAt: at,
       });
+      this.repo.put('connection', c);
       for (const threadId of c.threadIds)
         this.repo.put('link', {
-          id: this.ids.hash([workId, threadId]),
-          workId,
+          id: this.ids.hash([projectId, threadId]),
+          projectId,
           threadId,
           title: threadId,
           status: 'linked',
@@ -489,7 +574,7 @@ export class StateCarry {
         id: command.requestId,
         command: 'connect',
         bodyHash,
-        workId,
+        projectId,
         committedRevision: 1,
         resultId: id,
         createdAt: at,
@@ -497,171 +582,19 @@ export class StateCarry {
       this.repo.put('receipt', r);
       return r;
     });
-    this.events.changed(receipt.workId);
+    this.events.changed(receipt.projectId);
     return receipt;
   }
-  chooseGoal(workId: string, command: Command): Receipt {
-    const bodyHash = this.ids.hash({
-      action: 'goal-choice',
-      workId,
-      expectedRevision: command.expectedRevision,
-      payload: command.payload,
-    });
-    const prior = this.receipt(command.requestId, bodyHash);
-    if (prior) return prior;
-    const work = this.work(workId);
-    if (work.revision !== command.expectedRevision)
-      throw new DomainError('REVISION_CONFLICT', 'Goal candidates changed', 409);
-    if (work.projectProfile)
-      throw new DomainError(
-        'VALIDATION',
-        'Set the current goal in this project. A goal does not create another project registration.',
-        409,
-      );
-    const candidates = this.goalCandidates(workId),
-      candidate = candidates.find((c) => c.id === command.payload.candidateId);
-    if (!candidate || !['confirm', 'dismiss'].includes(String(command.payload.action)))
-      throw new DomainError('VALIDATION', 'Choose an accessible goal candidate');
-    const connection = this.repo.get('connection', work.projectId)!;
-    return this.repo.transaction(() => {
-      let resultWorkId = candidate.workId ?? workId;
-      if (command.payload.action === 'confirm' && !candidate.workId) {
-        const sources = this.sources(workId),
-          threadIds = [candidate.threadId];
-        const recordRanges = {
-          [candidate.threadId]: {
-            ...candidate.range,
-            end: candidate.range.end ?? connection.recordRanges?.[candidate.threadId]?.end,
-          },
-        };
-        const relations = new Map<string, SourceRevision[]>();
-        for (let pass = 0; pass < 30; pass++) {
-          let added = false;
-          for (const threadId of new Set(sources.map((s) => s.threadId))) {
-            if (threadIds.includes(threadId)) continue;
-            const evidence = dedicatedRelationship(
-              sources.filter((s) => s.threadId === threadId),
-              threadIds,
-            );
-            if (evidence.length) {
-              threadIds.push(threadId);
-              relations.set(threadId, evidence);
-              added = true;
-            }
-          }
-          if (!added) break;
-        }
-        for (const id of threadIds)
-          if (id !== candidate.threadId && connection.recordRanges?.[id])
-            recordRanges[id] = connection.recordRanges[id] as (typeof recordRanges)[string];
-        const receipt = this.connect({
-          requestId: this.ids.hash([command.requestId, 'connection']),
-          expectedRevision: 0,
-          payload: {
-            title: candidate.title,
-            cwd: connection.cwd,
-            threadIds,
-            discover: connection.discover,
-            startTurnIds: Object.fromEntries(
-              threadIds
-                .filter((id) => connection.startTurnIds[id])
-                .map((id) => [id, connection.startTurnIds[id]]),
-            ),
-            recordRanges,
-          },
-        });
-        resultWorkId = receipt.workId;
-        const goal = this.work(resultWorkId);
-        const goalConnection = this.repo.get('connection', goal.projectId)!;
-        this.repo.put('connection', {
-          ...goalConnection,
-          discoveryScope: {
-            startTurnIds: {
-              ...connection.discoveryScope?.startTurnIds,
-              ...connection.startTurnIds,
-            },
-            recordRanges: {
-              ...connection.discoveryScope?.recordRanges,
-              ...connection.recordRanges,
-            },
-          },
-        });
-        this.repo.put('work', {
-          ...goal,
-          goal: {
-            text: candidate.quote,
-            evidenceId: candidate.evidenceId,
-            confirmedAt: this.clock.now(),
-          },
-        });
-        for (const dismissed of candidates.filter(
-          (c) => c.status === 'dismissed' && !threadIds.includes(c.threadId),
-        ))
-          this.repo.put('link', {
-            id: this.ids.hash([resultWorkId, dismissed.threadId]),
-            workId: resultWorkId,
-            threadId: dismissed.threadId,
-            title:
-              this.links(workId).find((l) => l.threadId === dismissed.threadId)?.title ??
-              dismissed.threadId,
-            status: 'separate',
-            revision: 1,
-            evidence: [],
-            rationale: 'Kept separate by the user during goal selection',
-            role: 'work',
-            history: [],
-          });
-        for (const link of this.links(resultWorkId).filter((l) => l.status === 'linked')) {
-          const evidence = relations.get(link.threadId);
-          this.repo.put('link', {
-            ...link,
-            title:
-              this.links(workId).find((l) => l.threadId === link.threadId)?.title ?? link.title,
-            relation: relationshipKind(evidence ?? []),
-            evidence: evidence?.map((s) => s.id) ?? [candidate.evidenceId],
-            rationale:
-              evidence?.map((s) => s.text).join(' · ') ??
-              'User confirmed this goal and its selected records',
-          });
-        }
-      }
-      this.repo.put('work', {
-        ...work,
-        revision: work.revision + 1,
-        goalCandidates: candidates.map((c) =>
-          c.id === candidate.id
-            ? {
-                ...c,
-                status: command.payload.action === 'confirm' ? 'confirmed' : 'dismissed',
-                ...(command.payload.action === 'confirm' ? { workId: resultWorkId } : {}),
-              }
-            : c,
-        ),
-      });
-      const receipt: Receipt = {
-        id: command.requestId,
-        command: 'goal-choice',
-        bodyHash,
-        workId: resultWorkId,
-        committedRevision: this.work(resultWorkId).revision,
-        resultId: candidate.id,
-        createdAt: this.clock.now(),
-      };
-      this.repo.put('receipt', receipt);
-      this.events.changed(resultWorkId);
-      return receipt;
-    });
-  }
-  describeGoal(workId: string, command: Command): Receipt {
+  describeGoal(projectId: string, command: Command): Receipt {
     const bodyHash = this.ids.hash({
       action: 'describe-goal',
-      workId,
+      projectId,
       expectedRevision: command.expectedRevision,
       payload: command.payload,
     });
     const existing = this.receipt(command.requestId, bodyHash);
     if (existing) return existing;
-    const work = this.work(workId);
+    const work = this.project(projectId);
     if (work.revision !== command.expectedRevision)
       throw new DomainError('REVISION_CONFLICT', 'Goal changed; review your input.', 409);
     const text = typeof command.payload.text === 'string' ? command.payload.text.trim() : '';
@@ -669,35 +602,31 @@ export class StateCarry {
       throw new DomainError('VALIDATION', 'Describe a goal in 1–1200 characters.');
     // Goal edits never grant record access. Keep this connection and every range unchanged.
     const receipt = this.repo.transaction(() => {
-      const goal = { text, origin: 'user-input' as const, confirmedAt: this.clock.now() };
-      this.repo.put('work', {
+      this.projectModel.setDirection(projectId, text, false, false);
+      this.repo.put('project', {
         ...work,
-        goal,
-        title: work.projectProfile?.title ?? text.slice(0, 120),
+        title: work.title,
         revision: work.revision + 1,
         linkVersion: work.linkVersion + 1,
         latestSummaryId: null,
       });
-      const connection = this.repo.get('connection', work.projectId)!;
-      this.repo.put('connection', {
-        ...connection,
-        title: work.projectProfile?.title ?? text.slice(0, 120),
-      });
-      this.refreshInput(workId);
+      const connection = this.repo.get('connection', work.connectionId)!;
+      this.repo.put('connection', { ...connection, title: work.title });
+      this.refreshInput(projectId);
       const receipt: Receipt = {
         id: command.requestId,
         command: 'describe-goal',
         bodyHash,
-        workId,
-        committedRevision: this.work(workId).revision,
-        resultId: workId,
+        projectId,
+        committedRevision: this.project(projectId).revision,
+        resultId: projectId,
         createdAt: this.clock.now(),
       };
       this.repo.put('receipt', receipt);
       return receipt;
     });
-    this.questions.invalidateGoal(workId);
-    this.events.changed(workId);
+    this.questions.invalidateGoal(projectId);
+    this.events.changed(projectId);
     return receipt;
   }
   updateConnection(connectionId: string, command: Command): Receipt {
@@ -715,7 +644,7 @@ export class StateCarry {
       projectWorkId
         ? {
             action: 'project-sources',
-            workId: projectWorkId,
+            projectId: projectWorkId,
             expectedRevision: command.expectedRevision,
             payload: command.payload,
           }
@@ -725,7 +654,7 @@ export class StateCarry {
       const existing = this.receipt(command.requestId, bodyHash);
       if (existing) return existing;
       const c = this.connection(connectionId);
-      const w = this.work(c.workId);
+      const w = this.project(c.projectId);
       if (projectWorkId && w.id !== projectWorkId)
         throw new DomainError('NOT_FOUND', 'Project connection not found', 404);
       if (w.revision !== command.expectedRevision)
@@ -735,12 +664,11 @@ export class StateCarry {
         throw new DomainError('VALIDATION', 'Use an absolute project folder path.');
       if (
         this.repo
-          .list('work')
+          .list('project')
           .some(
             (other) =>
               other.id !== w.id &&
-              (w.projectProfile || other.projectProfile) &&
-              normalizeProjectFolder(this.repo.get('connection', other.projectId)?.cwd ?? '') ===
+              normalizeProjectFolder(this.repo.get('connection', other.connectionId)?.cwd ?? '') ===
                 folder,
           )
       )
@@ -770,7 +698,7 @@ export class StateCarry {
       for (const threadId of selected)
         this.repo.put('link', {
           id: this.ids.hash([w.id, threadId]),
-          workId: w.id,
+          projectId: w.id,
           threadId,
           title: threadId,
           status: 'linked',
@@ -781,7 +709,7 @@ export class StateCarry {
           history: [],
         });
       // Old source objects remain immutable; a changed range must be recollected before it can be used.
-      for (const cp of this.repo.list('checkpoint').filter((cp) => cp.workId === w.id)) {
+      for (const cp of this.repo.list('checkpoint').filter((cp) => cp.projectId === w.id)) {
         if (
           input.cwd !== c.cwd ||
           input.startTurnIds[cp.threadId] !== c.startTurnIds[cp.threadId] ||
@@ -816,12 +744,10 @@ export class StateCarry {
         threadIds: [...new Set(input.threadIds)],
         revision: c.revision + 1,
       });
-      this.repo.put('work', {
+      this.repo.put('project', {
         ...w,
         title: input.title,
-        ...(w.projectProfile
-          ? { projectProfile: { ...w.projectProfile, title: input.title } }
-          : {}),
+        cwd: input.cwd,
         revision: w.revision + 1,
         linkVersion: w.linkVersion + 1,
       });
@@ -830,16 +756,16 @@ export class StateCarry {
         id: command.requestId,
         command: projectWorkId ? 'project-sources' : 'connection-scope',
         bodyHash,
-        workId: w.id,
-        committedRevision: this.work(w.id).revision,
+        projectId: w.id,
+        committedRevision: this.project(w.id).revision,
         resultId: c.id,
         createdAt: this.clock.now(),
       };
       this.repo.put('receipt', r);
       return r;
     });
-    if (projectWorkId) this.events.changed(receipt.workId, 'sources');
-    else this.events.changed(receipt.workId);
+    if (projectWorkId) this.events.changed(receipt.projectId, 'sources');
+    else this.events.changed(receipt.projectId);
     return receipt;
   }
   /** Remove a connection from StateCarry's active project list. This is a
@@ -856,7 +782,7 @@ export class StateCarry {
       const existing = this.receipt(command.requestId, bodyHash);
       if (existing) return existing;
       const c = this.connection(connectionId);
-      const w = this.work(c.workId);
+      const w = this.project(c.projectId);
       if (w.revision !== command.expectedRevision)
         throw new DomainError(
           'REVISION_CONFLICT',
@@ -865,24 +791,25 @@ export class StateCarry {
         );
       const at = this.clock.now();
       this.repo.put('connection', { ...c, removedAt: at, revision: c.revision + 1 });
-      this.repo.put('work', {
+      this.repo.put('project', {
         ...w,
-        ...(w.projectProfile ? { projectProfile: { ...w.projectProfile, focused: false } } : {}),
+        focused: false,
+        lifecycle: 'disconnected',
         revision: w.revision + 1,
       });
       const result: Receipt = {
         id: command.requestId,
         command: 'connection-remove',
         bodyHash,
-        workId: w.id,
-        committedRevision: this.work(w.id).revision,
+        projectId: w.id,
+        committedRevision: this.project(w.id).revision,
         resultId: c.id,
         createdAt: at,
       };
       this.repo.put('receipt', result);
       return result;
     });
-    this.events.changed(receipt.workId);
+    this.events.changed(receipt.projectId);
     return receipt;
   }
   /** Restore a previously removed connection without re-reading or mutating
@@ -899,7 +826,7 @@ export class StateCarry {
       const existing = this.receipt(command.requestId, bodyHash);
       if (existing) return existing;
       const c = this.connection(connectionId, true);
-      const w = this.work(c.workId);
+      const w = this.project(c.projectId);
       if (!c.removedAt) throw new DomainError('VALIDATION', 'Connection is already active');
       if (w.revision !== command.expectedRevision)
         throw new DomainError(
@@ -909,24 +836,25 @@ export class StateCarry {
         );
       const at = this.clock.now();
       this.repo.put('connection', { ...c, removedAt: null, revision: c.revision + 1 });
-      this.repo.put('work', {
+      this.repo.put('project', {
         ...w,
-        ...(w.projectProfile ? { projectProfile: { ...w.projectProfile, focused: false } } : {}),
+        focused: false,
+        lifecycle: 'active',
         revision: w.revision + 1,
       });
       const result: Receipt = {
         id: command.requestId,
         command: 'connection-restore',
         bodyHash,
-        workId: w.id,
-        committedRevision: this.work(w.id).revision,
+        projectId: w.id,
+        committedRevision: this.project(w.id).revision,
         resultId: c.id,
         createdAt: at,
       };
       this.repo.put('receipt', result);
       return result;
     });
-    this.events.changed(receipt.workId);
+    this.events.changed(receipt.projectId);
     return receipt;
   }
   private receipt(id: string, hash: string): Receipt | null {
@@ -935,9 +863,9 @@ export class StateCarry {
       throw new DomainError('IDEMPOTENCY_CONFLICT', 'Request id was used with another body', 409);
     return r;
   }
-  private refreshInput(workId: string) {
-    const w = this.work(workId),
-      sources = this.sources(workId),
+  private refreshInput(projectId: string) {
+    const w = this.project(projectId),
+      sources = this.sources(projectId),
       configurationHash = this.configurationHash();
     const inputVersion = this.ids.hash({ sources: sources.map((s) => s.id), links: w.linkVersion });
     const changed = inputVersion !== w.inputVersion;
@@ -945,14 +873,14 @@ export class StateCarry {
       w.inputVersion = inputVersion;
       w.revision++;
     }
-    const id = this.jobId(workId, inputVersion, configurationHash);
+    const id = this.jobId(projectId, inputVersion, configurationHash);
     const existing =
       this.repo.get('job', id) ??
       this.repo
         .list('job')
         .find(
           (j) =>
-            j.workId === workId &&
+            j.projectId === projectId &&
             j.inputVersion === inputVersion &&
             j.configurationHash === configurationHash &&
             j.extractorVersion === EXTRACTOR_VERSION &&
@@ -968,12 +896,12 @@ export class StateCarry {
           }
         : null;
     if (changed || JSON.stringify(w.pendingRefresh ?? null) !== JSON.stringify(pendingRefresh))
-      this.repo.put('work', { ...w, pendingRefresh });
+      this.repo.put('project', { ...w, pendingRefresh });
   }
   // Legacy candidates may only resume when their entire original input can be proven.
   private restoreInput(job: Job): Job {
     if (job.inputSnapshot) return job;
-    const w = this.work(job.workId),
+    const w = this.project(job.projectId),
       sources = this.sources(w.id);
     if (
       job.inputVersion !==
@@ -985,15 +913,15 @@ export class StateCarry {
       inputSnapshot: {
         sourceRevisionIds: sources.map((s) => s.id),
         linkVersion: w.linkVersion,
-        connectionRevision: this.repo.get('connection', w.projectId)!.revision,
+        connectionRevision: this.repo.get('connection', w.connectionId)!.revision,
         capturedAt: null,
         baseSummaryId: w.latestSummaryId,
       },
     };
   }
   private invalidReason(job: Job): string | null {
-    const w = this.work(job.workId),
-      connection = this.repo.get('connection', w.projectId),
+    const w = this.project(job.projectId),
+      connection = this.repo.get('connection', w.connectionId),
       input = job.inputSnapshot;
     if (!this.isConnectionActive(connection))
       return 'Connection was removed; restore it before continuing';
@@ -1017,7 +945,7 @@ export class StateCarry {
       return 'Persisted input boundary is unavailable or inconsistent';
     return null;
   }
-  private resumeJob(original: Job, terminated: boolean) {
+  private analysisJob(original: Job, terminated: boolean) {
     if (!terminated) {
       this.repo.put('job', {
         ...original,
@@ -1030,7 +958,7 @@ export class StateCarry {
     }
     const applied = this.repo
       .list('summary')
-      .find((s) => s.workId === original.workId && s.attemptToken === original.attemptToken);
+      .find((s) => s.projectId === original.projectId && s.attemptToken === original.attemptToken);
     if (applied) {
       this.repo.put('job', {
         ...original,
@@ -1050,18 +978,30 @@ export class StateCarry {
       updatedAt: this.clock.now(),
     });
   }
-  private applyRead(workId: string, connection: Connection, read: SourceRead) {
+  needsProcessing(projectId: string): boolean {
+    const work = this.repo.get('project', projectId);
+    if (!work) return false;
+    if (work.pendingRefresh) return true;
+    return this.repo
+      .list('job')
+      .some(
+        (job) =>
+          job.projectId === projectId &&
+          (job.status === 'queued' || job.status === 'result-unknown'),
+      );
+  }
+  private applyRead(projectId: string, connection: Connection, read: SourceRead) {
     const currentConnection = this.repo.get('connection', connection.id);
     if (
       !this.isConnectionActive(currentConnection) ||
       currentConnection.revision !== connection.revision
     )
       throw new DomainError('REVISION_CONFLICT', 'Collection scope changed', 409);
-    if (!this.links(workId).some((l) => l.threadId === read.threadId && l.status === 'linked'))
+    if (!this.links(projectId).some((l) => l.threadId === read.threadId && l.status === 'linked'))
       throw new DomainError('REVISION_CONFLICT', 'Source is no longer linked', 409);
     if (read.revisions.some((s) => s.threadId !== read.threadId))
       throw new DomainError('SOURCE_UNAVAILABLE', 'Source item belongs to another thread');
-    const id = this.ids.hash([workId, read.threadId]);
+    const id = this.ids.hash([projectId, read.threadId]);
     const previous = this.repo.get('checkpoint', id),
       readLimitations = [...read.limitations];
     if (previous?.generation && previous.generation !== read.generation)
@@ -1083,7 +1023,7 @@ export class StateCarry {
         );
       this.repo.put('checkpoint', {
         id,
-        workId,
+        projectId,
         threadId: read.threadId,
         revisionIds: revisions.map((s) => s.id),
         sourceFingerprint: read.manifest.fingerprint,
@@ -1108,35 +1048,35 @@ export class StateCarry {
           role: controlled ? 'controlled-verification' : link.role,
         });
       }
-      this.refreshInput(workId);
+      this.refreshInput(projectId);
     });
   }
-  collect(workId: string): Promise<void> {
-    const current = this.collectionPromises.get(workId);
+  collect(projectId: string): Promise<void> {
+    const current = this.collectionPromises.get(projectId);
     if (current) return current;
-    const pending = this.collectOnce(workId).finally(() => {
-      this.collectionPromises.delete(workId);
+    const pending = this.collectOnce(projectId).finally(() => {
+      this.collectionPromises.delete(projectId);
     });
-    this.collectionPromises.set(workId, pending);
+    this.collectionPromises.set(projectId, pending);
     return pending;
   }
-  private async collectOnce(workId: string): Promise<void> {
-    if (this.collecting.has(workId) || this.closing) return;
-    this.collecting.add(workId);
+  private async collectOnce(projectId: string): Promise<void> {
+    if (this.collecting.has(projectId) || this.closing) return;
+    this.collecting.add(projectId);
     let changed = false;
     let invalidated = false;
     let scope: Connection | null = null;
     try {
-      const connection = this.activeConnectionForWork(workId);
+      const connection = this.activeConnectionForWork(projectId);
       scope = connection;
-      for (const link of this.links(workId).filter((l) => l.status === 'linked')) {
+      for (const link of this.links(projectId).filter((l) => l.status === 'linked')) {
         const currentConnection = this.repo.get('connection', connection.id);
         if (
           !this.isConnectionActive(currentConnection) ||
           currentConnection.revision !== connection.revision
         )
           return;
-        const id = this.ids.hash([workId, link.threadId]),
+        const id = this.ids.hash([projectId, link.threadId]),
           prior = this.repo.get('checkpoint', id),
           now = this.clock.now();
         const before = this.ids.hash(collectionResult(prior, this.repo.get('link', id)));
@@ -1146,7 +1086,7 @@ export class StateCarry {
             ? { ...prior, status: 'reading', lastAttemptAt: now }
             : {
                 id,
-                workId,
+                projectId,
                 threadId: link.threadId,
                 revisionIds: [],
                 sourceFingerprint: '',
@@ -1167,7 +1107,7 @@ export class StateCarry {
           );
           if (read.threadId !== link.threadId)
             throw new DomainError('SOURCE_UNAVAILABLE', 'Reader returned another thread');
-          this.applyRead(workId, connection, read);
+          this.applyRead(projectId, connection, read);
         } catch (error) {
           const currentConnection = this.repo.get('connection', connection.id);
           if (
@@ -1195,7 +1135,7 @@ export class StateCarry {
           );
       }
     } finally {
-      this.collecting.delete(workId);
+      this.collecting.delete(projectId);
       const current = scope && this.repo.get('connection', scope.id);
       // A scope mutation publishes its own change. An obsolete read must not
       // announce completion under that new scope or revive removed work.
@@ -1205,10 +1145,10 @@ export class StateCarry {
         this.isConnectionActive(current) &&
         current.revision === scope?.revision
       )
-        this.events.changed(workId);
+        this.events.changed(projectId);
       // An independent read can have observed `reading` even when the final
       // content is identical. This terminal signal is not a content change.
-      this.events.collectionSettled?.(workId);
+      this.events.collectionSettled?.(projectId);
     }
   }
   async discover(connection: Connection): Promise<void> {
@@ -1253,14 +1193,14 @@ export class StateCarry {
       for (const thread of result.threads) {
         const beforeRead = this.repo.get('connection', connection.id);
         if (!this.isConnectionActive(beforeRead) || beforeRead.revision !== scopeRevision) return;
-        const existing = this.links(connection.workId).find((l) => l.threadId === thread.id);
+        const existing = this.links(connection.projectId).find((l) => l.threadId === thread.id);
         if (existing && existing.status !== 'proposed') continue;
         // Visible metadata is retained even when reading a new session fails.
-        const id = this.ids.hash([connection.workId, thread.id]);
+        const id = this.ids.hash([connection.projectId, thread.id]);
         if (!existing) {
           this.repo.put('link', {
             id,
-            workId: connection.workId,
+            projectId: connection.projectId,
             threadId: thread.id,
             title: thread.title,
             status: 'proposed',
@@ -1304,7 +1244,7 @@ export class StateCarry {
             return;
           }
           if (existing?.sourceFingerprint === read.manifest.fingerprint) continue;
-          const linkedIds = this.links(connection.workId)
+          const linkedIds = this.links(connection.projectId)
             .filter((l) => l.status === 'linked')
             .map((l) => l.threadId);
           const evidence = dedicatedRelationship(
@@ -1337,8 +1277,8 @@ export class StateCarry {
                   ? link.history
                   : [...link.history, { status: link.status, at: this.clock.now() }],
             });
-            const w = this.work(connection.workId);
-            this.repo.put('work', {
+            const w = this.project(connection.projectId);
+            this.repo.put('project', {
               ...w,
               revision: w.revision + 1,
               linkVersion: w.linkVersion + (evidence.length ? 1 : 0),
@@ -1356,7 +1296,7 @@ export class StateCarry {
           expectedLink = this.repo.get('link', id)!;
           if (evidence.length) {
             scopeRevision = this.repo.get('connection', connection.id)!.revision;
-            this.applyRead(connection.workId, this.repo.get('connection', connection.id)!, read);
+            this.applyRead(connection.projectId, this.repo.get('connection', connection.id)!, read);
           }
         } catch (error) {
           const current = this.repo.get('connection', connection.id);
@@ -1408,33 +1348,33 @@ export class StateCarry {
         current.revision === scopeRevision &&
         (changed || before !== this.ids.hash(discoveryResult(current.discovery)))
       )
-        this.events.changed(connection.workId);
+        this.events.changed(connection.projectId);
     }
   }
-  async process(workId: string): Promise<void> {
+  async process(projectId: string): Promise<void> {
     if (
-      this.processing.has(workId) ||
+      this.processing.has(projectId) ||
       this.closing ||
       this.questions.hasUnresolvedExecution() ||
       this.explanations.hasUnresolvedExecution()
     )
       return;
-    const processWork = this.work(workId);
-    if (!this.isConnectionActive(this.repo.get('connection', processWork.projectId))) return;
-    this.processing.add(workId);
+    const processWork = this.project(projectId);
+    if (!this.isConnectionActive(this.repo.get('connection', processWork.connectionId))) return;
+    this.processing.add(projectId);
     try {
-      this.refreshInput(workId);
+      this.refreshInput(projectId);
       for (const pending of this.repo
         .list('job')
-        .filter((j) => j.workId === workId && j.status === 'result-unknown')) {
+        .filter((j) => j.projectId === projectId && j.status === 'result-unknown')) {
         if ((await this.summary.resolve(pending.remote)) === 'unknown') return;
-        this.resumeJob(pending, true);
+        this.analysisJob(pending, true);
       }
       if (this.closing) return;
       let job: Job | undefined;
       for (const queued of this.repo
         .list('job')
-        .filter((j) => j.workId === workId && j.status === 'queued')) {
+        .filter((j) => j.projectId === projectId && j.status === 'queued')) {
         const restored = this.restoreInput(queued),
           reason = this.invalidReason(restored);
         if (reason || queued.attempts >= 2) {
@@ -1447,24 +1387,24 @@ export class StateCarry {
           });
         } else if (!job) job = restored;
       }
-      this.refreshInput(workId);
+      this.refreshInput(projectId);
       if (!job) {
-        const w = this.work(workId),
+        const w = this.project(projectId),
           pending = w.pendingRefresh;
         if (!pending) return;
-        const id = this.jobId(workId, w.inputVersion, this.configurationHash());
+        const id = this.jobId(projectId, w.inputVersion, this.configurationHash());
         if (this.repo.get('job', id)) return;
         job = {
           id,
-          workId,
+          projectId,
           inputVersion: w.inputVersion,
           extractorVersion: EXTRACTOR_VERSION,
           configurationHash: this.configurationHash(),
           analysis: this.summary.configuration(),
           inputSnapshot: {
-            sourceRevisionIds: this.sources(workId).map((s) => s.id),
+            sourceRevisionIds: this.sources(projectId).map((s) => s.id),
             linkVersion: w.linkVersion,
-            connectionRevision: this.repo.get('connection', w.projectId)!.revision,
+            connectionRevision: this.repo.get('connection', w.connectionId)!.revision,
             capturedAt: this.clock.now(),
             baseSummaryId: w.latestSummaryId,
           },
@@ -1495,9 +1435,9 @@ export class StateCarry {
       };
       this.repo.transaction(() => {
         this.repo.put('job', job!);
-        this.refreshInput(workId);
+        this.refreshInput(projectId);
       });
-      this.events.changed(workId);
+      this.events.changed(projectId);
       const id = job.id;
       const ensureCurrent = () => {
         const reason = this.invalidReason(job!);
@@ -1524,7 +1464,7 @@ export class StateCarry {
           },
         ];
         update({ phases });
-        this.events.changed(workId);
+        this.events.changed(projectId);
         try {
           return await run();
         } finally {
@@ -1538,20 +1478,26 @@ export class StateCarry {
           model = job.model;
         if (!candidate) {
           if (
-            this.work(workId).goal?.evidenceId &&
-            !sources.some((s) => s.id === this.work(workId).goal!.evidenceId)
+            this.directionIntent(this.project(projectId).id)?.evidenceId &&
+            !sources.some(
+              (s) => s.id === this.directionIntent(this.project(projectId).id)!.evidenceId,
+            )
           )
             throw new DomainError(
               'SOURCE_UNAVAILABLE',
               'Confirmed goal source is outside the selected input; review scope',
             );
           const result = await phase('generate', () =>
-            this.summary.generate(sources, remote, this.work(workId).goal),
+            this.summary.generate(
+              sources,
+              remote,
+              this.directionIntent(this.project(projectId).id),
+            ),
           );
           ensureCurrent();
           candidate = checkCandidate(result.candidate, sources);
           if (
-            this.work(workId).goal &&
+            this.directionIntent(this.project(projectId).id) &&
             candidate.claims.some(
               (c) => c.slot === 'next' && c.nature === 'agent-proposal' && c.text,
             )
@@ -1568,7 +1514,12 @@ export class StateCarry {
         }
         const fixedCandidate = candidate;
         const assessment = await phase('check', () =>
-          this.summary.check(fixedCandidate, sources, remote, this.work(workId).goal),
+          this.summary.check(
+            fixedCandidate,
+            sources,
+            remote,
+            this.directionIntent(this.project(projectId).id),
+          ),
         );
         ensureCurrent();
         const checked = checkAssessment(candidate, assessment),
@@ -1586,13 +1537,13 @@ export class StateCarry {
         }
         this.repo.transaction(() => {
           ensureCurrent();
-          const latest = this.work(workId),
+          const latest = this.project(projectId),
             current = this.repo.get('job', id)!;
           if (current.attemptToken !== token)
             throw new DomainError('RESULT_UNKNOWN', 'Late attempt rejected');
           const summary: SummaryRevision = {
             id: this.ids.next(),
-            workId,
+            projectId,
             inputVersion: job!.inputVersion,
             sourceRevisionIds: [...input.sourceRevisionIds],
             linkVersion: input.linkVersion,
@@ -1614,7 +1565,7 @@ export class StateCarry {
             Date.parse(summary.generatedAt) - Date.parse(job!.startedAt!),
           );
           this.repo.put('summary', summary);
-          this.repo.put('work', {
+          this.repo.put('project', {
             ...latest,
             latestSummaryId: summary.id,
             revision: latest.revision + 1,
@@ -1627,7 +1578,7 @@ export class StateCarry {
           });
         });
         try {
-          this.explanations.preparePublished(workId);
+          this.explanations.preparePublished(projectId);
         } catch {
           /* First opening can prepare a missing explanation. */
         }
@@ -1652,10 +1603,10 @@ export class StateCarry {
           retryable: terminated !== 'unknown' && !reason && current.attempts < 2 && !blocked,
         });
       }
-      this.refreshInput(workId);
-      this.events.changed(workId);
+      this.refreshInput(projectId);
+      this.events.changed(projectId);
     } finally {
-      this.processing.delete(workId);
+      this.processing.delete(projectId);
     }
   }
   async recover(): Promise<void> {
@@ -1665,7 +1616,7 @@ export class StateCarry {
     for (const job of this.repo
       .list('job')
       .filter((j) => ['summarizing', 'checking', 'result-unknown'].includes(j.status))) {
-      this.resumeJob(job, (await this.summary.resolve(job.remote)) === 'terminated');
+      this.analysisJob(job, (await this.summary.resolve(job.remote)) === 'terminated');
     }
     for (const h of this.repo.list('handoff').filter((h) => h.state === 'dispatching'))
       this.repo.put('handoff', {
@@ -1674,16 +1625,16 @@ export class StateCarry {
         error: 'App dispatch outcome is unknown; no automatic retry',
       });
   }
-  snapshot(workId: string): ReturnContextSnapshot {
-    const work = this.work(workId);
-    this.activeConnectionForWork(workId);
-    const sources = this.sources(workId),
-      links = this.links(workId).map((l) =>
-        l.evidence.every((id) => this.accessibleSource(workId, id))
+  snapshot(projectId: string): ReturnContextSnapshot {
+    const work = this.project(projectId);
+    this.activeConnectionForWork(projectId);
+    const sources = this.sources(projectId),
+      links = this.links(projectId).map((l) =>
+        l.evidence.every((id) => this.accessibleSource(projectId, id))
           ? l
           : {
               ...l,
-              evidence: l.evidence.filter((id) => this.accessibleSource(workId, id)),
+              evidence: l.evidence.filter((id) => this.accessibleSource(projectId, id)),
               relation: 'unclear' as const,
               rationale: 'The connection evidence is outside the selected records. Review scope.',
             },
@@ -1692,7 +1643,7 @@ export class StateCarry {
       ? this.repo.get('summary', work.latestSummaryId)
       : null;
     const summary = storedSummary?.sourceRevisionIds.every((id) =>
-      this.accessibleSource(workId, id),
+      this.accessibleSource(projectId, id),
     )
       ? storedSummary
       : null;
@@ -1701,7 +1652,7 @@ export class StateCarry {
     );
     const currentKeys = new Set(sources.map((s) => s.key)),
       linkByThread = new Map(links.map((l) => [l.threadId, l]));
-    const connection = this.repo.get('connection', work.projectId)!;
+    const connection = this.repo.get('connection', work.connectionId)!;
     const historicalIds = new Set(
       storedSummary?.linkVersion === work.linkVersion ? storedSummary.sourceRevisionIds : [],
     );
@@ -1727,18 +1678,17 @@ export class StateCarry {
         actor: s.actor,
         preview: s.text.slice(0, 180),
       })),
-      goalCandidates: this.goalCandidates(workId),
-      explanation: this.explanations.view(workId),
+      explanation: this.explanations.view(projectId),
       conversationFlows: conversationFlows(summary, (id) => {
         const source = this.repo.get('source', id);
-        return source && this.accessibleSource(workId, source.id) ? source : null;
+        return source && this.accessibleSource(projectId, source.id) ? source : null;
       }),
-      freshness: this.freshness(workId),
-      workspace: this.projects.latestSnapshot(workId),
+      freshness: this.freshness(projectId),
+      workspace: this.projects.latestSnapshot(projectId),
       continuation:
         this.repo
           .list('continuation')
-          .filter((c) => c.workId === workId)
+          .filter((c) => c.projectId === projectId)
           .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))
           .at(-1) ?? null,
       refresh: this.refreshState(work),
@@ -1748,28 +1698,22 @@ export class StateCarry {
         (id) => this.repo.get('source', id),
         accessibleThreads,
       ),
-      work: {
-        ...work,
-        goalCandidates: this.goalCandidates(workId),
-        ...(work.goal?.evidenceId && !sources.some((s) => s.id === work.goal!.evidenceId)
-          ? { goal: { ...work.goal, text: '' } }
-          : {}),
-      },
-      connection: this.repo.get('connection', work.projectId)!,
+      work,
+      connection: this.repo.get('connection', work.connectionId)!,
       links,
-      checkpoints: this.repo.list('checkpoint').filter((c) => c.workId === workId),
+      checkpoints: this.repo.list('checkpoint').filter((c) => c.projectId === projectId),
       summary:
-        summary && summary.sourceRevisionIds.every((id) => this.accessibleSource(workId, id))
+        summary && summary.sourceRevisionIds.every((id) => this.accessibleSource(projectId, id))
           ? summary
           : null,
-      overlays: this.repo.list('overlay').filter((o) => o.workId === workId),
-      draft: this.repo.get('draft', workId),
-      visit: this.repo.get('visit', workId),
+      overlays: this.repo.list('overlay').filter((o) => o.projectId === projectId),
+      draft: this.repo.get('draft', projectId),
+      visit: this.repo.get('visit', projectId),
       jobs: this.repo
         .list('job')
-        .filter((j) => j.workId === workId)
+        .filter((j) => j.projectId === projectId)
         .map((j) =>
-          j.inputSnapshot?.sourceRevisionIds.every((id) => this.accessibleSource(workId, id))
+          j.inputSnapshot?.sourceRevisionIds.every((id) => this.accessibleSource(projectId, id))
             ? j
             : {
                 ...j,
@@ -1802,29 +1746,29 @@ export class StateCarry {
         })),
     };
   }
-  evidence(id: string, workId?: string): SourceRevision {
-    if (workId) {
-      const source = this.accessibleSource(workId, id);
+  evidence(id: string, projectId?: string): SourceRevision {
+    if (projectId) {
+      const source = this.accessibleSource(projectId, id);
       if (!source) throw new DomainError('NOT_FOUND', 'Evidence outside this goal scope', 404);
       return source;
     }
-    if (this.repo.list('work').some((w) => w.goal))
+    if (this.repo.list('project').some((w) => this.directionIntent(w.id)))
       throw new DomainError('VALIDATION', 'Choose a goal when requesting source evidence', 400);
     const s = this.repo.get('source', id);
-    const allowed = s && this.repo.list('work').some((w) => this.accessibleSource(w.id, id));
+    const allowed = s && this.repo.list('project').some((w) => this.accessibleSource(w.id, id));
     if (!s || !allowed)
       throw new DomainError('NOT_FOUND', 'Evidence is outside the active scope', 404);
     return s;
   }
   mutate(
-    workId: string,
+    projectId: string,
     action: 'corrections' | 'drafts' | 'visits' | 'link' | 'retry',
     command: Command,
     targetId?: string,
   ): Receipt {
     const bodyHash = this.ids.hash({
       action,
-      workId,
+      projectId,
       targetId,
       expectedRevision: command.expectedRevision,
       payload: command.payload,
@@ -1832,24 +1776,24 @@ export class StateCarry {
     const receipt = this.repo.transaction(() => {
       const existing = this.receipt(command.requestId, bodyHash);
       if (existing) return existing;
-      const w = this.work(workId);
-      this.activeConnectionForWork(workId);
+      const w = this.project(projectId);
+      this.activeConnectionForWork(projectId);
       if (w.revision !== command.expectedRevision)
         throw new DomainError('REVISION_CONFLICT', 'Displayed work revision changed', 409);
-      let resultId = workId,
+      let resultId = projectId,
         changed = false;
       if (action === 'corrections') {
         const p = correctionInputSchema.parse(command.payload),
           base = this.repo.get('summary', p.baseSummaryId);
-        if (!base || base.workId !== workId || base.id !== w.latestSummaryId)
+        if (!base || base.projectId !== projectId || base.id !== w.latestSummaryId)
           throw new DomainError('REVISION_CONFLICT', 'Correction base changed', 409);
-        const id = this.ids.hash([workId, p.slot]),
+        const id = this.ids.hash([projectId, p.slot]),
           old = this.repo.get('overlay', id);
         if ((old?.revision ?? 0) !== p.overlayRevision)
           throw new DomainError('REVISION_CONFLICT', 'Correction was edited elsewhere', 409);
         this.repo.put('overlay', {
           id,
-          workId,
+          projectId,
           slot: p.slot,
           text: p.text,
           baseSummaryId: base.id,
@@ -1865,13 +1809,13 @@ export class StateCarry {
         changed = true;
       } else if (action === 'drafts') {
         const p = draftInputSchema.parse(command.payload);
-        this.validateTarget(workId, p.threadId, p.summaryId, p.evidenceIds);
-        const old = this.repo.get('draft', workId);
+        this.validateTarget(projectId, p.threadId, p.summaryId, p.evidenceIds);
+        const old = this.repo.get('draft', projectId);
         if ((old?.revision ?? 0) !== p.draftRevision)
           throw new DomainError('REVISION_CONFLICT', 'Draft was edited elsewhere', 409);
         this.repo.put('draft', {
-          id: workId,
-          workId,
+          id: projectId,
+          projectId,
           threadId: p.threadId,
           evidenceIds: p.evidenceIds,
           summaryId: p.summaryId,
@@ -1884,11 +1828,11 @@ export class StateCarry {
           summary = this.repo.get('summary', p.summaryId);
         if (
           !summary ||
-          summary.workId !== workId ||
+          summary.projectId !== projectId ||
           p.evidenceIds.some((id) => !summary.sourceRevisionIds.includes(id))
         )
           throw new DomainError('VALIDATION', 'Displayed scope does not match summary');
-        const previous = this.repo.get('visit', workId);
+        const previous = this.repo.get('visit', projectId);
         const evidenceIds = [
           ...new Set([
             ...(previous?.summaryId === p.summaryId ? previous.evidenceIds : []),
@@ -1896,8 +1840,8 @@ export class StateCarry {
           ]),
         ];
         this.repo.put('visit', {
-          id: workId,
-          workId,
+          id: projectId,
+          projectId,
           summaryId: p.summaryId,
           evidenceIds,
           at: this.clock.now(),
@@ -1905,7 +1849,8 @@ export class StateCarry {
       } else if (action === 'link') {
         const p = linkInputSchema.parse(command.payload),
           l = this.repo.get('link', targetId ?? '');
-        if (!l || l.workId !== workId) throw new DomainError('NOT_FOUND', 'Link not found', 404);
+        if (!l || l.projectId !== projectId)
+          throw new DomainError('NOT_FOUND', 'Link not found', 404);
         if (l.revision !== p.linkRevision)
           throw new DomainError('REVISION_CONFLICT', 'Link changed', 409);
         const next = p.undo ? l.history.at(-1)?.status : p.status;
@@ -1919,12 +1864,13 @@ export class StateCarry {
             : [...l.history, { status: l.status, at: this.clock.now() }],
         });
         w.linkVersion++;
-        this.repo.put('work', w);
-        this.refreshInput(workId);
+        this.repo.put('project', w);
+        this.refreshInput(projectId);
         resultId = l.id;
       } else {
         const j = this.repo.get('job', targetId ?? '');
-        if (!j || j.workId !== workId) throw new DomainError('NOT_FOUND', 'Job not found', 404);
+        if (!j || j.projectId !== projectId)
+          throw new DomainError('NOT_FOUND', 'Job not found', 404);
         if (
           !['failed', 'queued'].includes(j.status) ||
           !j.retryable ||
@@ -1935,33 +1881,33 @@ export class StateCarry {
         this.repo.put('job', { ...j, status: 'queued', updatedAt: this.clock.now() });
         resultId = j.id;
       }
-      if (changed) this.repo.put('work', { ...w, revision: w.revision + 1 });
+      if (changed) this.repo.put('project', { ...w, revision: w.revision + 1 });
       const r: Receipt = {
         id: command.requestId,
         command: action,
         bodyHash,
-        workId,
-        committedRevision: this.work(workId).revision,
+        projectId,
+        committedRevision: this.project(projectId).revision,
         resultId,
         createdAt: this.clock.now(),
       };
       this.repo.put('receipt', r);
       return r;
     });
-    if (action !== 'visits') this.events.changed(workId);
+    if (action !== 'visits') this.events.changed(projectId);
     return receipt;
   }
   private validateTarget(
-    workId: string,
+    projectId: string,
     threadId: string,
     summaryId: string,
     evidenceIds: string[],
   ) {
-    const w = this.work(workId),
+    const w = this.project(projectId),
       summary = this.repo.get('summary', summaryId);
-    if (!this.links(workId).some((l) => l.threadId === threadId && l.status === 'linked'))
+    if (!this.links(projectId).some((l) => l.threadId === threadId && l.status === 'linked'))
       throw new DomainError('HANDOFF_TARGET_UNLINKED', 'Handoff thread is not linked');
-    if (!summary || summary.workId !== workId || w.latestSummaryId !== summaryId)
+    if (!summary || summary.projectId !== projectId || w.latestSummaryId !== summaryId)
       throw new DomainError('HANDOFF_SUMMARY_CHANGED', 'Handoff summary changed', 409);
     if (!evidenceIds.length || evidenceIds.some((id) => !summary.sourceRevisionIds.includes(id)))
       throw new DomainError(
@@ -1969,14 +1915,14 @@ export class StateCarry {
         'Handoff evidence is outside the displayed input or current access',
       );
   }
-  prepareHandoff(workId: string, expectedRevision: number, input: unknown): HandoffTarget {
+  prepareHandoff(projectId: string, expectedRevision: number, input: unknown): HandoffTarget {
     const p = draftInputSchema.parse(input),
-      w = this.work(workId);
-    this.activeConnectionForWork(workId);
-    this.validateTarget(workId, p.threadId, p.summaryId, p.evidenceIds);
+      w = this.project(projectId);
+    this.activeConnectionForWork(projectId);
+    this.validateTarget(projectId, p.threadId, p.summaryId, p.evidenceIds);
     if (
-      this.collecting.has(workId) ||
-      this.repo.list('checkpoint').some((c) => c.workId === workId && c.status === 'reading')
+      this.collecting.has(projectId) ||
+      this.repo.list('checkpoint').some((c) => c.projectId === projectId && c.status === 'reading')
     )
       throw new DomainError('HANDOFF_COLLECTING', 'Collection is still checking this target', 409);
     const summary = this.repo.get('summary', p.summaryId)!;
@@ -1992,7 +1938,7 @@ export class StateCarry {
       this.ids.hash(summary.analysis) !== this.configurationHash()
     )
       throw new DomainError('HANDOFF_CONFIGURATION_CHANGED', 'Analysis configuration changed', 409);
-    const accessible = new Set(this.sources(workId).map((source) => source.id));
+    const accessible = new Set(this.sources(projectId).map((source) => source.id));
     if (p.evidenceIds.some((id) => !accessible.has(id)))
       throw new DomainError(
         'HANDOFF_EVIDENCE_INACCESSIBLE',
@@ -2001,13 +1947,13 @@ export class StateCarry {
     if (w.revision !== expectedRevision)
       throw new DomainError('REVISION_CONFLICT', 'Handoff target revision changed', 409);
     const precision = this.navigator.capability().precision;
-    const link = this.links(workId).find(
+    const link = this.links(projectId).find(
       (l) => l.threadId === p.threadId && l.status === 'linked',
     )!;
     return {
       title: link.title,
       role: link.role,
-      workId,
+      projectId,
       expectedRevision,
       threadId: p.threadId,
       summaryId: p.summaryId,
@@ -2017,16 +1963,16 @@ export class StateCarry {
       url: precision === 'thread' ? `codex://threads/${encodeURIComponent(p.threadId)}` : null,
     };
   }
-  async openHandoff(workId: string, command: Command): Promise<Receipt> {
+  async openHandoff(projectId: string, command: Command): Promise<Receipt> {
     const bodyHash = this.ids.hash({
       action: 'open',
-      workId,
+      projectId,
       expectedRevision: command.expectedRevision,
       payload: command.payload,
     });
     const existing = this.receipt(command.requestId, bodyHash);
     if (existing) return existing;
-    const target = this.prepareHandoff(workId, command.expectedRevision, command.payload);
+    const target = this.prepareHandoff(projectId, command.expectedRevision, command.payload);
     if (target.precision === 'unsupported')
       throw new DomainError(
         'CAPABILITY_UNSUPPORTED',
@@ -2041,9 +1987,9 @@ export class StateCarry {
       const receipt: Receipt = {
         id: command.requestId,
         command: 'open',
-        workId,
+        projectId,
         bodyHash,
-        committedRevision: this.work(workId).revision,
+        committedRevision: this.project(projectId).revision,
         resultId: id,
         createdAt: now,
       };
@@ -2063,7 +2009,7 @@ export class StateCarry {
       // A failed receipt write after OS acceptance must not become a retryable OS failure.
       const h = this.repo.get('handoff', result.receipt.resultId)!;
       this.repo.put('handoff', { ...h, state, error });
-      this.events.changed(workId);
+      this.events.changed(projectId);
     }
     return result.receipt;
   }

@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   presentResumeNarrative,
   presentResumeProgress,
-  presentResumeWork,
-  type ResumeCandidate,
-  type ResumeWork,
+  presentProjectAnalysis,
+  type AnalysisCandidate,
+  type AnalysisWork,
 } from '@statecarry/presentation';
 
-const candidate: ResumeCandidate = {
+const candidate: AnalysisCandidate = {
   key: 'candidate-a',
   goal: 'Ship the export fix',
   currentState: 'The export fix is implemented; the focused check is still open.',
@@ -26,9 +26,9 @@ const candidate: ResumeCandidate = {
   },
 };
 
-function work(patch: Partial<ResumeWork> = {}): ResumeWork {
+function work(patch: Partial<AnalysisWork> = {}): AnalysisWork {
   return {
-    workId: 'work-a',
+    projectId: 'work-a',
     title: 'Export fix',
     cwd: '/synthetic-project',
     version: 'v1',
@@ -49,7 +49,7 @@ function work(patch: Partial<ResumeWork> = {}): ResumeWork {
 }
 
 function narrative(value = work()) {
-  const selected = presentResumeWork(value).selected!;
+  const selected = presentProjectAnalysis(value).selected!;
   return presentResumeNarrative(selected, value);
 }
 

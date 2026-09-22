@@ -1,3 +1,5 @@
+import { workingTreeDiscussionBasis } from '@statecarry/contracts';
+export { workingTreeGroupKey } from '@statecarry/contracts';
 import type {
   ProjectWorkspace,
   ProjectWorkspaceEntry,
@@ -11,8 +13,18 @@ import type {
   Receipt,
   Capabilities,
   WorkspaceSnapshot,
+  ProjectModelView,
+  ProjectNow,
+  WorkDiscussionSync,
+  WorkItemCreate,
+  ReleaseProjectView,
+  ReleasePolicyInput,
+  ReleaseCreateInput,
+  DeliveryTargetUpdate,
+  ReleaseCheckUpdate,
+  ReleasePolicyExceptionInput,
 } from '@statecarry/contracts';
-import { presentResumeWork, resumeWorkStatus } from './resume';
+import { presentProjectAnalysis, analysisWorkStatus } from './analysis';
 
 export type {
   ProjectWorkspace,
@@ -22,6 +34,12 @@ export type {
   ProjectCreateInput,
   ProjectSourcesInput,
   ProjectDeletionPreview,
+  ReleaseProjectView,
+  ReleasePolicyInput,
+  ReleaseCreateInput,
+  DeliveryTargetUpdate,
+  ReleaseCheckUpdate,
+  ReleasePolicyExceptionInput,
 } from '@statecarry/contracts';
 export type { RecordRange } from '@statecarry/contracts';
 
@@ -34,8 +52,21 @@ export type AppUpdateState = {
   error: string | null;
 };
 
+export type ProjectNowBundle = {
+  model: ProjectModelView;
+  now: ProjectNow;
+  /** Omitted by older/test gateways; only an explicit false triggers first-run preparation. */
+  initialized: boolean;
+};
+
 export interface ProjectGateway {
-  registrations?(): Promise<ProjectRegistrations>;
+  execution(
+    id: string,
+    command?: import('@statecarry/contracts').ProjectExecutionCommand,
+    version?: number,
+    language?: 'en' | 'ko',
+  ): Promise<import('@statecarry/contracts').ProjectExecutionWorkspace>;
+  registrations(): Promise<ProjectRegistrations>;
   capabilities?(): Promise<Capabilities>;
   chooseFolder?(): Promise<{ path: string | null }>;
   chooseProjectAsset?(id: string, kind: 'icon' | 'banner'): Promise<{ assetRef: string | null }>;
@@ -44,9 +75,53 @@ export interface ProjectGateway {
   downloadAppUpdate?(): Promise<AppUpdateState>;
   restartAppUpdate?(): Promise<AppUpdateState>;
   list(): Promise<ProjectWorkspace>;
-  workspace?(id: string, outputLanguage?: 'en' | 'ko'): Promise<WorkspaceSnapshot>;
-  observe?(id: string, outputLanguage?: 'en' | 'ko'): Promise<WorkspaceSnapshot>;
-  analyzeWorkspace?(id: string, outputLanguage?: 'en' | 'ko'): Promise<WorkspaceSnapshot>;
+  now(id: string): Promise<ProjectNowBundle>;
+  initialize(id: string, outputLanguage?: 'en' | 'ko'): Promise<ProjectNowBundle>;
+  selectProposal(id: string, revision: number, proposalKey: string): Promise<ProjectModelView>;
+  selectWork(id: string, revision: number, workItemId: string): Promise<ProjectModelView>;
+  createWork(id: string, revision: number, input: WorkItemCreate): Promise<ProjectModelView>;
+  pauseWork(id: string, revision: number, workItemId: string): Promise<ProjectModelView>;
+  resumeWork(id: string, revision: number, workItemId: string): Promise<ProjectModelView>;
+  completeWork(id: string, revision: number, workItemId: string): Promise<ProjectModelView>;
+  stopWork(id: string, revision: number, workItemId: string): Promise<ProjectModelView>;
+  continueDirectionConflict?(id: string, revision: number): Promise<ProjectModelView>;
+  syncDiscussion(
+    id: string,
+    revision: number,
+    input: WorkDiscussionSync,
+  ): Promise<ProjectModelView>;
+  release?(id: string): Promise<ReleaseProjectView>;
+  setReleasePolicy?(
+    id: string,
+    revision: number,
+    input: ReleasePolicyInput,
+  ): Promise<ReleaseProjectView>;
+  createRelease?(
+    id: string,
+    revision: number,
+    input: ReleaseCreateInput,
+  ): Promise<ReleaseProjectView>;
+  updateDelivery?(
+    id: string,
+    revision: number,
+    releaseId: string,
+    input: DeliveryTargetUpdate,
+  ): Promise<ReleaseProjectView>;
+  updateReleaseCheck?(
+    id: string,
+    revision: number,
+    releaseId: string,
+    input: ReleaseCheckUpdate,
+  ): Promise<ReleaseProjectView>;
+  confirmRelease?(id: string, revision: number, releaseId: string): Promise<ReleaseProjectView>;
+  createReleaseException?(
+    id: string,
+    revision: number,
+    input: ReleasePolicyExceptionInput,
+  ): Promise<ReleaseProjectView>;
+  workspace(id: string, outputLanguage?: 'en' | 'ko'): Promise<WorkspaceSnapshot>;
+  observe(id: string, outputLanguage?: 'en' | 'ko'): Promise<WorkspaceSnapshot>;
+  analyzeWorkspace(id: string, outputLanguage?: 'en' | 'ko'): Promise<WorkspaceSnapshot>;
   create(input: ProjectCreateInput): Promise<Receipt>;
   settings(id: string, revision: number, input: ProjectProfile): Promise<Receipt>;
   sources(id: string, revision: number, input: ProjectSourcesInput): Promise<Receipt>;
@@ -63,11 +138,14 @@ export interface ProjectGateway {
     limitations: string[];
   }>;
   turns(id: string): Promise<{ turns: { id: string; at: string | null }[] }>;
-  evidence(workId: string, sourceId: string): Promise<SourceRevision>;
+  evidence(projectId: string, sourceId: string): Promise<SourceRevision>;
 }
 
 export type WorkingTreeView = {
   kind: 'no-git' | 'clean' | 'normal' | 'mixed' | 'large';
+  discussionBasis?: string;
+  fingerprint: string | null;
+  diffPreview: string | null;
   fileCount: number;
   additions: number;
   deletions: number;
@@ -77,6 +155,8 @@ export type WorkingTreeView = {
   lastCommit: string | null;
   files: string[];
   groups: Array<{
+    id?: string;
+    context?: import('@statecarry/contracts').WorkingTreeWorkGroup['context'];
     title: string;
     summary: string;
     currentState: string;
@@ -101,6 +181,12 @@ export function presentWorkingTree(snapshot: WorkspaceSnapshot): WorkingTreeView
   ).slice(0, 120);
   const groups = snapshot.workingTreeAnalysis?.groups ?? [];
   const common = {
+    discussionBasis: workingTreeDiscussionBasis(snapshot),
+    fingerprint:
+      [snapshot.fileFingerprint ?? snapshot.fingerprint, snapshot.inventoryFingerprint]
+        .filter(Boolean)
+        .join(':') || null,
+    diffPreview: snapshot.diffPreview ?? null,
     fileCount,
     additions,
     deletions,
@@ -116,7 +202,7 @@ export function presentWorkingTree(snapshot: WorkspaceSnapshot): WorkingTreeView
       ...common,
       kind: 'no-git',
       summary:
-        'Git is not available for this project, so StateCarry cannot reliably carry uncommitted work.',
+        'StateCarry cannot review the current uncommitted changes because Git information is unavailable for this project.',
     };
   if (!snapshot.dirty)
     return { ...common, kind: 'clean', summary: 'This project has no uncommitted changes.' };
@@ -126,41 +212,41 @@ export function presentWorkingTree(snapshot: WorkspaceSnapshot): WorkingTreeView
       kind: 'large',
       summary:
         snapshot.workingTreeAnalysis?.summary ??
-        'This is a large uncommitted change set. StateCarry could not reconstruct its work groups yet.',
+        'A large set of changes is still present. StateCarry needs a narrower review before it can explain the unfinished work confidently.',
     };
   if (groups.length >= 2)
     return {
       ...common,
       kind: 'mixed',
       summary:
-        snapshot.workingTreeAnalysis?.summary ?? 'The working tree contains multiple work groups.',
+        snapshot.workingTreeAnalysis?.summary ??
+        'The current changes appear to contain several different pieces of work.',
     };
   return {
     ...common,
     kind: 'normal',
     summary:
       snapshot.workingTreeAnalysis?.summary ??
-      'The current working tree contains uncommitted changes. Semantic reconstruction is unavailable.',
+      'Changes are still present, but StateCarry cannot yet tell which piece of work they belong to.',
   };
 }
 
 export type ProjectRoute = {
   page: 'home' | 'projects' | 'project' | 'new' | 'global-settings' | 'settings' | 'original';
-  workId?: string;
-  candidateKey?: string;
+  projectId?: string;
   sourceId?: string;
 };
-export function projectHref(id: string, task?: string): string {
-  return `#/project/${encodeURIComponent(id)}${task ? `?task=${encodeURIComponent(task)}` : ''}`;
+export function projectHref(id: string): string {
+  return `#/project/${encodeURIComponent(id)}`;
 }
 export function parseProjectRoute(hash: string): ProjectRoute {
   try {
-    const [path, search = ''] = hash.replace(/^#/, '').split('?');
+    const [path] = hash.replace(/^#/, '').split('?');
     const parts = path.split('/').filter(Boolean).map(decodeURIComponent);
     if (parts[0] === 'projects' && parts.length === 1) return { page: 'projects' };
-    if (parts[0] === 'new' || parts[0] === 'connect') return { page: 'new' };
+    if (parts[0] === 'new') return { page: 'new' };
     if (parts[0] === 'settings' && parts.length === 1) return { page: 'global-settings' };
-    if (['project', 'resume', 'work', 'details'].includes(parts[0]) && parts[1]) {
+    if (parts[0] === 'project' && parts[1]) {
       return {
         page:
           parts[2] === 'settings'
@@ -168,8 +254,7 @@ export function parseProjectRoute(hash: string): ProjectRoute {
             : parts[2] === 'original' && parts[3]
               ? 'original'
               : 'project',
-        workId: parts[1],
-        candidateKey: new URLSearchParams(search).get('task') || undefined,
+        projectId: parts[1],
         sourceId: parts[2] === 'original' ? parts[3] : undefined,
       };
     }
@@ -183,17 +268,18 @@ export function projectRouteHref(route: ProjectRoute): string {
   if (route.page === 'projects') return '#/projects';
   if (route.page === 'new') return '#/new';
   if (route.page === 'global-settings') return '#/settings';
-  const base = `#/project/${encodeURIComponent(route.workId ?? '')}`;
+  const base = `#/project/${encodeURIComponent(route.projectId ?? '')}`;
   const suffix =
     route.page === 'settings'
       ? '/settings'
       : route.page === 'original'
         ? `/original/${encodeURIComponent(route.sourceId ?? '')}`
         : '';
-  return `${base}${suffix}${route.candidateKey ? `?task=${encodeURIComponent(route.candidateKey)}` : ''}`;
+  return `${base}${suffix}`;
 }
 
 export type ProjectTaskView = {
+  recentWork?: string | null;
   key: string;
   title: string;
   status: 'continue' | 'review' | 'waiting' | 'paused' | 'accepted' | 'unclear';
@@ -246,6 +332,52 @@ export type ProjectView = {
   dismissed: ProjectTaskView[];
 };
 
+export function goalDiscussionText(project: ProjectView, tree?: WorkingTreeView): string {
+  const observedChanges =
+    tree && ['normal', 'mixed', 'large'].includes(tree.kind)
+      ? `\nCurrent repository changes: ${tree.summary}`
+      : '';
+  return [
+    `Project: ${project.title}`,
+    `Project purpose: ${project.purpose || 'No project purpose is recorded.'}`,
+    'Current goal: No goal has been confirmed yet.',
+    ...(project.goal && !project.goalConfirmed
+      ? [`StateCarry's unconfirmed goal interpretation: ${project.goal}`]
+      : []),
+    ...(observedChanges ? [observedChanges.trim()] : []),
+    '',
+    'Help me decide the current goal for this project.',
+    'Use the project purpose and current state as context. Ask for clarification only when it changes the goal.',
+    'End with one concise proposed goal that describes the result to achieve. Do not start implementation yet.',
+  ].join('\n');
+}
+
+export function taskDiscussionText(
+  project: ProjectView,
+  task: ProjectTaskView,
+  tree?: WorkingTreeView,
+): string {
+  const changes =
+    tree && ['normal', 'mixed', 'large'].includes(tree.kind)
+      ? `Current repository changes: ${tree.summary}`
+      : null;
+  return [
+    `Project: ${project.title}`,
+    `Current goal: ${project.goal || project.purpose || 'No current goal is recorded.'}`,
+    `Task: ${task.title}`,
+    `Current situation: ${task.currentState}`,
+    `Why this matters: ${task.reason}`,
+    ...(task.nextAction ? [`Current proposed next step: ${task.nextAction}`] : []),
+    ...(task.doneWhen ? [`Completion condition: ${task.doneWhen}`] : []),
+    ...task.prerequisites.map((item) => `Still uncertain: ${item}`),
+    ...(changes ? [changes] : []),
+    '',
+    'Help me decide what to do with this task next.',
+    'Discuss whether to continue it, change its scope or next step, stop it, or decide later.',
+    'Separate what is supported by the project state from what is still uncertain. Do not change files yet.',
+  ].join('\n');
+}
+
 export function projectError(value: unknown): string {
   const code = value && typeof value === 'object' && 'code' in value ? String(value.code) : '';
   if (code === 'REVISION_CONFLICT')
@@ -262,18 +394,22 @@ export function projectError(value: unknown): string {
     return 'StateCarry could not save this. Check the required fields and any selected conversation range.';
   if (code === 'CAPABILITY_UNSUPPORTED')
     return 'This action is not available on this Mac. Your current work is unchanged.';
+  if (code === 'REQUEST_TIMEOUT')
+    return 'StateCarry took too long to read this project. Try again.';
+  if (code === 'PROJECT_INITIALIZATION_FAILED')
+    return 'StateCarry could not finish the first project check. Try again.';
   return 'StateCarry could not complete that action. Your input is still here. Try again.';
 }
 
 /** Select only explanatory fields. Raw evidence, errors and transport details
  * never become an alternative display body in the project experience. */
 export function presentProject(entry: ProjectWorkspaceEntry, online = true): ProjectView {
-  const work = entry.resume;
-  const ready = work ? resumeWorkStatus(work) : null;
-  const current = work ? presentResumeWork(work) : null;
+  const work = entry.analysis;
+  const ready = work ? analysisWorkStatus(work) : null;
+  const current = work ? presentProjectAnalysis(work) : null;
   const disconnected = !!entry.disconnectedAt;
   const workspace = work?.workspace ?? null;
-  const files = workspace?.files ?? workspace?.fileObservations ?? [];
+  const files = workspace?.files ?? [];
   const branch = workspace?.branch?.trim();
   const commit = workspace?.commit?.trim();
   const gitAvailable =
@@ -379,6 +515,7 @@ export function presentProject(entry: ProjectWorkspaceEntry, online = true): Pro
       title: candidate.goal,
       status,
       statusLabel,
+      recentWork: candidate.recentWork,
       currentState: candidate.currentState,
       reason: candidate.reason,
       nextAction:
@@ -515,7 +652,7 @@ export function presentProject(entry: ProjectWorkspaceEntry, online = true): Pro
           : 'Create the first overview from project files and Git. Add Codex conversations if they help.'),
   };
   return {
-    id: entry.workId,
+    id: entry.projectId,
     title: entry.title,
     cwd: entry.cwd,
     purpose: entry.purpose,
@@ -558,7 +695,7 @@ export function presentRegistrations(
   return registrations.projects
     .map((registration) => {
       const project = presentProject(
-        { ...registration, acceptedKeys: [], pausedKeys: [], collecting: false, resume: null },
+        { ...registration, acceptedKeys: [], pausedKeys: [], collecting: false, analysis: null },
         online,
       );
       return {

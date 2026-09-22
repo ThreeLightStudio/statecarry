@@ -1,3 +1,7 @@
+# Current architecture
+
+The final native model and version-3 cutover are documented in [product-model-migration.md](product-model-migration.md). The notes below describe the earlier UI implementation; its old storage and compatibility paths have been retired.
+
 # Project-oriented UI implementation
 
 Status: approved Home/Project replacement implemented and integrated on 2026-09-16 KST, from source baseline `58306ab`. The owner authorized a new UI without reusing the old layout. Controlled regression results and synthetic browser inspection are recorded below. Unassisted human work-return acceptance is still outstanding.
@@ -23,9 +27,9 @@ Fresh UI session **worker-2** was created in run `a32d0150-74fd-4144-83f0-7b494e
 
 ## Implementation and compatibility
 
-The shared contract is `packages/contracts/src/projects.ts`; `GET /api/v1/project-workspace` returns active and disconnected registrations with their current Resume state. Each registration keeps its work and connection identity, title, purpose, explicit focus and acceptance state. Individual paths use `workId`.
+The shared contract is `packages/contracts/src/projects.ts`; `GET /api/v1/projects` returns active and disconnected registrations with their current Resume state. Each registration keeps its work and connection identity, title, purpose, explicit focus and acceptance state. Individual paths use `projectId`.
 
-Commands use the existing request-ID, expected-revision and payload envelope. Creation uses `POST /api/v1/project-workspace`; its project-specific `settings`, `sources`, `disconnect` and `restore` actions retain scope and ownership. `deletion` previews and commits removal against the current token and revision. Goal edits, corrections, explicit analysis and continuation retain the existing Resume APIs.
+Commands use the existing request-ID, expected-revision and payload envelope. Creation uses `POST /api/v1/projects`; its project-specific `settings`, `sources`, `disconnect` and `restore` actions retain scope and ownership. `deletion` previews and commits removal against the current token and revision. Goal edits, corrections, explicit analysis and continuation use the project-owned analysis and execution APIs.
 
 The new production Root uses `ProjectController`, `HttpProjectGateway`, `HttpResumeGateway` and `LocalResumeMemory`. The presentation view selects explanatory fields and retains source identifiers for deliberate inspection. Ordinary errors use prepared messages; raw responses are not a display fallback. Existing model instructions were narrowed to require understandable project-specific explanations, but that does not prove actual output quality.
 

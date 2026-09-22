@@ -157,17 +157,18 @@ export function harness(
     { changed() {} },
     sessionExecutor,
   );
+  let registrations = 0;
   const connect = () =>
     core.connect({
       requestId: identity.next(),
       expectedRevision: 0,
       payload: {
         title: '프로젝트 A',
-        cwd: '/tmp/example',
+        cwd: registrations++ === 0 ? '/tmp/example' : `/tmp/example-${registrations}`,
         threadIds: ['thread-a'],
         discover: false,
       },
-    }).workId;
+    }).projectId;
   return {
     core,
     repo,
@@ -179,9 +180,9 @@ export function harness(
       records = s;
     },
     counts: () => ({ generationCalls, checkCalls, openCalls }),
-    command: (workId: string, payload: Record<string, unknown>) => ({
+    command: (projectId: string, payload: Record<string, unknown>) => ({
       requestId: identity.next(),
-      expectedRevision: core.work(workId).revision,
+      expectedRevision: core.project(projectId).revision,
       payload,
     }),
   };

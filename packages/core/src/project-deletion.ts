@@ -5,7 +5,12 @@ import type { StateCarry } from './service';
 // Receipts contain no project content and remain as the minimal request ledger.
 // Enumerating every content kind makes additions to repository storage explicit.
 const contentKinds = {
-  work: true,
+  project: true,
+  projectScope: true,
+  projectAnalysisControl: true,
+  workProposal: true,
+  projectAnalysis: true,
+  projectExecution: true,
   connection: true,
   link: true,
   checkpoint: true,
@@ -21,6 +26,16 @@ const contentKinds = {
   questionExecution: true,
   projectObservation: true,
   workingTreeAnalysis: true,
+  direction: true,
+  workItem: true,
+  workRelation: true,
+  workDecision: true,
+  returnPoint: true,
+  workDiscussion: true,
+  releasePolicy: true,
+  releaseBatch: true,
+  deliveryTarget: true,
+  releasePolicyException: true,
 } satisfies Record<Exclude<keyof Entities, 'source' | 'receipt'>, true>;
 type ContentKind = keyof typeof contentKinds;
 type ContentRow = { kind: ContentKind; entity: Entities[ContentKind]; owner: string };
@@ -33,11 +48,13 @@ function contentRows(core: StateCarry): ContentRow[] {
         kind,
         entity,
         owner:
-          kind === 'work'
+          kind === 'project'
             ? entity.id
-            : 'workId' in entity
-              ? entity.workId
-              : (entity as Entities['handoff']).target.workId,
+            : 'projectId' in entity && typeof entity.projectId === 'string'
+              ? entity.projectId
+              : 'projectId' in entity && typeof entity.projectId === 'string'
+                ? entity.projectId
+                : (entity as Entities['handoff']).target.projectId,
       })),
   );
 }
@@ -53,10 +70,10 @@ function references(value: unknown, sourceIds: Set<string>, found: Set<string>):
 }
 
 /** A read-only deletion footprint. Commit recomputes it inside the transaction. */
-export function projectDeletionPlan(core: StateCarry, workId: string) {
-  const work = core.work(workId);
+export function projectDeletionPlan(core: StateCarry, projectId: string) {
+  const work = core.project(projectId);
   const rows = contentRows(core);
-  const owned = rows.filter((row) => row.owner === workId);
+  const owned = rows.filter((row) => row.owner === projectId);
   const sources = core.repo.list('source');
   const sourceIds = new Set(sources.map((source) => source.id));
   const owners = new Map<string, Set<string>>();
@@ -82,14 +99,14 @@ export function projectDeletionPlan(core: StateCarry, workId: string) {
   }
   for (const source of sources)
     for (const owner of threads.get(source.threadId) ?? []) claim(owners, source.id, owner);
-  const associated = sources.filter((source) => owners.get(source.id)?.has(workId));
+  const associated = sources.filter((source) => owners.get(source.id)?.has(projectId));
   const exclusive = associated.filter((source) => owners.get(source.id)!.size === 1);
   const shared = associated.filter((source) => owners.get(source.id)!.size > 1);
   const unknown =
     owned.some(({ entity }) => 'status' in entity && entity.status === 'result-unknown') ||
     owned.some(({ entity }) => 'state' in entity && entity.state === 'result-unknown');
   const busy =
-    core.hasProjectActivity(workId) ||
+    core.hasProjectActivity(projectId) ||
     owned.some(
       ({ kind, entity }) =>
         (kind === 'checkpoint' && 'status' in entity && entity.status === 'reading') ||
@@ -102,12 +119,12 @@ export function projectDeletionPlan(core: StateCarry, workId: string) {
     );
   const blocked = busy || unknown;
   const preview: ProjectDeletionPreview = {
-    workId,
-    title: work.projectProfile?.title ?? work.title,
+    projectId,
+    title: work.title,
     revision: work.revision,
     token: core.ids.hash({
       policy: 'project-deletion-v1',
-      workId,
+      projectId,
       revision: work.revision,
       rows: owned
         .map(({ kind, entity }) => [kind, entity.id, core.ids.hash(entity)])

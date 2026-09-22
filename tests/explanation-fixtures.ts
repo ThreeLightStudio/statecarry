@@ -163,7 +163,7 @@ export async function explanationHarness() {
   const prepare = () =>
     h.core.explanations.prepare(id, {
       requestId: crypto.randomUUID(),
-      summaryId: h.core.work(id).latestSummaryId,
+      summaryId: h.core.project(id).latestSummaryId,
     });
   const settled = async () => {
     await h.core.explanations.settled();

@@ -28,18 +28,18 @@ export class ContextQuestions {
   private closing = false;
   private storageUnknown = false;
   constructor(private core: StateCarry) {}
-  hasPendingWork(workId: string): boolean {
+  hasPendingWork(projectId: string): boolean {
     return (
       this.storageUnknown ||
-      [...this.tasks.values()].includes(workId) ||
+      [...this.tasks.values()].includes(projectId) ||
       this.core.repo
         .list('questionExecution')
-        .some((execution) => execution.workId === workId && active(execution.status))
+        .some((execution) => execution.projectId === projectId && active(execution.status))
     );
   }
-  forgetWork(workId: string): void {
+  forgetWork(projectId: string): void {
     for (const session of this.sessions.values())
-      if (session.workId === workId) this.end(workId, session.id);
+      if (session.projectId === projectId) this.end(projectId, session.id);
   }
   private now() {
     return this.core.clock.now();
@@ -63,17 +63,17 @@ export class ContextQuestions {
       );
     return prior;
   }
-  private session(workId: string, id: string) {
+  private session(projectId: string, id: string) {
     this.sweep();
     const s = this.sessions.get(id);
-    if (!s || s.workId !== workId)
+    if (!s || s.projectId !== projectId)
       throw new DomainError('NOT_FOUND', 'The question session ended. Start a new question.', 404);
     s.updatedAt = this.now();
     return s;
   }
   private anchor(s: QuestionSession) {
     if (s.target) {
-      const explanation = this.core.explanations.get(s.workId, s.target.explanationId);
+      const explanation = this.core.explanations.get(s.projectId, s.target.explanationId);
       if (explanation.summaryId !== s.summaryId)
         this.fail('The explanation and question use different summary bases.');
       const node = explanation.candidate.nodes.find((n) => n.id === s.target!.nodeId);
@@ -88,8 +88,8 @@ export class ContextQuestions {
   }
   private scope(s: QuestionSession): SourceRevision[] {
     if (s.invalidated) this.fail('The connection scope changed. Start a new question.');
-    const w = this.core.work(s.workId),
-      c = this.core.repo.get('connection', w.projectId);
+    const w = this.core.project(s.projectId),
+      c = this.core.repo.get('connection', w.connectionId);
     const summary = this.core.repo.get('summary', s.summaryId);
     const linked = new Set(
       this.core
@@ -104,8 +104,8 @@ export class ContextQuestions {
     } catch {}
     const valid =
       c &&
-      c.workId === w.id &&
-      summary?.workId === w.id &&
+      c.projectId === w.id &&
+      summary?.projectId === w.id &&
       anchorValid &&
       JSON.stringify(summary.sourceRevisionIds) === JSON.stringify(s.sourceRevisionIds);
     const sources = s.sourceRevisionIds.map((id) => this.core.repo.get('source', id));
@@ -129,9 +129,9 @@ export class ContextQuestions {
     s.stale = w.latestSummaryId !== s.summaryId;
     return sources as SourceRevision[];
   }
-  invalidateGoal(workId: string) {
+  invalidateGoal(projectId: string) {
     for (const s of this.sessions.values())
-      if (s.workId === workId) {
+      if (s.projectId === projectId) {
         s.invalidated = true;
         s.anchor = 'Goal changed';
         for (const turn of s.turns) {
@@ -142,31 +142,31 @@ export class ContextQuestions {
         }
       }
   }
-  create(workId: string, value: unknown) {
+  create(projectId: string, value: unknown) {
     const input = questionCreateSchema.parse(value),
-      hash = this.core.ids.hash({ workId, action: 'question-session', input });
+      hash = this.core.ids.hash({ projectId, action: 'question-session', input });
     const prior = this.replay(input.requestId, hash);
-    if (prior) return this.get(workId, prior.sessionId);
+    if (prior) return this.get(projectId, prior.sessionId);
     this.sweep();
     if (this.sessions.size >= 64)
       this.fail('Too many question sessions are open. Close an existing session.');
-    const w = this.core.work(workId),
-      c = this.core.repo.get('connection', w.projectId)!;
+    const w = this.core.project(projectId),
+      c = this.core.repo.get('connection', w.connectionId)!;
     const summary = this.core.repo.get('summary', input.summaryId);
     const explanation =
-      'explanationId' in input ? this.core.explanations.get(workId, input.explanationId) : null;
+      'explanationId' in input ? this.core.explanations.get(projectId, input.explanationId) : null;
     const claim =
       'claimId' in input
         ? summary?.claims.find((i) => i.id === input.claimId)
         : explanation?.candidate.nodes.find((n) => n.id === input.nodeId);
     if (explanation && explanation.summaryId !== input.summaryId)
       this.fail('The explanation and summary basis do not match.');
-    if (!summary || summary.workId !== workId || !claim)
+    if (!summary || summary.projectId !== projectId || !claim)
       this.fail('The question target does not match the work or summary.');
     if (summary.linkVersion !== w.linkVersion)
       this.fail('The connection scope changed after this summary. Use a new summary.');
     // Establish start-turn/project scope using this work's current collected keys; old immutable versions of those keys remain valid.
-    const allowedKeys = new Set(this.core.sources(workId).map((s) => s.key));
+    const allowedKeys = new Set(this.core.sources(projectId).map((s) => s.key));
     if (
       summary.sourceRevisionIds.some((id) => {
         const source = this.core.repo.get('source', id);
@@ -178,7 +178,7 @@ export class ContextQuestions {
       );
     const s: QuestionSession = {
       id: this.core.ids.next(),
-      workId,
+      projectId,
       summaryId: summary.id,
       claimId: 'claimId' in input ? input.claimId : null,
       ...('explanationId' in input
@@ -202,7 +202,7 @@ export class ContextQuestions {
     this.scope(s);
     this.save({
       id: input.requestId,
-      workId,
+      projectId,
       sessionId: s.id,
       turnId: '',
       bodyHash: hash,
@@ -215,8 +215,8 @@ export class ContextQuestions {
     this.sessions.set(s.id, s);
     return structuredClone(s);
   }
-  get(workId: string, id: string) {
-    const s = this.session(workId, id);
+  get(projectId: string, id: string) {
+    const s = this.session(projectId, id);
     try {
       this.scope(s);
     } catch (e) {
@@ -224,12 +224,12 @@ export class ContextQuestions {
     }
     return structuredClone(s);
   }
-  submit(workId: string, id: string, value: unknown) {
+  submit(projectId: string, id: string, value: unknown) {
     const input = questionSubmitSchema.parse(value),
-      hash = this.core.ids.hash({ workId, id, input, action: 'question' });
+      hash = this.core.ids.hash({ projectId, id, input, action: 'question' });
     const prior = this.replay(input.requestId, hash);
-    if (prior) return this.get(workId, prior.sessionId);
-    const s = this.session(workId, id);
+    if (prior) return this.get(projectId, prior.sessionId);
+    const s = this.session(projectId, id);
     this.scope(s);
     this.canRun(s);
     if (
@@ -250,7 +250,7 @@ export class ContextQuestions {
     };
     const execution: QuestionExecution = {
       id: input.requestId,
-      workId,
+      projectId,
       sessionId: id,
       turnId: turn.id,
       bodyHash: hash,
@@ -265,12 +265,12 @@ export class ContextQuestions {
     this.launch(s, turn, execution);
     return structuredClone(s);
   }
-  retry(workId: string, id: string, turnId: string, value: unknown) {
+  retry(projectId: string, id: string, turnId: string, value: unknown) {
     const input = questionRequestSchema.parse(value),
-      hash = this.core.ids.hash({ workId, id, turnId, input, action: 'question-retry' });
+      hash = this.core.ids.hash({ projectId, id, turnId, input, action: 'question-retry' });
     const prior = this.replay(input.requestId, hash);
-    if (prior) return this.get(workId, prior.sessionId);
-    const s = this.session(workId, id);
+    if (prior) return this.get(projectId, prior.sessionId);
+    const s = this.session(projectId, id);
     this.scope(s);
     this.canRun(s);
     const t = s.turns.at(-1);
@@ -278,7 +278,7 @@ export class ContextQuestions {
       this.fail('This question cannot be retried.');
     const e: QuestionExecution = {
       id: input.requestId,
-      workId,
+      projectId,
       sessionId: id,
       turnId,
       bodyHash: hash,
@@ -326,9 +326,9 @@ export class ContextQuestions {
       })
       .finally(() => {
         this.tasks.delete(promise);
-        this.core.events.changed(s.workId);
+        this.core.events.changed(s.projectId);
       });
-    this.tasks.set(promise, s.workId);
+    this.tasks.set(promise, s.projectId);
   }
   private async run(s: QuestionSession, t: QuestionTurn, e: QuestionExecution) {
     // Shared across the original request and its one manual retry; old rows default to zero.
@@ -375,7 +375,7 @@ export class ContextQuestions {
       t.status = status;
       e.status = status;
       this.save(e);
-      this.core.events.changed(s.workId);
+      this.core.events.changed(s.projectId);
     };
     const onRemote = (remote: QuestionExecution['remote']) => {
       e.remote = remote;
@@ -384,7 +384,7 @@ export class ContextQuestions {
         e.status = 'generating';
       }
       this.save(e);
-      this.core.events.changed(s.workId);
+      this.core.events.changed(s.projectId);
     };
     try {
       validate();
@@ -491,8 +491,8 @@ export class ContextQuestions {
       phase(terminated === 'unknown' ? 'result-unknown' : invalid ? 'invalidated' : 'failed');
     }
   }
-  evidence(workId: string, id: string, turnId: string, revisionId: string) {
-    const s = this.session(workId, id),
+  evidence(projectId: string, id: string, turnId: string, revisionId: string) {
+    const s = this.session(projectId, id),
       sources = this.scope(s),
       t = s.turns.find((t) => t.id === turnId && t.status === 'completed');
     if (!t?.answer?.items.some((i) => i.evidence.some((e) => e.revisionId === revisionId)))
@@ -501,9 +501,9 @@ export class ContextQuestions {
     if (!source) this.fail('That source cannot be accessed.');
     return structuredClone(source);
   }
-  end(workId: string, id: string) {
+  end(projectId: string, id: string) {
     const s = this.sessions.get(id);
-    if (!s || s.workId !== workId) return;
+    if (!s || s.projectId !== projectId) return;
     this.sessions.delete(id);
     for (const t of s.turns) {
       t.text = '';
@@ -515,7 +515,7 @@ export class ContextQuestions {
   sweep() {
     for (const s of this.sessions.values())
       if (Date.parse(this.now()) - Date.parse(s.updatedAt) >= QUESTION_LIMITS.idleMs)
-        this.end(s.workId, s.id);
+        this.end(s.projectId, s.id);
   }
   hasUnresolvedExecution() {
     return (
@@ -536,7 +536,7 @@ export class ContextQuestions {
   }
   beginClose() {
     this.closing = true;
-    for (const s of this.sessions.values()) this.end(s.workId, s.id);
+    for (const s of this.sessions.values()) this.end(s.projectId, s.id);
   }
   async settled() {
     await Promise.allSettled([...this.tasks.keys()]);

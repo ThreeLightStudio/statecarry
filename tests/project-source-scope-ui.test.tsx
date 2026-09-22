@@ -24,7 +24,7 @@ function sourceScopeFixture(
 ) {
   const h = harness();
   const id = h.connect();
-  const connection = h.core.connection(h.core.work(id).projectId);
+  const connection = h.core.connection(h.core.project(id).connectionId);
   const inherited = {
     startTurnIds: {
       'thread-a': 'inherited-a-first-turn',
@@ -45,11 +45,11 @@ function sourceScopeFixture(
     ...explicit,
     discoveryScope: inherited,
   });
-  const { projectGateway, resumeGateway } = projectUiFixture([]);
+  const { projectGateway, analysisGateway } = projectUiFixture([]);
   projectGateway.list = vi.fn(async () => h.core.projects.list());
   projectGateway.connections = vi.fn(async () => h.core.listConnections());
-  projectGateway.sources = vi.fn(async (workId, revision, input) =>
-    h.core.projects.sources(workId, {
+  projectGateway.sources = vi.fn(async (projectId, revision, input) =>
+    h.core.projects.sources(projectId, {
       requestId: h.core.ids.next(),
       expectedRevision: revision,
       payload: input,
@@ -72,7 +72,7 @@ function sourceScopeFixture(
     id,
     inherited,
     projectGateway,
-    resumeGateway,
+    analysisGateway,
     connection: () => h.core.connection(connection.id),
   };
 }
@@ -95,9 +95,9 @@ async function choose(row: HTMLElement) {
 
 it('keeps inherited first and last boundaries when a real connection is saved without source edits', async () => {
   const f = sourceScopeFixture();
-  const revision = f.h.core.work(f.id).revision;
+  const revision = f.h.core.project(f.id).revision;
   window.history.replaceState(null, '', `#/project/${f.id}/settings`);
-  const mounted = await mountProjectRoot(f.projectGateway, f.resumeGateway);
+  const mounted = await mountProjectRoot(f.projectGateway, f.analysisGateway);
   try {
     expect(f.connection().startTurnIds).toEqual({});
     expect(f.connection().recordRanges).toEqual({});
@@ -128,7 +128,7 @@ it('keeps inherited first and last boundaries when a real connection is saved wi
         'thread-c': f.inherited.recordRanges['thread-c'],
       },
     });
-    expect(f.resumeGateway.refresh).not.toHaveBeenCalled();
+    expect(f.analysisGateway.refresh).not.toHaveBeenCalled();
     expect(f.h.counts()).toMatchObject({ generationCalls: 0, checkCalls: 0 });
   } finally {
     await mounted.unmount();
@@ -141,9 +141,9 @@ it('seeds a newly selected discovered conversation while preserving explicit and
     startTurnIds: { 'thread-a': 'explicit-a-first-turn' },
     recordRanges: { 'thread-a': explicit },
   });
-  const revision = f.h.core.work(f.id).revision;
+  const revision = f.h.core.project(f.id).revision;
   window.history.replaceState(null, '', `#/project/${f.id}/settings`);
-  const mounted = await mountProjectRoot(f.projectGateway, f.resumeGateway);
+  const mounted = await mountProjectRoot(f.projectGateway, f.analysisGateway);
   try {
     await press(mounted.host, 'Find related conversations');
     const first = conversation(mounted.host, 'Conversation a');
@@ -183,7 +183,7 @@ it('seeds a newly selected discovered conversation while preserving explicit and
       startTurnIds: { 'thread-c': f.inherited.startTurnIds['thread-c'] },
       recordRanges: { 'thread-c': f.inherited.recordRanges['thread-c'] },
     });
-    expect(f.resumeGateway.refresh).not.toHaveBeenCalled();
+    expect(f.analysisGateway.refresh).not.toHaveBeenCalled();
     expect(f.h.counts()).toMatchObject({ generationCalls: 0, checkCalls: 0 });
   } finally {
     await mounted.unmount();
@@ -193,7 +193,7 @@ it('seeds a newly selected discovered conversation while preserving explicit and
 it('does not restore deliberately cleared boundaries on another selected conversation', async () => {
   const f = sourceScopeFixture();
   window.history.replaceState(null, '', `#/project/${f.id}/settings`);
-  const mounted = await mountProjectRoot(f.projectGateway, f.resumeGateway);
+  const mounted = await mountProjectRoot(f.projectGateway, f.analysisGateway);
   try {
     await press(mounted.host, 'Find related conversations');
     const first = conversation(mounted.host, 'Conversation a');
@@ -207,7 +207,7 @@ it('does not restore deliberately cleared boundaries on another selected convers
     expect(saved.threadIds).toEqual(['thread-a', 'thread-b']);
     expect(saved.startTurnIds).toEqual({ 'thread-b': f.inherited.startTurnIds['thread-b'] });
     expect(saved.recordRanges).toEqual({ 'thread-b': f.inherited.recordRanges['thread-b'] });
-    expect(f.resumeGateway.refresh).not.toHaveBeenCalled();
+    expect(f.analysisGateway.refresh).not.toHaveBeenCalled();
   } finally {
     await mounted.unmount();
   }
@@ -216,7 +216,7 @@ it('does not restore deliberately cleared boundaries on another selected convers
 it('selects all discovered Codex conversations while preserving inherited boundaries', async () => {
   const f = sourceScopeFixture();
   window.history.replaceState(null, '', `#/project/${f.id}/settings`);
-  const mounted = await mountProjectRoot(f.projectGateway, f.resumeGateway);
+  const mounted = await mountProjectRoot(f.projectGateway, f.analysisGateway);
   try {
     await press(mounted.host, 'Find related conversations');
     await press(mounted.host, 'Select all');
@@ -227,7 +227,7 @@ it('selects all discovered Codex conversations while preserving inherited bounda
       startTurnIds: f.inherited.startTurnIds,
       recordRanges: f.inherited.recordRanges,
     });
-    expect(f.resumeGateway.refresh).not.toHaveBeenCalled();
+    expect(f.analysisGateway.refresh).not.toHaveBeenCalled();
   } finally {
     await mounted.unmount();
   }

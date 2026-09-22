@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { recordRangeSchema, type RecordRange } from './goals';
-import type { ResumeWork } from './resume';
+import type { AnalysisWork } from './analysis';
 
 export type ProjectProfile = {
   title: string;
@@ -11,7 +11,7 @@ export type ProjectProfile = {
 };
 
 export type ProjectWorkspaceEntry = {
-  workId: string;
+  projectId: string;
   connectionId: string;
   title: string;
   cwd: string;
@@ -25,13 +25,13 @@ export type ProjectWorkspaceEntry = {
   pausedKeys: string[];
   /** Transient collection state, separate from model analysis. */
   collecting?: boolean;
-  resume: ResumeWork | null;
+  analysis: AnalysisWork | null;
 };
 
 export type ProjectWorkspace = { projects: ProjectWorkspaceEntry[] };
 
 export type ProjectRegistration = {
-  workId: string;
+  projectId: string;
   connectionId: string;
   title: string;
   cwd: string;
@@ -64,7 +64,7 @@ export type ProjectSourcesInput = {
 };
 
 export type ProjectDeletionPreview = {
-  workId: string;
+  projectId: string;
   title: string;
   token: string;
   revision: number;

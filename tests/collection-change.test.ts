@@ -20,8 +20,8 @@ function fixture(threadIds = ['thread-a'], discover = false, inspector?: Project
   const clock = { now: () => new Date(time).toISOString() };
   const repo = new MemoryRepository();
   const h = harness(repo, clock);
-  const changed = vi.fn<(workId: string | null) => void>();
-  const settled = vi.fn<(workId: string) => void>();
+  const changed = vi.fn<(projectId: string | null) => void>();
+  const settled = vi.fn<(projectId: string) => void>();
   const core = new StateCarry(
     h.repo,
     h.reader,
@@ -63,15 +63,15 @@ function fixture(threadIds = ['thread-a'], discover = false, inspector?: Project
     requestId: core.ids.next(),
     expectedRevision: 0,
     payload: { title: 'Collection fixture', cwd: '/tmp/example', threadIds, discover },
-  }).workId;
+  }).projectId;
   expect(changed.mock.calls).toEqual([[id]]);
   changed.mockClear();
-  const connection = () => core.connection(core.work(id).projectId);
+  const connection = () => core.connection(core.project(id).connectionId);
   const scope = (patch: Partial<Connection>) => {
     const current = connection();
     return core.updateConnection(current.id, {
       requestId: core.ids.next(),
-      expectedRevision: core.work(id).revision,
+      expectedRevision: core.project(id).revision,
       payload: {
         title: current.title,
         cwd: current.cwd,
@@ -113,7 +113,7 @@ describe('settled collection change notifications', () => {
     await h.core.collect(h.id);
     expect(h.changed.mock.calls).toEqual([[h.id]]);
     expect(statuses).toEqual([['checked', 'checked', 'checked']]);
-    const work = h.core.work(h.id);
+    const work = h.core.project(h.id);
     const before = h.repo.list('checkpoint')[0].lastSuccessfulAt;
     h.changed.mockClear();
     h.advance();
@@ -121,7 +121,7 @@ describe('settled collection change notifications', () => {
     h.advance();
     await h.core.collect(h.id);
     expect(h.changed).not.toHaveBeenCalled();
-    expect(h.core.work(h.id)).toEqual(work);
+    expect(h.core.project(h.id)).toEqual(work);
     expect(h.repo.list('checkpoint')[0].lastSuccessfulAt).not.toBe(before);
     expect(h.repo.list('checkpoint').every((item) => item.lastAttemptAt === h.clock.now())).toBe(
       true,
@@ -511,7 +511,7 @@ it('keeps workspace reads passive until an explicit observation updates the cach
   await h.core.collect(h.id);
   await h.discover();
   await h.core.projects.observe(h.id, 'en', undefined, false);
-  const before = h.core.resumes.view(h.id);
+  const before = h.core.analyses.view(h.id);
   expect(before.workspace?.fileFingerprint).toBe('before-file-edit');
   inspect.mockClear();
   h.changed.mockClear();
@@ -520,9 +520,9 @@ it('keeps workspace reads passive until an explicit observation updates the cach
   await h.discover();
   expect(inspect).not.toHaveBeenCalled();
   expect(h.changed).not.toHaveBeenCalled();
-  expect(h.core.resumes.view(h.id).workspace?.fileFingerprint).toBe('before-file-edit');
+  expect(h.core.analyses.view(h.id).workspace?.fileFingerprint).toBe('before-file-edit');
   await h.core.projects.observe(h.id, 'en', undefined, false);
-  const after = h.core.resumes.view(h.id);
+  const after = h.core.analyses.view(h.id);
   expect(inspect).toHaveBeenCalledTimes(1);
   expect(after.workspace?.fileFingerprint).toBe('after-file-edit');
   expect(after.version).not.toBe(before.version);

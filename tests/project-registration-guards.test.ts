@@ -7,8 +7,8 @@ import { harness } from './helpers';
 
 it('rejects relative and invalid folders through older connection routes before changing a registration', () => {
   const h = harness();
-  const workId = h.connect();
-  const connection = h.core.connection(h.core.work(workId).projectId);
+  const projectId = h.connect();
+  const connection = h.core.connection(h.core.project(projectId).connectionId);
   const before = structuredClone(h.repo.list('connection'));
   for (const cwd of ['.', '../project', '/invalid\0folder']) {
     const payload = {
@@ -21,12 +21,12 @@ it('rejects relative and invalid folders through older connection routes before 
     expect(() =>
       h.core.connect({ requestId: h.core.ids.next(), expectedRevision: 0, payload }),
     ).toThrow('absolute project folder');
-    expect(() => h.core.updateConnection(connection.id, h.command(workId, payload))).toThrow(
+    expect(() => h.core.updateConnection(connection.id, h.command(projectId, payload))).toThrow(
       'absolute project folder',
     );
   }
   expect(h.repo.list('connection')).toEqual(before);
-  expect(h.repo.list('work')).toHaveLength(1);
+  expect(h.repo.list('project')).toHaveLength(1);
 });
 
 it('keeps new project identity when older connection and goal routes are used', () => {
@@ -39,7 +39,7 @@ it('keeps new project identity when older connection and goal routes are used', 
     });
   const project = create('/project/one');
   const other = create('/project/two');
-  const before = structuredClone(h.repo.list('work'));
+  const before = structuredClone(h.repo.list('project'));
   expect(() =>
     h.core.connect({
       requestId: h.core.ids.next(),
@@ -53,15 +53,9 @@ it('keeps new project identity when older connection and goal routes are used', 
     }),
   ).toThrow('already a project');
   expect(() =>
-    h.core.chooseGoal(
-      project.workId,
-      h.command(project.workId, { candidateId: 'old', action: 'confirm' }),
-    ),
-  ).toThrow('A goal does not create another project');
-  expect(() =>
     h.core.updateConnection(
       other.resultId,
-      h.command(other.workId, {
+      h.command(other.projectId, {
         title: 'Moved session',
         cwd: '/project/one/',
         threadIds: ['other'],
@@ -70,17 +64,17 @@ it('keeps new project identity when older connection and goal routes are used', 
       }),
     ),
   ).toThrow('already belongs');
-  expect(h.repo.list('work')).toEqual(before);
+  expect(h.repo.list('project')).toEqual(before);
   expect(h.repo.list('link')).toEqual([]);
-  h.core.resumes.setGoal(project.workId, {
+  h.core.analyses.setGoal(project.projectId, {
     text: 'A fresh goal',
-    version: h.core.resumes.view(project.workId).version,
+    version: h.core.analyses.view(project.projectId).version,
   });
   expect(h.core.projects.list().projects).toHaveLength(2);
   expect(h.core.projects.list().projects[0]).toMatchObject({
-    workId: project.workId,
+    projectId: project.projectId,
     title: 'Fresh project',
-    resume: { goalText: 'A fresh goal' },
+    analysis: { goalText: 'A fresh goal' },
   });
 });
 
@@ -113,7 +107,7 @@ it('resolves local symlinks before the project registration is compared without 
     );
     expect(reused).toMatchObject({
       command: 'project-reuse',
-      workId: saved.workId,
+      projectId: saved.projectId,
       resultId: saved.resultId,
     });
     expect(h.core.projects.list().projects).toHaveLength(1);

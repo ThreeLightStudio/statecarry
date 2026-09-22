@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { StateCarry, type ProjectInspector } from '@statecarry/core';
 import type {
-  ResumeCandidate,
+  AnalysisCandidate,
   WorkspaceSnapshot,
   WorkspaceInspectionHints,
 } from '@statecarry/contracts';
 import { harness, source } from './helpers';
 
-const candidate = (record: ReturnType<typeof source>): ResumeCandidate => ({
+const candidate = (record: ReturnType<typeof source>): AnalysisCandidate => ({
   key: 'related',
   goal: 'Ship the export',
   currentState: 'The export is implemented and its check remains open.',
@@ -57,11 +57,11 @@ describe('resume inspection hints', () => {
       requestId: h.core.ids.next(),
       expectedRevision: 0,
       payload: { title: 'Project', cwd: '/tmp/example', threadIds: ['thread-a'], discover: false },
-    }).workId;
+    }).projectId;
     const record = source('The implementation is in src/later.ts and calls importantFunction().');
     h.records([record]);
-    h.summary.generateResume = async () => ({ candidates: [candidate(record)] });
-    await core.resumes.refresh(id);
+    h.summary.generateAnalysis = async () => ({ candidates: [candidate(record)] });
+    await core.analyses.refresh(id);
     expect(received?.paths).toContain('src/later.ts');
     expect(received?.symbols).toContain('importantFunction');
   });

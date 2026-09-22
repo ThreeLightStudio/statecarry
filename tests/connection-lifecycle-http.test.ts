@@ -7,11 +7,11 @@ import { harness } from './helpers';
 describe('removed connection HTTP lifecycle', () => {
   it('lists restore revision and restores the original work without analysis', async () => {
     const h = harness(),
-      workId = h.connect(),
-      connection = h.core.connection(h.core.work(workId).projectId);
+      projectId = h.connect(),
+      connection = h.core.connection(h.core.project(projectId).connectionId);
     h.core.removeConnection(connection.id, {
       requestId: 'remove-http-lifecycle',
-      expectedRevision: h.core.work(workId).revision,
+      expectedRevision: h.core.project(projectId).revision,
       payload: {},
     });
     const server = createHttpServer(h.core, new ChangeEvents(), '/tmp/no-web', 4310);
@@ -45,24 +45,24 @@ describe('removed connection HTTP lifecycle', () => {
         req.end(value === undefined ? undefined : JSON.stringify(value));
       });
     try {
-      expect((await call('/connections')).body).toEqual([]);
-      const removed = await call('/connections/removed');
+      expect((await call('/projects/connections')).body).toEqual([]);
+      const removed = await call('/projects/connections/removed');
       expect(removed.status).toBe(200);
       expect(removed.body).toEqual([
         expect.objectContaining({
-          connection: expect.objectContaining({ id: connection.id, workId }),
-          workRevision: h.core.work(workId).revision,
+          connection: expect.objectContaining({ id: connection.id, projectId }),
+          workRevision: h.core.project(projectId).revision,
         }),
       ]);
-      const restored = await call(`/connections/${connection.id}/restore`, 'POST', {
+      const restored = await call(`/projects/${projectId}/restore`, 'POST', {
         requestId: 'restore-http-lifecycle',
         expectedRevision: removed.body[0].workRevision,
         payload: {},
       });
       expect(restored.status).toBe(200);
-      expect(restored.body).toMatchObject({ command: 'connection-restore', workId });
-      expect((await call('/connections')).body).toEqual([
-        expect.objectContaining({ id: connection.id, workId, removedAt: null }),
+      expect(restored.body).toMatchObject({ command: 'project-restore', projectId });
+      expect((await call('/projects/connections')).body).toEqual([
+        expect.objectContaining({ id: connection.id, projectId, removedAt: null }),
       ]);
       expect(h.counts().generationCalls).toBe(0);
     } finally {

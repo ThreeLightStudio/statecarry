@@ -40,6 +40,26 @@ export type WorkspaceChangedFile = z.infer<typeof workspaceChangedFileSchema>;
 
 export const workingTreeWorkGroupSchema = z
   .object({
+    id: z.string().min(1).max(160).optional(),
+    context: z
+      .array(
+        z
+          .object({
+            kind: z.enum(['background', 'progress', 'benefit', 'unknown']),
+            nature: z.enum([
+              'user-request',
+              'user-decision',
+              'agent-report',
+              'file-observation',
+              'agent-interpretation',
+            ]),
+            text: z.string().min(1).max(700),
+            sources: z.array(z.string().min(1).max(2000)).max(20),
+          })
+          .strict(),
+      )
+      .max(12)
+      .optional(),
     title: z.string().min(1).max(120),
     summary: z.string().min(1).max(700),
     currentState: z.string().min(1).max(700),
@@ -107,8 +127,7 @@ export type WorkspaceProbe = {
  * return brief. Nullable fields mean the provider could not establish a value;
  * callers must never infer an older observation when a value is unknown.
  *
- * File observations are optional for backwards compatibility with stored
- * briefs created before project files were sampled.
+ * File observations are optional when the inspector cannot sample project files.
  */
 export const workspaceSnapshotSchema = z
   .object({
@@ -144,7 +163,6 @@ export const workspaceSnapshotSchema = z
     fingerprint: z.string().max(256).nullable().optional(),
     files: z.array(workspaceFileObservationSchema).max(120).optional(),
     /** Alias accepted by older integrations for the bounded file list. */
-    fileObservations: z.array(workspaceFileObservationSchema).max(120).optional(),
     inspection: workspaceInspectionSchema.optional(),
   })
   .strict();
@@ -152,7 +170,7 @@ export type WorkspaceSnapshot = z.infer<typeof workspaceSnapshotSchema>;
 
 export type ProjectObservation = {
   id: string;
-  workId: string;
+  projectId: string;
   checkedAt: string;
   probeKey: string;
   inspectionKey: string;
@@ -162,9 +180,32 @@ export type ProjectObservation = {
 
 export type WorkingTreeAnalysisRecord = {
   id: string;
-  workId: string;
+  projectId: string;
   semanticKey: string;
   outputLanguage: 'en' | 'ko';
   result: WorkingTreeAnalysis;
   generatedAt: string;
 };
+
+/** Execution evidence supplied only after a request is compared with the project. */
+export const workingTreeExecutionResultSchema = z
+  .object({
+    requestId: z.string().min(1).max(256),
+    source: z.enum(['agent-report', 'user-report']),
+    report: z.string().max(8000),
+    doneWhen: z.string().max(2000),
+    checks: z
+      .array(
+        z
+          .object({
+            command: z.string().max(2000),
+            exitCode: z.number().int().nullable(),
+            output: z.string().max(4000),
+          })
+          .strict(),
+      )
+      .max(20),
+    current: z.boolean(),
+    accepted: z.boolean(),
+  })
+  .strict();

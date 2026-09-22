@@ -113,7 +113,7 @@ describe('fixed-record context questions', () => {
   });
   it('rejects stale collection scope at session creation', async () => {
     const { h, id, create } = await questionHarness(),
-      c = h.repo.get('connection', h.core.work(id).projectId)!;
+      c = h.repo.get('connection', h.core.project(id).connectionId)!;
     h.core.updateConnection(
       c.id,
       h.command(id, {
@@ -129,8 +129,8 @@ describe('fixed-record context questions', () => {
   it('retrieves omitted background and preserves follow-up reference without changing product entities', async () => {
     const { h, id, create } = await questionHarness(),
       s = create();
-    const before = ['work', 'source', 'summary', 'draft', 'overlay', 'link'].map((k) =>
-      JSON.stringify(h.repo.list(k as 'work')),
+    const before = ['project', 'source', 'summary', 'draft', 'overlay', 'link'].map((k) =>
+      JSON.stringify(h.repo.list(k as 'project')),
     );
     let context!: QuestionContext;
     h.summary.answerQuestion = async (c) => {
@@ -146,8 +146,8 @@ describe('fixed-record context questions', () => {
     expect(context.history[0].question).toBe('왜 이 행동이 필요했나요?');
     expect(context.history[0].answer.items[0].text).toContain('30초');
     expect(
-      ['work', 'source', 'summary', 'draft', 'overlay', 'link'].map((k) =>
-        JSON.stringify(h.repo.list(k as 'work')),
+      ['project', 'source', 'summary', 'draft', 'overlay', 'link'].map((k) =>
+        JSON.stringify(h.repo.list(k as 'project')),
       ),
     ).toEqual(before);
     expect(JSON.stringify(h.repo.list('questionExecution'))).not.toContain('30초');

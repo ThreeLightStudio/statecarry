@@ -7,8 +7,15 @@ import {
   commandSchema,
   DomainError,
   observationSchema,
-  resumeLocalizeSchema,
-  resumeRefreshSchema,
+  analysisLocalizeSchema,
+  analysisRefreshSchema,
+  workDiscussionSyncSchema,
+  workItemCreateSchema,
+  releasePolicyInputSchema,
+  releaseCreateInputSchema,
+  deliveryTargetUpdateSchema,
+  releaseCheckUpdateSchema,
+  releasePolicyExceptionInputSchema,
   type Observation,
 } from '@statecarry/contracts';
 import type { StateCarry } from '@statecarry/core';
@@ -29,13 +36,13 @@ export class ChangeEvents extends EventEmitter {
     }
   }
   changed(
-    workId: string | null,
+    projectId: string | null,
     topic?: 'profile' | 'sources' | 'observation' | 'working-tree-analysis' | 'overview',
   ) {
-    this.emit('change', { workId, ...(topic ? { topic } : {}) });
+    this.emit('change', { projectId, ...(topic ? { topic } : {}) });
   }
-  collectionSettled(workId: string) {
-    this.emit('collection-settled', { workId });
+  collectionSettled(projectId: string) {
+    this.emit('collection-settled', { projectId });
   }
 }
 const json = (res: ServerResponse, status: number, value: unknown) => {
@@ -101,6 +108,8 @@ export function createHttpServer(
       }
       const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`),
         path = url.pathname;
+      if (process.env.STATECARRY_TRACE_HTTP === '1' && path.startsWith('/api/v1/'))
+        console.log(`[http] ${req.method ?? 'GET'} ${path}`);
       if (path === '/api/v1/events') {
         if (req.method !== 'GET') throw new DomainError('VALIDATION', 'GET required', 405);
         res.writeHead(200, {
@@ -134,10 +143,10 @@ export function createHttpServer(
             );
           if (req.method === 'POST' && parts[2] === 'select' && parts.length === 3) {
             const input = z
-              .object({ workId: z.string().min(1).max(250), kind: z.enum(['icon', 'banner']) })
+              .object({ projectId: z.string().min(1).max(250), kind: z.enum(['icon', 'banner']) })
               .strict()
               .parse(await body(req));
-            core.work(input.workId);
+            core.project(input.projectId);
             return json(res, 200, { assetRef: await local.projectAssetStore.select(input.kind) });
           }
           if (req.method === 'GET' && parts.length === 3) {
@@ -184,11 +193,64 @@ export function createHttpServer(
           }
           throw new DomainError('NOT_FOUND', 'Updater route not found.', 404);
         }
-        if (parts[0] === 'project-workspace') {
+        if (parts[0] === 'projects') {
+          if (parts.length === 3 && parts[2] === 'execution') {
+            if (req.method === 'GET')
+              return json(
+                res,
+                200,
+                core.executions.view(
+                  parts[1],
+                  z.enum(['en', 'ko']).parse(url.searchParams.get('outputLanguage') ?? 'en'),
+                ),
+              );
+            if (req.method === 'POST') {
+              const input = z
+                .object({ expectedVersion: z.number().int().nonnegative(), command: z.unknown() })
+                .strict()
+                .parse(await body(req));
+              return json(
+                res,
+                200,
+                await core.executions.command(parts[1], input.command, input.expectedVersion),
+              );
+            }
+          }
+          if (req.method === 'GET' && parts.length === 2 && parts[1] === 'analysis')
+            return json(res, 200, core.analyses.list());
           if (req.method === 'GET' && parts.length === 1)
             return json(res, 200, core.projects.list());
           if (req.method === 'GET' && parts.length === 2 && parts[1] === 'registrations')
             return json(res, 200, core.projects.registrations());
+          if (req.method === 'GET' && parts.length === 3 && parts[2] === 'now')
+            return json(res, 200, {
+              model: core.projectModel.view(parts[1]),
+              now: core.now.resolve(parts[1]),
+              initialized: core.projectModel.initialized(parts[1]),
+            });
+          if (req.method === 'POST' && parts.length === 3 && parts[2] === 'initialize') {
+            const input = z
+              .object({ outputLanguage: z.enum(['en', 'ko']).default('en') })
+              .strict()
+              .parse(await body(req));
+            if (!core.projectModel.initialized(parts[1]))
+              await core.analyses.refresh(parts[1], input.outputLanguage);
+            if (!core.projectModel.initialized(parts[1])) {
+              const prepared = core.analyses.view(parts[1]);
+              throw new DomainError(
+                'PROJECT_INITIALIZATION_FAILED',
+                prepared.error ?? prepared.stateDetail ?? 'Project preparation did not finish.',
+                503,
+              );
+            }
+            return json(res, 200, {
+              model: core.projectModel.view(parts[1]),
+              now: core.now.resolve(parts[1]),
+              initialized: core.projectModel.initialized(parts[1]),
+            });
+          }
+          if (req.method === 'GET' && parts.length === 3 && parts[2] === 'release')
+            return json(res, 200, core.releases.view(parts[1]));
           if (req.method === 'GET' && parts.length === 3 && parts[2] === 'workspace') {
             const outputLanguage = z
               .enum(['en', 'ko'])
@@ -200,7 +262,8 @@ export function createHttpServer(
               .object({ outputLanguage: z.enum(['en', 'ko']).default('en') })
               .strict()
               .parse(await body(req));
-            return json(res, 200, await core.projects.observe(parts[1], input.outputLanguage));
+            await core.projects.observe(parts[1], input.outputLanguage, undefined, false);
+            return json(res, 200, core.projects.latestSnapshot(parts[1], input.outputLanguage));
           }
           if (req.method === 'POST' && parts.length === 3 && parts[2] === 'analysis') {
             const input = z
@@ -215,74 +278,249 @@ export function createHttpServer(
           }
           if (req.method === 'GET' && parts.length === 3 && parts[2] === 'deletion')
             return json(res, 200, core.projects.deletionPreview(parts[1]));
-          if (req.method === 'POST') {
+          if (
+            req.method === 'POST' &&
+            (parts.length === 1 ||
+              (parts.length === 3 &&
+                [
+                  'select-proposal',
+                  'select-work',
+                  'create-work',
+                  'pause-work',
+                  'resume-work',
+                  'complete-work',
+                  'stop-work',
+                  'continue-direction-conflict',
+                  'sync-discussion',
+                  'release-policy',
+                  'create-release',
+                  'update-delivery',
+                  'update-release-check',
+                  'confirm-release',
+                  'release-exception',
+                  'settings',
+                  'sources',
+                  'disconnect',
+                  'restore',
+                  'deletion',
+                ].includes(parts[2])))
+          ) {
             const command = commandSchema.parse(await body(req));
             if (parts.length === 1)
               return json(res, 200, core.projects.create(canonicalProjectCommand(command)));
             if (parts.length === 3) {
-              const [, workId, action] = parts;
+              const [, projectId, action] = parts;
+              if (action === 'select-proposal') {
+                if (core.project(projectId).revision !== command.expectedRevision)
+                  throw new DomainError(
+                    'REVISION_CONFLICT',
+                    'The project changed before the selected proposal could be linked.',
+                    409,
+                  );
+                const input = z
+                  .object({ proposalKey: z.string().min(1).max(250) })
+                  .strict()
+                  .parse(command.payload);
+                return json(
+                  res,
+                  200,
+                  core.projectModel.selectProposal(projectId, input.proposalKey),
+                );
+              }
+              if (action === 'select-work') {
+                if (core.project(projectId).revision !== command.expectedRevision)
+                  throw new DomainError(
+                    'REVISION_CONFLICT',
+                    'The project changed before current work could be selected.',
+                    409,
+                  );
+                const input = z
+                  .object({ workItemId: z.string().min(1).max(250) })
+                  .strict()
+                  .parse(command.payload);
+                return json(
+                  res,
+                  200,
+                  core.projectModel.selectCurrentWork(projectId, input.workItemId),
+                );
+              }
+              if (action === 'create-work') {
+                if (core.project(projectId).revision !== command.expectedRevision)
+                  throw new DomainError(
+                    'REVISION_CONFLICT',
+                    'The project changed before this work could be created.',
+                    409,
+                  );
+                const input = workItemCreateSchema.parse(command.payload);
+                return json(
+                  res,
+                  200,
+                  core.projectModel.createWork(projectId, input, command.requestId),
+                );
+              }
+              if (
+                action === 'pause-work' ||
+                action === 'resume-work' ||
+                action === 'complete-work' ||
+                action === 'stop-work'
+              ) {
+                if (core.project(projectId).revision !== command.expectedRevision)
+                  throw new DomainError(
+                    'REVISION_CONFLICT',
+                    'The project changed before this work state could be saved.',
+                    409,
+                  );
+                const input = z
+                  .object({ workItemId: z.string().min(1).max(250) })
+                  .strict()
+                  .parse(command.payload);
+                const model =
+                  action === 'pause-work'
+                    ? core.projectModel.pauseWork(projectId, input.workItemId)
+                    : action === 'resume-work'
+                      ? core.projectModel.resumeWork(projectId, input.workItemId)
+                      : action === 'complete-work'
+                        ? core.projectModel.completeWork(projectId, input.workItemId)
+                        : core.projectModel.stopWork(projectId, input.workItemId);
+                return json(res, 200, model);
+              }
+              if (action === 'continue-direction-conflict') {
+                if (core.project(projectId).revision !== command.expectedRevision)
+                  throw new DomainError(
+                    'REVISION_CONFLICT',
+                    'The project changed before this direction decision could be saved.',
+                    409,
+                  );
+                z.object({}).strict().parse(command.payload);
+                return json(res, 200, core.projectModel.continueDirectionConflict(projectId));
+              }
+              if (action === 'sync-discussion') {
+                if (core.project(projectId).revision !== command.expectedRevision)
+                  throw new DomainError(
+                    'REVISION_CONFLICT',
+                    'The project changed before this discussion could be saved.',
+                    409,
+                  );
+                const input = workDiscussionSyncSchema.parse(command.payload);
+                return json(res, 200, core.projectModel.syncDiscussion(projectId, input));
+              }
+              if (
+                action === 'release-policy' ||
+                action === 'create-release' ||
+                action === 'update-delivery' ||
+                action === 'update-release-check' ||
+                action === 'confirm-release' ||
+                action === 'release-exception'
+              ) {
+                if (core.project(projectId).revision !== command.expectedRevision)
+                  throw new DomainError(
+                    'REVISION_CONFLICT',
+                    'The project changed before this release decision could be saved.',
+                    409,
+                  );
+                if (action === 'release-policy') {
+                  const input = releasePolicyInputSchema.parse(command.payload);
+                  core.releases.setPolicy(projectId, input);
+                  return json(res, 200, core.releases.view(projectId));
+                }
+                if (action === 'create-release') {
+                  const input = releaseCreateInputSchema.parse(command.payload);
+                  return json(
+                    res,
+                    200,
+                    core.releases.createRelease(projectId, input, command.requestId),
+                  );
+                }
+                if (action === 'update-delivery') {
+                  const payload = z
+                    .object({ releaseId: z.string().min(1).max(250) })
+                    .and(deliveryTargetUpdateSchema)
+                    .parse(command.payload);
+                  const { releaseId, ...input } = payload;
+                  return json(res, 200, core.releases.updateTarget(projectId, releaseId, input));
+                }
+                if (action === 'update-release-check') {
+                  const payload = z
+                    .object({ releaseId: z.string().min(1).max(250) })
+                    .and(releaseCheckUpdateSchema)
+                    .parse(command.payload);
+                  const { releaseId, ...input } = payload;
+                  return json(res, 200, core.releases.updateCheck(projectId, releaseId, input));
+                }
+                if (action === 'confirm-release') {
+                  const input = z
+                    .object({ releaseId: z.string().min(1).max(250) })
+                    .strict()
+                    .parse(command.payload);
+                  return json(res, 200, core.releases.confirmRelease(projectId, input.releaseId));
+                }
+                const input = releasePolicyExceptionInputSchema.parse(command.payload);
+                core.releases.createException(projectId, input, command.requestId);
+                return json(res, 200, core.releases.view(projectId));
+              }
               if (action === 'settings')
-                return json(res, 200, core.projects.settings(workId, command));
+                return json(res, 200, core.projects.settings(projectId, command));
               if (action === 'sources')
-                return json(res, 200, core.projects.sources(workId, command));
+                return json(res, 200, core.projects.sources(projectId, command));
               if (action === 'disconnect')
-                return json(res, 200, core.projects.disconnect(workId, command));
+                return json(res, 200, core.projects.disconnect(projectId, command));
               if (action === 'restore')
-                return json(res, 200, core.projects.restore(workId, command));
+                return json(res, 200, core.projects.restore(projectId, command));
               if (action === 'deletion')
-                return json(res, 200, core.projects.delete(workId, command));
+                return json(res, 200, core.projects.delete(projectId, command));
             }
           }
-          throw new DomainError('NOT_FOUND', 'Project workspace route not found.', 404);
         }
-        if (parts[0] === 'resume') {
-          if (req.method === 'GET' && parts.length === 1)
-            return json(res, 200, core.resumes.list());
-          if (req.method === 'POST' && parts.length === 3) {
+        if (parts[0] === 'projects' && parts[2] === 'analysis') {
+          if (req.method === 'GET' && parts.length === 3)
+            return json(res, 200, core.analyses.view(parts[1]));
+          if (req.method === 'POST' && parts.length === 4) {
             const input = await body(req);
-            if (parts[2] === 'refresh') {
-              core.work(parts[1]);
-              const refresh = resumeRefreshSchema.parse(input);
-              void core.resumes.refresh(parts[1], refresh.outputLanguage);
+            if (parts[3] === 'refresh') {
+              core.project(parts[1]);
+              const refresh = analysisRefreshSchema.parse(input);
+              void core.analyses.refresh(parts[1], refresh.outputLanguage);
               return json(res, 202, { accepted: true });
             }
-            if (parts[2] === 'localize') {
-              core.work(parts[1]);
-              const localize = resumeLocalizeSchema.parse(input);
-              await core.resumes.localize(parts[1], localize.outputLanguage);
+            if (parts[3] === 'localize') {
+              core.project(parts[1]);
+              const localize = analysisLocalizeSchema.parse(input);
+              await core.analyses.localize(parts[1], localize.outputLanguage);
               return json(res, 200, { localized: true, outputLanguage: localize.outputLanguage });
             }
-            if (parts[2] === 'goal') return json(res, 200, core.resumes.setGoal(parts[1], input));
-            if (parts[2] === 'correct')
-              return json(res, 200, core.resumes.correct(parts[1], input));
-            if (parts[2] === 'coordination')
-              return json(res, 200, core.resumes.setCoordination(parts[1], input));
+            if (parts[3] === 'goal') return json(res, 200, core.analyses.setGoal(parts[1], input));
+            if (parts[3] === 'correct')
+              return json(res, 200, core.analyses.correct(parts[1], input));
+            if (parts[3] === 'discussion')
+              return json(res, 200, await core.analyses.discuss(parts[1], input));
+            if (parts[3] === 'coordination')
+              return json(res, 200, core.analyses.setCoordination(parts[1], input));
           }
           throw new DomainError('NOT_FOUND', 'Resume route not found', 404);
         }
         if (
           req.method === 'GET' &&
-          parts[0] === 'work-contexts' &&
+          parts[0] === 'projects' &&
           parts[2] === 'evidence' &&
           parts.length === 4
         )
           return json(res, 200, core.evidence(parts[3], parts[1]));
-        if (parts[0] === 'work-contexts' && parts[2] === 'explanations') {
-          const [, workId, , id, action, revisionId] = parts;
+        if (parts[0] === 'projects' && parts[2] === 'explanations') {
+          const [, projectId, , id, action, revisionId] = parts;
           if (req.method === 'POST' && id === 'prepare' && parts.length === 4)
-            return json(res, 202, core.explanations.prepare(workId, await body(req)));
+            return json(res, 202, core.explanations.prepare(projectId, await body(req)));
           if (req.method === 'POST' && action === 'retry' && parts.length === 5)
-            return json(res, 202, core.explanations.retry(workId, id, await body(req)));
+            return json(res, 202, core.explanations.retry(projectId, id, await body(req)));
           if (req.method === 'GET' && action === 'evidence' && parts.length === 6)
-            return json(res, 200, core.explanations.evidence(workId, id, revisionId));
+            return json(res, 200, core.explanations.evidence(projectId, id, revisionId));
           if (req.method === 'GET' && id && parts.length === 4)
-            return json(res, 200, core.explanations.get(workId, id));
+            return json(res, 200, core.explanations.get(projectId, id));
           throw new DomainError('NOT_FOUND', 'Explanation route not found', 404);
         }
-        if (parts[0] === 'work-contexts' && parts[2] === 'questions') {
-          const [, workId, , sessionId, action, turnId, detail, revisionId] = parts;
+        if (parts[0] === 'projects' && parts[2] === 'questions') {
+          const [, projectId, , sessionId, action, turnId, detail, revisionId] = parts;
           if (req.method === 'GET' && sessionId && parts.length === 4)
-            return json(res, 200, core.questions.get(workId, sessionId));
+            return json(res, 200, core.questions.get(projectId, sessionId));
           if (
             req.method === 'GET' &&
             action === 'turns' &&
@@ -290,16 +528,20 @@ export function createHttpServer(
             revisionId &&
             parts.length === 8
           )
-            return json(res, 200, core.questions.evidence(workId, sessionId, turnId, revisionId));
+            return json(
+              res,
+              200,
+              core.questions.evidence(projectId, sessionId, turnId, revisionId),
+            );
           if (req.method === 'POST') {
             const input = await body(req);
-            if (parts.length === 3) return json(res, 200, core.questions.create(workId, input));
+            if (parts.length === 3) return json(res, 200, core.questions.create(projectId, input));
             if (action === 'turns' && parts.length === 5)
-              return json(res, 202, core.questions.submit(workId, sessionId, input));
+              return json(res, 202, core.questions.submit(projectId, sessionId, input));
             if (action === 'turns' && detail === 'retry' && parts.length === 7)
-              return json(res, 202, core.questions.retry(workId, sessionId, turnId, input));
+              return json(res, 202, core.questions.retry(projectId, sessionId, turnId, input));
             if (action === 'end' && parts.length === 5) {
-              core.questions.end(workId, sessionId);
+              core.questions.end(projectId, sessionId);
               return json(res, 200, { ended: true });
             }
           }
@@ -308,9 +550,14 @@ export function createHttpServer(
         if (req.method === 'GET') {
           if (parts[0] === 'capabilities' && parts.length === 1)
             return json(res, 200, core.capabilities());
-          if (parts[0] === 'connections' && parts[1] === 'removed' && parts.length === 2)
+          if (
+            parts[0] === 'projects' &&
+            parts[1] === 'connections' &&
+            parts[2] === 'removed' &&
+            parts.length === 3
+          )
             return json(res, 200, core.listRemovedConnections());
-          if (parts[0] === 'connections' && parts.length === 1)
+          if (parts[0] === 'projects' && parts[1] === 'connections' && parts.length === 2)
             return json(res, 200, core.listConnections());
           if (parts[0] === 'turns' && parts.length === 2 && core.reader.listTurns)
             return json(res, 200, await core.reader.listTurns(parts[1]));
@@ -320,125 +567,73 @@ export function createHttpServer(
               throw new DomainError('VALIDATION', 'Absolute project folder required');
             return json(res, 200, await core.reader.discover(cwd));
           }
-          if (parts[0] === 'projects' && parts.length === 1)
-            return json(res, 200, core.listProjects());
-          if (parts[0] === 'work-contexts' && parts.length === 2)
+          if (parts[0] === 'projects' && parts.length === 3 && parts[2] === 'context')
             return json(res, 200, core.snapshot(parts[1]));
-          if (parts[0] === 'evidence' && parts.length === 2)
-            return json(res, 200, core.evidence(parts[1]));
-          if (parts[0] === 'jobs' && parts.length === 2 && parts[1]) {
-            const job = core.repo.get('job', parts[1]);
-            if (job) return json(res, 200, job);
+          if (parts[0] === 'projects' && parts[2] === 'jobs' && parts.length === 4) {
+            const job = core.repo.get('job', parts[3]);
+            if (job?.projectId === parts[1]) return json(res, 200, job);
           }
-          if (parts[0] === 'commands' && parts.length === 2 && parts[1]) {
-            const receipt = core.repo.get('receipt', parts[1]);
-            if (receipt)
+          if (parts[0] === 'projects' && parts[2] === 'commands' && parts.length === 4) {
+            const receipt = core.repo.get('receipt', parts[3]);
+            if (receipt?.projectId === parts[1])
               return json(res, 200, {
                 ...receipt,
                 handoff: core.repo.get('handoff', receipt.resultId),
                 continuation: core.repo.get('continuation', receipt.resultId),
               });
           }
-          if (
-            parts[0] === 'work-contexts' &&
-            ['continuation', 'continuations'].includes(parts[2]) &&
-            parts.length === 4 &&
-            parts[3]
-          )
-            return json(res, 200, core.continuations.get(parts[1], parts[3]));
         }
         if (req.method === 'POST') {
           if (parts[0] === 'observations' && parts.length === 1) {
             const event = observationSchema.parse(await body(req));
-            if (event.workId) core.work(event.workId);
+            if (event.projectId) core.project(event.projectId);
             if (
               event.summaryId &&
-              core.repo.get('summary', event.summaryId)?.workId !== event.workId
+              core.repo.get('summary', event.summaryId)?.projectId !== event.projectId
             )
               throw new DomainError('VALIDATION', 'Observation summary belongs to another work');
             return json(res, 202, { recorded: await events.observe(event) });
           }
           const command = commandSchema.parse(await body(req));
-          if (parts[0] === 'connections' && parts.length === 3 && parts[2] === 'remove')
-            return json(res, 200, core.removeConnection(parts[1], command));
-          if (parts[0] === 'connections' && parts.length === 3 && parts[2] === 'restore')
-            return json(res, 200, core.restoreConnection(parts[1], command));
-          if (parts[0] === 'connections' && parts.length === 2)
-            return json(
-              res,
-              200,
-              core.updateConnection(parts[1], canonicalProjectCommand(command)),
-            );
-          if (parts[0] === 'connections' && parts.length === 1) {
-            const receipt = core.connect(canonicalProjectCommand(command));
-            json(res, 200, receipt);
-            events.changed(receipt.workId);
-            return;
-          }
-          if (parts[0] === 'work-contexts' && parts.length === 3) {
-            const [, workId, action] = parts;
-            if (action === 'goal-intent') return json(res, 200, core.describeGoal(workId, command));
-            if (action === 'goals') return json(res, 200, core.chooseGoal(workId, command));
+          if (parts[0] === 'projects' && parts.length === 3) {
+            const [, projectId, action] = parts;
+            if (action === 'goal-intent')
+              return json(res, 200, core.describeGoal(projectId, command));
             if (action === 'handoff')
               return json(
                 res,
                 200,
-                core.prepareHandoff(workId, command.expectedRevision, command.payload),
+                core.prepareHandoff(projectId, command.expectedRevision, command.payload),
               );
-            if (['continuation', 'continuations'].includes(action))
-              return json(res, 200, core.continuations.prepare(workId, command));
             if (['corrections', 'drafts', 'visits'].includes(action))
               return json(
                 res,
                 200,
-                core.mutate(workId, action as 'corrections' | 'drafts' | 'visits', command),
+                core.mutate(projectId, action as 'corrections' | 'drafts' | 'visits', command),
               );
           }
+          if (parts[0] === 'projects' && parts[2] === 'context-links' && parts.length === 4) {
+            const link = core.repo.get('link', parts[3]);
+            if (link?.projectId === parts[1])
+              return json(res, 200, core.mutate(parts[1], 'link', command, link.id));
+          }
           if (
-            parts[0] === 'work-contexts' &&
-            ['continuation', 'continuations'].includes(parts[2]) &&
+            parts[0] === 'projects' &&
+            parts[2] === 'jobs' &&
             parts.length === 5 &&
-            ['send', 'open'].includes(parts[4])
+            parts[4] === 'retry'
           ) {
-            const workId = parts[1],
-              continuationId = parts[3],
-              routed = { ...command, payload: { continuationId } };
-            return json(
-              res,
-              200,
-              parts[4] === 'send'
-                ? await core.continuations.send(workId, routed)
-                : await core.continuations.open(workId, routed),
-            );
-          }
-          if (parts[0] === 'context-links' && parts.length === 2) {
-            const link = core.repo.get('link', parts[1]);
-            if (link) return json(res, 200, core.mutate(link.workId, 'link', command, link.id));
-          }
-          if (parts[0] === 'jobs' && parts.length === 3 && parts[2] === 'retry') {
-            const job = core.repo.get('job', parts[1]);
-            if (job) return json(res, 200, core.mutate(job.workId, 'retry', command, job.id));
-          }
-          if (parts[0] === 'handoffs' && parts.length === 2 && parts[1] === 'open') {
-            const workId = z.string().parse(command.payload.workId),
-              { workId: _, ...payload } = command.payload;
-            return json(res, 200, await core.openHandoff(workId, { ...command, payload }));
+            const job = core.repo.get('job', parts[3]);
+            if (job?.projectId === parts[1])
+              return json(res, 200, core.mutate(parts[1], 'retry', command, job.id));
           }
           if (
-            ['continuation', 'continuations'].includes(parts[0]) &&
-            parts.length === 2 &&
-            ['send', 'open'].includes(parts[1])
-          ) {
-            const workId = z.string().parse(command.payload.workId),
-              { workId: _, ...payload } = command.payload;
-            return json(
-              res,
-              200,
-              parts[1] === 'send'
-                ? await core.continuations.send(workId, { ...command, payload })
-                : await core.continuations.open(workId, { ...command, payload }),
-            );
-          }
+            parts[0] === 'projects' &&
+            parts[2] === 'handoffs' &&
+            parts[3] === 'open' &&
+            parts.length === 4
+          )
+            return json(res, 200, await core.openHandoff(parts[1], command));
         }
         throw new DomainError('NOT_FOUND', 'API route or target not found', 404);
       }

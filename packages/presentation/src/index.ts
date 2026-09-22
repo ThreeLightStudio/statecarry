@@ -1,14 +1,20 @@
 export * from './presenter';
-export * from './controller';
 export * from './flow-graph';
-export * from './questions';
-
-export * from './explanations';
 
 export type { RecordRange } from '@statecarry/contracts';
 
-export * from './resume';
-export * from './resume-memory';
+export * from './analysis';
+export * from './project-drafts';
 export * from './labels';
 export * from './projects';
 export * from './project-controller';
+export * from './project-now';
+
+export type {
+  ProjectExecutionWorkspace,
+  ProjectExecutionCommand,
+  DecisionOperation,
+  ChangeScope,
+  SessionQuestion,
+  Continuation,
+} from '@statecarry/contracts';

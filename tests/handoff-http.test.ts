@@ -19,7 +19,7 @@ it('returns the displayed target and the durable receipt over HTTP, without repe
   try {
     const payload = {
       threadId: 'thread-a',
-      summaryId: h.core.work(id).latestSummaryId!,
+      summaryId: h.core.project(id).latestSummaryId!,
       evidenceIds: [source().id],
       text: 'HTTP preserved draft',
       draftRevision: 0,
@@ -30,26 +30,28 @@ it('returns the displayed target and the durable receipt over HTTP, without repe
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-    const prepared = await post(`/work-contexts/${id}/handoff`, h.command(id, payload));
+    const prepared = await post(`/projects/${id}/handoff`, h.command(id, payload));
     expect(prepared.status).toBe(200);
     expect(await prepared.json()).toMatchObject({
       threadId: 'thread-a',
       title: '기록 A',
       role: 'work',
     });
-    const command = h.command(id, { ...payload, workId: id });
-    const response = await post('/handoffs/open', command),
+    const command = h.command(id, payload);
+    const response = await post(`/projects/${id}/handoffs/open`, command),
       receipt = await response.json();
     expect(response.status).toBe(200);
-    const lookup = await fetch(`http://127.0.0.1:4498/api/v1/commands/${command.requestId}`);
+    const lookup = await fetch(
+      `http://127.0.0.1:4498/api/v1/projects/${id}/commands/${command.requestId}`,
+    );
     expect(await lookup.json()).toMatchObject({
       ...receipt,
       handoff: { state: 'dispatched', target: { threadId: 'thread-a', draft: payload.text } },
     });
-    expect(await (await post('/handoffs/open', command)).json()).toEqual(receipt);
+    expect(await (await post(`/projects/${id}/handoffs/open`, command)).json()).toEqual(receipt);
     expect(
       (
-        await post('/handoffs/open', {
+        await post(`/projects/${id}/handoffs/open`, {
           ...command,
           payload: { ...command.payload, text: 'changed' },
         })
@@ -73,7 +75,7 @@ it('retains request identity and unknown outcome across a SQLite close/reopen', 
     await h.core.process(id);
     const command = h.command(id, {
       threadId: 'thread-a',
-      summaryId: h.core.work(id).latestSummaryId!,
+      summaryId: h.core.project(id).latestSummaryId!,
       evidenceIds: [source().id],
       text: 'retained draft',
       draftRevision: 0,

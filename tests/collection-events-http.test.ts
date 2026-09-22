@@ -6,8 +6,8 @@ import { harness, read, source } from './helpers';
 
 it('separates unchanged collection completion from actual data changes through the HTTP stream', async () => {
   const h = harness();
-  const workId = h.connect();
-  await h.core.collect(workId);
+  const projectId = h.connect();
+  await h.core.collect(projectId);
   const events = new ChangeEvents();
   h.core.events.changed = (id) => events.changed(id);
   h.core.events.collectionSettled = (id) => events.collectionSettled(id);
@@ -41,21 +41,21 @@ it('separates unchanged collection completion from actual data changes through t
   });
   try {
     await vi.waitFor(() => expect(packets).toEqual([{ event: 'connected', data: {} }]));
-    await h.core.collect(workId);
-    await h.core.collect(workId);
-    await h.core.collect(workId);
+    await h.core.collect(projectId);
+    await h.core.collect(projectId);
+    await h.core.collect(projectId);
     await vi.waitFor(() => expect(packets).toHaveLength(4));
     expect(packets.slice(1)).toEqual(
-      Array.from({ length: 3 }, () => ({ event: 'collection-settled', data: { workId } })),
+      Array.from({ length: 3 }, () => ({ event: 'collection-settled', data: { projectId } })),
     );
 
     const changed = source('A genuinely changed saved result.');
     h.records([changed]);
-    await h.core.collect(workId);
+    await h.core.collect(projectId);
     await vi.waitFor(() => expect(packets).toHaveLength(6));
     expect(packets.slice(-2)).toEqual([
-      { event: 'change', data: { workId } },
-      { event: 'collection-settled', data: { workId } },
+      { event: 'change', data: { projectId } },
+      { event: 'collection-settled', data: { projectId } },
     ]);
 
     let finish!: (value: ReturnType<typeof read>) => void;
@@ -63,13 +63,13 @@ it('separates unchanged collection completion from actual data changes through t
       new Promise((resolve) => {
         finish = resolve;
       });
-    const pending = h.core.collect(workId);
+    const pending = h.core.collect(projectId);
     expect(h.core.projects.list().projects[0].collecting).toBe(true);
     expect(packets).toHaveLength(6);
     finish(read([changed]));
     await pending;
     await vi.waitFor(() => expect(packets).toHaveLength(7));
-    expect(packets.at(-1)).toEqual({ event: 'collection-settled', data: { workId } });
+    expect(packets.at(-1)).toEqual({ event: 'collection-settled', data: { projectId } });
     expect(h.core.projects.list().projects[0].collecting).toBe(false);
     expect(h.counts()).toMatchObject({ generationCalls: 0, checkCalls: 0 });
 

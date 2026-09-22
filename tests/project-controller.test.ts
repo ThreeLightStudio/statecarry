@@ -1,3 +1,4 @@
+import { requiredProjectGateway } from './project-gateway-fixture';
 import { describe, expect, it, vi } from 'vitest';
 import {
   ProjectController,
@@ -6,9 +7,9 @@ import {
   projectRouteHref,
   type ProjectGateway,
   type ProjectWorkspace,
-  type ResumeGateway,
-  type ResumeMemory,
-  type SavedResumeEdits,
+  type AnalysisGateway,
+  type AnalysisMemory,
+  type ProjectDrafts,
 } from '@statecarry/presentation';
 import type { Receipt } from '@statecarry/contracts';
 import { source } from './helpers';
@@ -18,7 +19,7 @@ const receipt = (id: string): Receipt => ({
   id: 'request',
   command: 'test',
   bodyHash: 'body',
-  workId: id,
+  projectId: id,
   committedRevision: 2,
   resultId: id,
   createdAt: '2026-09-16T00:00:00Z',
@@ -26,7 +27,7 @@ const receipt = (id: string): Receipt => ({
 function workspace(): ProjectWorkspace {
   return {
     projects: ['a', 'b'].map((id) => ({
-      workId: id,
+      projectId: id,
       connectionId: `connection-${id}`,
       title: `Project ${id}`,
       cwd: `/project/${id}`,
@@ -36,8 +37,8 @@ function workspace(): ProjectWorkspace {
       disconnectedAt: null,
       acceptedKeys: [],
       pausedKeys: [],
-      resume: {
-        workId: id,
+      analysis: {
+        projectId: id,
         title: `Work ${id}`,
         cwd: `/project/${id}`,
         goalText: 'Review the export',
@@ -72,14 +73,15 @@ function workspace(): ProjectWorkspace {
 }
 function setup() {
   let rows = workspace();
-  const storage = new Map<string, SavedResumeEdits>();
-  const memory: ResumeMemory = {
+  const storage = new Map<string, ProjectDrafts>();
+  const memory: AnalysisMemory = {
     read: (id) => structuredClone(storage.get(id) ?? null),
     write: (id, state) => {
       storage.set(id, structuredClone(state));
     },
   };
   const gateway: ProjectGateway = {
+    ...requiredProjectGateway(() => rows),
     list: vi.fn(async () => structuredClone(rows)),
     create: vi.fn(async () => receipt('new')),
     settings: vi.fn(async (id) => receipt(id)),
@@ -87,7 +89,7 @@ function setup() {
     disconnect: vi.fn(async (id) => receipt(id)),
     restore: vi.fn(async (id) => receipt(id)),
     deletionPreview: vi.fn(async (id) => ({
-      workId: id,
+      projectId: id,
       title: `Project ${id}`,
       revision: 1,
       token: 'preview',
@@ -98,7 +100,7 @@ function setup() {
       explanation: 'Remove this saved project only.',
     })),
     delete: vi.fn(async (id) => {
-      rows.projects = rows.projects.filter((entry) => entry.workId !== id);
+      rows.projects = rows.projects.filter((entry) => entry.projectId !== id);
       return receipt(id);
     }),
     connections: vi.fn(async () => []),
@@ -106,7 +108,7 @@ function setup() {
     turns: vi.fn(async () => ({ turns: [] })),
     evidence: vi.fn(async () => source(RAW)),
   };
-  const resume: ResumeGateway = {
+  const analysis: AnalysisGateway = {
     list: vi.fn(async () => []),
     refresh: vi.fn(async () => {}),
     setGoal: vi.fn(async () => {}),
@@ -114,14 +116,14 @@ function setup() {
   };
   return {
     gateway,
-    resume,
+    analysis,
     memory,
     storage,
     rows: () => rows,
     setRows: (value: ProjectWorkspace) => {
       rows = value;
     },
-    controller: () => new ProjectController(gateway, resume, memory),
+    controller: () => new ProjectController(gateway, analysis, memory),
   };
 }
 function deferred<T>() {
@@ -135,7 +137,7 @@ function deferred<T>() {
 describe('project-oriented presentation and return memory', () => {
   it('keeps source payloads out of Home/project views and distinguishes focus, reported completion and acceptance', () => {
     const rows = workspace();
-    const candidate = rows.projects[0].resume!.candidates[0];
+    const candidate = rows.projects[0].analysis!.candidates[0];
     candidate.status = 'done';
     candidate.completion = { reported: [{ revisionId: 'source-a', quote: RAW }], verified: [] };
     let projects = presentProjects(rows);
@@ -153,7 +155,7 @@ describe('project-oriented presentation and return memory', () => {
   });
   it('keeps manual context useful and allows a project-first refresh without Codex context', () => {
     const rows = workspace();
-    Object.assign(rows.projects[0].resume!, {
+    Object.assign(rows.projects[0].analysis!, {
       sessionCount: 0,
       candidates: [],
       stale: true,
@@ -177,7 +179,7 @@ describe('project-oriented presentation and return memory', () => {
   });
   it('projects codebase, Git and Codex as human-readable evidence kinds', () => {
     const rows = workspace();
-    rows.projects[0].resume!.workspace = {
+    rows.projects[0].analysis!.workspace = {
       cwd: '/project/a',
       branch: 'feature/project-first',
       commit: '1234567890abcdef',
@@ -198,12 +200,12 @@ describe('project-oriented presentation and return memory', () => {
         { path: 'src/state.ts', hash: 'two', preview: 'export const state = {};' },
       ],
     };
-    rows.projects[0].resume!.candidates[0].evidence = [
+    rows.projects[0].analysis!.candidates[0].evidence = [
       { revisionId: 'workspace-file:file-one', quote: RAW },
       { revisionId: 'workspace-git:git-one', quote: RAW },
       { revisionId: 'source-a', quote: RAW },
     ];
-    rows.projects[0].resume!.candidates[0].recentWork =
+    rows.projects[0].analysis!.candidates[0].recentWork =
       'Refined the project overview flow and kept the in-progress workspace changes visible.';
     const view = presentProjects(rows).find((entry) => entry.id === 'a')!;
     expect(view.sourceSummary).toEqual([
@@ -239,10 +241,10 @@ describe('project-oriented presentation and return memory', () => {
   });
   it('uses the saved response language for deterministic project-state fallback text', () => {
     const rows = workspace();
-    const resume = rows.projects[0].resume!;
-    resume.outputLanguage = 'ko';
-    resume.candidates = [];
-    resume.workspace = {
+    const analysis = rows.projects[0].analysis!;
+    analysis.outputLanguage = 'ko';
+    analysis.candidates = [];
+    analysis.workspace = {
       cwd: '/project/a',
       branch: 'main',
       commit: '1234567890abcdef',
@@ -269,7 +271,7 @@ describe('project-oriented presentation and return memory', () => {
   });
   it('uses the corrected next action without treating older completion evidence as acceptance', () => {
     const rows = workspace();
-    const work = rows.projects[0].resume!;
+    const work = rows.projects[0].analysis!;
     work.correctedKeys = ['first'];
     Object.assign(work.candidates[0], {
       status: 'active',
@@ -288,30 +290,28 @@ describe('project-oriented presentation and return memory', () => {
     expect(rows.projects[0].acceptedKeys).toEqual([]);
     expect(JSON.stringify(task)).not.toContain(RAW);
   });
-  it('keeps selected work and original draft versions through navigation and a new controller', async () => {
+  it('keeps original draft versions through navigation and a new controller', async () => {
     const h = setup();
     let controller = h.controller();
-    await controller.start({ page: 'project', workId: 'a', candidateKey: 'second' });
+    await controller.start({ page: 'project', projectId: 'a' });
     controller.editGoal('a', 'Unsaved goal');
     controller.editAction('a', 'second', 'Unsaved action', 'Keep this condition');
     controller.navigate({ page: 'home' });
     await controller.refresh();
     controller.stop();
-    h.rows().projects[0].resume!.version = 'v2';
+    h.rows().projects[0].analysis!.version = 'v2';
     controller = h.controller();
-    await controller.start({ page: 'project', workId: 'a' });
+    await controller.start({ page: 'project', projectId: 'a' });
     expect(controller.getSnapshot().edits.a).toMatchObject({
-      selectedKey: 'second',
       goalDraft: { text: 'Unsaved goal', version: 'v1' },
       actionDrafts: [
         ['second', { action: 'Unsaved action', done: 'Keep this condition', version: 'v1' }],
       ],
     });
-    expect(h.resume.refresh).not.toHaveBeenCalled();
-    h.rows().projects[0].resume!.candidates = [];
+    expect(h.analysis.refresh).not.toHaveBeenCalled();
+    h.rows().projects[0].analysis!.candidates = [];
     await controller.refresh();
     expect(controller.getSnapshot().projects.find((item) => item.id === 'a')!.tasks).toEqual([]);
-    expect(controller.getSnapshot().edits.a.selectedKey).toBe('second');
     controller.stop();
   });
   it('publishes project registrations before the full workspace read finishes', async () => {
@@ -321,7 +321,7 @@ describe('project-oriented presentation and return memory', () => {
       projects: h
         .rows()
         .projects.map((entry) => ({
-          workId: entry.workId,
+          projectId: entry.projectId,
           connectionId: entry.connectionId,
           title: entry.title,
           cwd: entry.cwd,
@@ -333,7 +333,7 @@ describe('project-oriented presentation and return memory', () => {
     }));
     h.gateway.list = vi.fn(() => full.promise);
     const controller = h.controller();
-    const started = controller.start({ page: 'project', workId: 'a' });
+    const started = controller.start({ page: 'project', projectId: 'a' });
     await Promise.resolve();
     await Promise.resolve();
     expect(controller.getSnapshot()).toMatchObject({
@@ -363,17 +363,17 @@ describe('project-oriented presentation and return memory', () => {
     const h = setup();
     const controller = h.controller();
     const saved = deferred<void>();
-    h.resume.setGoal = vi.fn(() => saved.promise);
-    await controller.start({ page: 'project', workId: 'a' });
+    h.analysis.setGoal = vi.fn(() => saved.promise);
+    await controller.start({ page: 'project', projectId: 'a' });
     controller.editGoal('a', 'Submitted goal');
     const save = controller.saveGoal('a');
     controller.editGoal('a', 'A newer unsaved goal');
-    controller.navigate({ page: 'project', workId: 'b' });
+    controller.navigate({ page: 'project', projectId: 'b' });
     controller.editGoal('b', 'Other project draft');
     saved.resolve();
     await save;
-    expect(h.resume.setGoal).toHaveBeenCalledWith('a', 'Submitted goal', 'v1');
-    expect(controller.getSnapshot().route.workId).toBe('b');
+    expect(h.analysis.setGoal).toHaveBeenCalledWith('a', 'Submitted goal', 'v1');
+    expect(controller.getSnapshot().route.projectId).toBe('b');
     expect(controller.getSnapshot().edits.a.goalDraft?.text).toBe('A newer unsaved goal');
     expect(controller.getSnapshot().edits.b.goalDraft?.text).toBe('Other project draft');
     expect(controller.getSnapshot().notice).toBeNull();
@@ -381,7 +381,7 @@ describe('project-oriented presentation and return memory', () => {
   });
   it('reads the current Git working tree for a project and builds a repository-only handoff', async () => {
     const h = setup();
-    h.gateway.workspace = vi.fn(async () => ({
+    h.gateway.observe = vi.fn(async () => ({
       cwd: '/project/a',
       root: '/project/a',
       branch: 'main',
@@ -434,9 +434,9 @@ describe('project-oriented presentation and return memory', () => {
       limitations: [],
     }));
     const controller = h.controller();
-    await controller.start({ page: 'project', workId: 'a' });
+    await controller.start({ page: 'project', projectId: 'a' });
     await vi.waitFor(() => expect(controller.getSnapshot().workingTrees.a?.kind).toBe('mixed'));
-    expect(h.gateway.workspace).toHaveBeenCalledWith('a', 'en');
+    expect(h.gateway.observe).toHaveBeenCalledWith('a', 'en');
 
     const handoff = await controller.workingTreeHandoff('a');
 
@@ -458,6 +458,14 @@ describe('project-oriented presentation and return memory', () => {
     expect(handoff).toContain('Do not assume prior conversation context.');
     expect(handoff).not.toContain('thread-');
 
+    const scopedHandoff = await controller.workingTreeHandoff('a', [0]);
+    expect(scopedHandoff).toContain('Selected work groups: 1 of 2');
+    expect(scopedHandoff).toContain('Workspace interaction update');
+    expect(scopedHandoff).toContain('apps/web/src/App.tsx');
+    expect(scopedHandoff).not.toContain('Release documentation');
+    expect(scopedHandoff).not.toContain('docs/readme.md');
+    expect(scopedHandoff).toContain('Continue only the selected work groups below.');
+
     controller.setOutputLanguage('ko');
     await vi.waitFor(() => expect(h.gateway.workspace).toHaveBeenCalledWith('a', 'ko'));
     controller.stop();
@@ -465,12 +473,12 @@ describe('project-oriented presentation and return memory', () => {
   it('does not write or reread when the saved goal text is unchanged', async () => {
     const h = setup();
     const controller = h.controller();
-    await controller.start({ page: 'project', workId: 'a' });
+    await controller.start({ page: 'project', projectId: 'a' });
     const reads = vi.mocked(h.gateway.list).mock.calls.length;
-    const goal = h.rows().projects[0].resume!.goalText!;
+    const goal = h.rows().projects[0].analysis!.goalText!;
     controller.editGoal('a', `  ${goal}  `);
     await controller.saveGoal('a');
-    expect(h.resume.setGoal).not.toHaveBeenCalled();
+    expect(h.analysis.setGoal).not.toHaveBeenCalled();
     expect(h.gateway.list).toHaveBeenCalledTimes(reads);
     expect(controller.getSnapshot().edits.a.goalDraft).toBeNull();
     expect(controller.getSnapshot().notice).toBe('No changes to save.');
@@ -480,13 +488,13 @@ describe('project-oriented presentation and return memory', () => {
     const h = setup();
     const previous = h.controller();
     const saved = deferred<void>();
-    h.resume.setGoal = vi.fn(() => saved.promise);
-    await previous.start({ page: 'project', workId: 'a' });
+    h.analysis.setGoal = vi.fn(() => saved.promise);
+    await previous.start({ page: 'project', projectId: 'a' });
     previous.editGoal('a', 'Submitted before leaving');
     const pending = previous.saveGoal('a');
     previous.stop();
     const restarted = h.controller();
-    await restarted.start({ page: 'project', workId: 'a' });
+    await restarted.start({ page: 'project', projectId: 'a' });
     restarted.editGoal('a', 'Written in the new controller');
     saved.resolve();
     await pending;
@@ -497,10 +505,10 @@ describe('project-oriented presentation and return memory', () => {
   it('keeps stale-version input until explicit review and never exposes an arbitrary failure string', async () => {
     const h = setup();
     const controller = h.controller();
-    await controller.start({ page: 'project', workId: 'a' });
+    await controller.start({ page: 'project', projectId: 'a' });
     controller.editGoal('a', 'Keep me');
-    h.rows().projects[0].resume!.version = 'v2';
-    h.resume.setGoal = vi.fn(async () => {
+    h.rows().projects[0].analysis!.version = 'v2';
+    h.analysis.setGoal = vi.fn(async () => {
       throw Object.assign(new Error(RAW), { code: 'REVISION_CONFLICT' });
     });
     await controller.saveGoal('a');
@@ -524,15 +532,10 @@ describe('project-oriented presentation and return memory', () => {
     const h = setup();
     const controller = h.controller();
     const evidence = deferred<ReturnType<typeof source>>();
-    await controller.start({ page: 'project', workId: 'a' });
+    await controller.start({ page: 'project', projectId: 'a' });
     expect(h.gateway.evidence).not.toHaveBeenCalled();
     h.gateway.evidence = vi.fn(() => evidence.promise);
-    controller.navigate({
-      page: 'original',
-      workId: 'a',
-      sourceId: 'source-a',
-      candidateKey: 'second',
-    });
+    controller.navigate({ page: 'original', projectId: 'a', sourceId: 'source-a' });
     const reading = controller.refresh();
     await new Promise((ok) => setTimeout(ok, 0));
     controller.navigate({ page: 'home' });
@@ -541,22 +544,22 @@ describe('project-oriented presentation and return memory', () => {
     expect(h.gateway.evidence).toHaveBeenCalledWith('a', 'source-a');
     expect(controller.getSnapshot().inspection).toBeNull();
     expect(JSON.stringify(controller.getSnapshot())).not.toContain(RAW);
-    controller.navigate({ page: 'original', workId: 'a', sourceId: 'source-a' });
+    controller.navigate({ page: 'original', projectId: 'a', sourceId: 'source-a' });
     await controller.refresh();
     expect(controller.getSnapshot().inspection?.text).toBe(RAW);
-    controller.navigate({ page: 'project', workId: 'a' });
+    controller.navigate({ page: 'project', projectId: 'a' });
     expect(controller.getSnapshot().inspection).toBeNull();
     controller.stop();
   });
   it('does not restore action permission from a read started before the connection was lost', async () => {
     const h = setup();
     let connection!: (state: 'connected' | 'disconnected') => void;
-    h.resume.subscribe = (_change, onConnection) => {
+    h.analysis.subscribe = (_change, onConnection) => {
       connection = onConnection!;
       return () => {};
     };
     const controller = h.controller();
-    await controller.start({ page: 'project', workId: 'a' });
+    await controller.start({ page: 'project', projectId: 'a' });
     const oldRead = deferred<ProjectWorkspace>();
     const oldRows = structuredClone(h.rows());
     h.gateway.list = vi.fn(() => oldRead.promise);
@@ -577,7 +580,7 @@ describe('project-oriented presentation and return memory', () => {
     await vi.waitFor(() =>
       expect(controller.getSnapshot()).toMatchObject({ online: true, checkingCurrent: false }),
     );
-    expect(h.resume.refresh).not.toHaveBeenCalled();
+    expect(h.analysis.refresh).not.toHaveBeenCalled();
     controller.stop();
   });
   it.each(['during', 'after'] as const)(
@@ -588,19 +591,19 @@ describe('project-oriented presentation and return memory', () => {
       const oldRows = structuredClone(h.rows());
       vi.mocked(h.gateway.list).mockImplementationOnce(() => firstRead.promise);
       let connected!: (state: 'connected' | 'disconnected') => void;
-      h.resume.subscribe = (_listener, onConnection) => {
+      h.analysis.subscribe = (_listener, onConnection) => {
         connected = onConnection!;
         return () => {};
       };
       const controller = h.controller();
-      const started = controller.start({ page: 'project', workId: 'a' });
+      const started = controller.start({ page: 'project', projectId: 'a' });
       if (timing === 'after') {
         firstRead.resolve(oldRows);
         await started;
       }
       // This mutation happened before the server installed the SSE listener, so
       // there is no change event to replay for the initial GET.
-      h.rows().projects[0].resume!.candidates = [];
+      h.rows().projects[0].analysis!.candidates = [];
       connected('connected');
       expect(controller.getSnapshot().checkingCurrent).toBe(true);
       expect(controller.getSnapshot().projects.every((project) => !project.canDecide)).toBe(true);
@@ -613,27 +616,28 @@ describe('project-oriented presentation and return memory', () => {
         controller.getSnapshot().projects.find((project) => project.id === 'a')!.tasks,
       ).toEqual([]);
       expect(controller.getSnapshot()).toMatchObject({ online: true, checkingCurrent: false });
-      expect(h.resume.refresh).not.toHaveBeenCalled();
+      expect(h.analysis.refresh).not.toHaveBeenCalled();
       controller.stop();
     },
   );
   it('coalesces a burst of changes without loading or locking unrelated projects', async () => {
     vi.useFakeTimers();
     const h = setup();
-    let changed!: Parameters<NonNullable<ResumeGateway['subscribe']>>[0];
-    h.resume.subscribe = (listener) => {
+    let changed!: Parameters<NonNullable<AnalysisGateway['subscribe']>>[0];
+    h.analysis.subscribe = (listener) => {
       changed = listener;
       return () => {};
     };
     const controller = h.controller();
     try {
-      await controller.start({ page: 'project', workId: 'a', candidateKey: 'second' });
+      await controller.start({ page: 'project', projectId: 'a' });
       controller.editAction('a', 'second', 'Keep this writing', 'Keep this condition');
       const savedDraft = structuredClone(controller.getSnapshot().edits.a);
-      for (let index = 0; index < 10; index++) changed({ workId: 'a', kind: 'collection-settled' });
+      for (let index = 0; index < 10; index++)
+        changed({ projectId: 'a', kind: 'collection-settled' });
       expect(controller.getSnapshot().checkingCurrent).toBe(false);
       expect(h.gateway.list).toHaveBeenCalledTimes(1);
-      for (let index = 0; index < 20; index++) changed({ workId: 'b' });
+      for (let index = 0; index < 20; index++) changed({ projectId: 'b' });
       expect(h.gateway.list).toHaveBeenCalledTimes(1);
       expect(controller.getSnapshot().loading).toBe(false);
       expect(controller.getSnapshot().projects.find((project) => project.id === 'a')).toMatchObject(
@@ -648,7 +652,31 @@ describe('project-oriented presentation and return memory', () => {
       expect(controller.getSnapshot().edits.a).toEqual(savedDraft);
       await vi.advanceTimersByTimeAsync(60000);
       expect(h.gateway.list).toHaveBeenCalledTimes(2);
-      expect(h.resume.refresh).not.toHaveBeenCalled();
+      expect(h.analysis.refresh).not.toHaveBeenCalled();
+    } finally {
+      controller.stop();
+      vi.useRealTimers();
+    }
+  });
+  it('updates current observation topics without reloading the full workspace', async () => {
+    vi.useFakeTimers();
+    const h = setup();
+    let changed!: Parameters<NonNullable<AnalysisGateway['subscribe']>>[0];
+    h.analysis.subscribe = (listener) => {
+      changed = listener;
+      return () => {};
+    };
+    const controller = h.controller();
+    try {
+      await controller.start({ page: 'project', projectId: 'a' });
+      expect(h.gateway.list).toHaveBeenCalledTimes(1);
+
+      changed({ projectId: 'a', topic: 'observation' });
+      changed({ projectId: 'a', topic: 'working-tree-analysis' });
+      await vi.advanceTimersByTimeAsync(1000);
+
+      expect(h.gateway.list).toHaveBeenCalledTimes(1);
+      expect(controller.getSnapshot()).toMatchObject({ checkingCurrent: false, error: null });
     } finally {
       controller.stop();
       vi.useRealTimers();
@@ -657,22 +685,22 @@ describe('project-oriented presentation and return memory', () => {
   it('keeps original inspection open across unrelated changes but withdraws it immediately for its own project', async () => {
     vi.useFakeTimers();
     const h = setup();
-    let changed!: Parameters<NonNullable<ResumeGateway['subscribe']>>[0];
-    h.resume.subscribe = (listener) => {
+    let changed!: Parameters<NonNullable<AnalysisGateway['subscribe']>>[0];
+    h.analysis.subscribe = (listener) => {
       changed = listener;
       return () => {};
     };
     const controller = h.controller();
     try {
-      await controller.start({ page: 'original', workId: 'a', sourceId: 'source-a' });
+      await controller.start({ page: 'original', projectId: 'a', sourceId: 'source-a' });
       expect(controller.getSnapshot().inspection?.text).toBe(RAW);
-      changed({ workId: 'b' });
+      changed({ projectId: 'b' });
       expect(controller.getSnapshot().inspection?.text).toBe(RAW);
       await vi.advanceTimersByTimeAsync(150);
       expect(h.gateway.evidence).toHaveBeenCalledTimes(1);
       expect(controller.getSnapshot().inspection?.text).toBe(RAW);
-      h.rows().projects[0].resume!.candidates = [];
-      changed({ workId: 'a' });
+      h.rows().projects[0].analysis!.candidates = [];
+      changed({ projectId: 'a' });
       expect(controller.getSnapshot().inspection).toBeNull();
       await vi.advanceTimersByTimeAsync(150);
       expect(controller.getSnapshot().inspection).toBeNull();
@@ -685,17 +713,17 @@ describe('project-oriented presentation and return memory', () => {
   it('cancels scheduled changes on disconnect and stop without losing the single recovery read', async () => {
     vi.useFakeTimers();
     const h = setup();
-    let changed!: Parameters<NonNullable<ResumeGateway['subscribe']>>[0];
+    let changed!: Parameters<NonNullable<AnalysisGateway['subscribe']>>[0];
     let connected!: (state: 'connected' | 'disconnected') => void;
-    h.resume.subscribe = (listener, onConnection) => {
+    h.analysis.subscribe = (listener, onConnection) => {
       changed = listener;
       connected = onConnection!;
       return () => {};
     };
     const controller = h.controller();
     try {
-      await controller.start({ page: 'project', workId: 'a' });
-      changed({ workId: 'a' });
+      await controller.start({ page: 'project', projectId: 'a' });
+      changed({ projectId: 'a' });
       connected('disconnected');
       await vi.advanceTimersByTimeAsync(1000);
       expect(h.gateway.list).toHaveBeenCalledTimes(1);
@@ -704,12 +732,12 @@ describe('project-oriented presentation and return memory', () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(h.gateway.list).toHaveBeenCalledTimes(2);
       expect(controller.getSnapshot().online).toBe(true);
-      changed({ workId: 'a' });
+      changed({ projectId: 'a' });
       controller.stop();
-      changed({ workId: 'a' });
+      changed({ projectId: 'a' });
       await vi.advanceTimersByTimeAsync(1000);
       expect(h.gateway.list).toHaveBeenCalledTimes(2);
-      expect(h.resume.refresh).not.toHaveBeenCalled();
+      expect(h.analysis.refresh).not.toHaveBeenCalled();
     } finally {
       controller.stop();
       vi.useRealTimers();
@@ -718,31 +746,31 @@ describe('project-oriented presentation and return memory', () => {
   it('recovers a displayed collecting snapshot once while ignoring later unchanged completions', async () => {
     vi.useFakeTimers();
     const h = setup();
-    let changed!: Parameters<NonNullable<ResumeGateway['subscribe']>>[0];
-    h.resume.subscribe = (listener) => {
+    let changed!: Parameters<NonNullable<AnalysisGateway['subscribe']>>[0];
+    h.analysis.subscribe = (listener) => {
       changed = listener;
       return () => {};
     };
     h.rows().projects[0].collecting = true;
-    h.rows().projects[0].resume!.state = 'limited';
+    h.rows().projects[0].analysis!.state = 'limited';
     const controller = h.controller();
     try {
-      await controller.start({ page: 'project', workId: 'a' });
+      await controller.start({ page: 'project', projectId: 'a' });
       expect(
         controller.getSnapshot().projects.find((project) => project.id === 'a')!.canDecide,
       ).toBe(false);
       h.rows().projects[0].collecting = false;
-      h.rows().projects[0].resume!.state = 'ready';
-      changed({ workId: 'a', kind: 'collection-settled' });
+      h.rows().projects[0].analysis!.state = 'ready';
+      changed({ projectId: 'a', kind: 'collection-settled' });
       await vi.advanceTimersByTimeAsync(150);
       expect(
         controller.getSnapshot().projects.find((project) => project.id === 'a')!.canDecide,
       ).toBe(true);
       expect(h.gateway.list).toHaveBeenCalledTimes(2);
-      changed({ workId: 'a', kind: 'collection-settled' });
+      changed({ projectId: 'a', kind: 'collection-settled' });
       await vi.advanceTimersByTimeAsync(60000);
       expect(h.gateway.list).toHaveBeenCalledTimes(2);
-      expect(h.resume.refresh).not.toHaveBeenCalled();
+      expect(h.analysis.refresh).not.toHaveBeenCalled();
     } finally {
       controller.stop();
       vi.useRealTimers();
@@ -750,20 +778,20 @@ describe('project-oriented presentation and return memory', () => {
   });
   it('follows up once when collection settles before the pending GET returns its collecting snapshot', async () => {
     const h = setup();
-    let changed!: Parameters<NonNullable<ResumeGateway['subscribe']>>[0];
-    h.resume.subscribe = (listener) => {
+    let changed!: Parameters<NonNullable<AnalysisGateway['subscribe']>>[0];
+    h.analysis.subscribe = (listener) => {
       changed = listener;
       return () => {};
     };
     const controller = h.controller();
-    await controller.start({ page: 'project', workId: 'a' });
+    await controller.start({ page: 'project', projectId: 'a' });
     const pending = deferred<ProjectWorkspace>();
     vi.mocked(h.gateway.list).mockImplementationOnce(() => pending.promise);
     const reading = controller.refresh(true);
-    changed({ workId: 'a', kind: 'collection-settled' });
+    changed({ projectId: 'a', kind: 'collection-settled' });
     const captured = structuredClone(h.rows());
     captured.projects[0].collecting = true;
-    captured.projects[0].resume!.state = 'limited';
+    captured.projects[0].analysis!.state = 'limited';
     pending.resolve(captured);
     await reading;
     expect(h.gateway.list).toHaveBeenCalledTimes(3);
@@ -771,26 +799,21 @@ describe('project-oriented presentation and return memory', () => {
     expect(controller.getSnapshot().projects.find((project) => project.id === 'a')!.canDecide).toBe(
       true,
     );
-    expect(h.resume.refresh).not.toHaveBeenCalled();
+    expect(h.analysis.refresh).not.toHaveBeenCalled();
     controller.stop();
   });
   it('invalidates an original immediately on a scope change without waiting for its old response', async () => {
     const h = setup();
     let changed!: () => void;
-    h.resume.subscribe = (listener) => {
+    h.analysis.subscribe = (listener) => {
       changed = listener;
       return () => {};
     };
     const controller = h.controller();
-    await controller.start({ page: 'project', workId: 'a' });
+    await controller.start({ page: 'project', projectId: 'a' });
     const original = deferred<ReturnType<typeof source>>();
     h.gateway.evidence = vi.fn(() => original.promise);
-    controller.navigate({
-      page: 'original',
-      workId: 'a',
-      candidateKey: 'first',
-      sourceId: 'source-a',
-    });
+    controller.navigate({ page: 'original', projectId: 'a', sourceId: 'source-a' });
     await controller.refresh();
     expect(h.gateway.evidence).toHaveBeenCalledWith('a', 'source-a');
     const freshRead = deferred<ProjectWorkspace>();
@@ -798,7 +821,7 @@ describe('project-oriented presentation and return memory', () => {
     changed();
     expect(controller.getSnapshot()).toMatchObject({ inspection: null, checkingCurrent: true });
     expect(controller.getSnapshot().projects.every((project) => !project.canDecide)).toBe(true);
-    h.rows().projects[0].resume!.candidates = [];
+    h.rows().projects[0].analysis!.candidates = [];
     freshRead.resolve(structuredClone(h.rows()));
     await vi.waitFor(() => expect(controller.getSnapshot().checkingCurrent).toBe(false));
     expect(controller.getSnapshot().projects.find((project) => project.id === 'a')!.tasks).toEqual(
@@ -808,13 +831,13 @@ describe('project-oriented presentation and return memory', () => {
     await new Promise((done) => setTimeout(done, 0));
     expect(controller.getSnapshot().inspection).toBeNull();
     expect(JSON.stringify(controller.getSnapshot())).not.toContain(RAW);
-    expect(h.resume.refresh).not.toHaveBeenCalled();
+    expect(h.analysis.refresh).not.toHaveBeenCalled();
     controller.stop();
   });
   it('clears removed local edits and never restores a removed project from storage', async () => {
     const h = setup();
     const controller = h.controller();
-    await controller.start({ page: 'settings', workId: 'a' });
+    await controller.start({ page: 'settings', projectId: 'a' });
     controller.editGoal('a', 'Remove this input');
     await controller.previewDeletion('a');
     expect(await controller.remove('a')).toBe(true);
@@ -828,9 +851,9 @@ describe('project-oriented presentation and return memory', () => {
     expect(controller.getSnapshot().edits.a).toBeUndefined();
     controller.stop();
     const restarted = h.controller();
-    await restarted.start({ page: 'project', workId: 'a' });
+    await restarted.start({ page: 'project', projectId: 'a' });
     expect(restarted.getSnapshot().projects.some((entry) => entry.id === 'a')).toBe(false);
-    expect(h.resume.refresh).not.toHaveBeenCalled();
+    expect(h.analysis.refresh).not.toHaveBeenCalled();
     restarted.stop();
   });
   it('prunes retired browser drafts only after an authoritative successful list, including disconnected IDs', async () => {
@@ -853,7 +876,7 @@ describe('project-oriented presentation and return memory', () => {
       await controller.refresh();
       expect(prune).toHaveBeenLastCalledWith(['b']);
       expect(controller.getSnapshot().projects.map((project) => project.id)).toEqual(['b']);
-      expect(h.resume.refresh).not.toHaveBeenCalled();
+      expect(h.analysis.refresh).not.toHaveBeenCalled();
     } finally {
       controller.stop();
     }
@@ -890,13 +913,13 @@ describe('project-oriented presentation and return memory', () => {
           threadIds: ['another-thread'],
           discover: true,
         }),
-      ).toEqual({ workId: 'a', reused: true });
+      ).toEqual({ projectId: 'a', reused: true });
       expect(controller.getSnapshot().projects.find((project) => project.id === 'a')?.goal).toBe(
         'Review the export',
       );
       expect(h.gateway.sources).not.toHaveBeenCalled();
-      expect(h.resume.setGoal).not.toHaveBeenCalled();
-      expect(h.resume.refresh).not.toHaveBeenCalled();
+      expect(h.analysis.setGoal).not.toHaveBeenCalled();
+      expect(h.analysis.refresh).not.toHaveBeenCalled();
     } finally {
       controller.stop();
     }
@@ -914,10 +937,10 @@ describe('project-oriented presentation and return memory', () => {
           threadIds: [],
           discover: false,
         }),
-      ).toEqual({ workId: 'new', reused: false });
-      expect(h.resume.refresh).toHaveBeenCalledExactlyOnceWith('new');
+      ).toEqual({ projectId: 'new', reused: false });
+      expect(h.analysis.refresh).toHaveBeenCalledExactlyOnceWith('new');
 
-      h.resume.refresh = vi.fn(async () => {
+      h.analysis.refresh = vi.fn(async () => {
         throw new Error(RAW);
       });
       expect(
@@ -928,7 +951,7 @@ describe('project-oriented presentation and return memory', () => {
           threadIds: [],
           discover: false,
         }),
-      ).toEqual({ workId: 'new', reused: false });
+      ).toEqual({ projectId: 'new', reused: false });
       expect(JSON.stringify(controller.getSnapshot())).not.toContain(RAW);
     } finally {
       controller.stop();
@@ -962,7 +985,7 @@ describe('project-oriented presentation and return memory', () => {
         threadIds: ['related-a', 'related-b'],
         discover: true,
       });
-      expect(h.resume.refresh).toHaveBeenCalledExactlyOnceWith('new');
+      expect(h.analysis.refresh).toHaveBeenCalledExactlyOnceWith('new');
     } finally {
       controller.stop();
     }
@@ -989,7 +1012,7 @@ describe('project-oriented presentation and return memory', () => {
         threadIds: [],
         discover: false,
       });
-      expect(h.resume.refresh).toHaveBeenCalledExactlyOnceWith('new');
+      expect(h.analysis.refresh).toHaveBeenCalledExactlyOnceWith('new');
       expect(JSON.stringify(controller.getSnapshot())).not.toContain(RAW);
     } finally {
       controller.stop();
@@ -1045,10 +1068,8 @@ describe('project-oriented presentation and return memory', () => {
     }
   });
   it('canonicalizes old links without reopening the legacy journey', () => {
-    expect(projectRouteHref(parseProjectRoute('#/details/a'))).toBe('#/project/a');
-    expect(projectRouteHref(parseProjectRoute('#/resume/a?task=second'))).toBe(
-      '#/project/a?task=second',
-    );
+    expect(projectRouteHref(parseProjectRoute('#/details/a'))).toBe('#/home');
+    expect(projectRouteHref(parseProjectRoute('#/projects/a/analysis?task=second'))).toBe('#/home');
     expect(projectRouteHref(parseProjectRoute('#/projects'))).toBe('#/projects');
     expect(projectRouteHref(parseProjectRoute('#/project/%ZZ'))).toBe('#/home');
   });

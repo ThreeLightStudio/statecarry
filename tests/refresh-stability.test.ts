@@ -83,7 +83,7 @@ describe('fixed input completion under continuous collection', () => {
       await h.core.collect(id);
     }
     expect(h.repo.list('job')).toHaveLength(1);
-    expect(h.core.work(id).pendingRefresh?.inputVersion).toBe(h.core.work(id).inputVersion);
+    expect(h.core.project(id).pendingRefresh?.inputVersion).toBe(h.core.project(id).inputVersion);
     gen.release();
     await check.entered;
     const corrected = source('정정: 이전 방향은 취소');
@@ -114,10 +114,10 @@ describe('fixed input completion under continuous collection', () => {
     h.advance();
     h.records(records);
     await h.core.collect(id);
-    expect(h.core.work(id).latestSummaryId).toBe(summaryId);
+    expect(h.core.project(id).latestSummaryId).toBe(summaryId);
     expect(h.core.freshness(id).summary).toBe('outdated');
     expect(() =>
-      h.core.prepareHandoff(id, h.core.work(id).revision, {
+      h.core.prepareHandoff(id, h.core.project(id).revision, {
         threadId: 'thread-a',
         summaryId,
         evidenceIds: [first.id],
@@ -192,7 +192,7 @@ describe('fixed input completion under continuous collection', () => {
         }
         g.release();
         await run;
-        expect(h.core.work(id).latestSummaryId).toBe(prior.id);
+        expect(h.core.project(id).latestSummaryId).toBe(prior.id);
         expect(h.repo.list('summary')).toHaveLength(1);
         expect(h.repo.list('job').at(-1)!.status).toBe('superseded');
         expect(h.core.freshness(id).summary).toBe('outdated');
@@ -248,16 +248,16 @@ describe('fixed input completion under continuous collection', () => {
     const other = {
       ...previous,
       id: 'other-result',
-      inputVersion: h.core.work(id).inputVersion,
+      inputVersion: h.core.project(id).inputVersion,
       sourceRevisionIds: h.core.sources(id).map((s) => s.id),
       attemptToken: 'other',
     };
     h.repo.put('summary', other);
-    const w = h.core.work(id);
-    h.repo.put('work', { ...w, latestSummaryId: other.id, revision: w.revision + 1 });
+    const w = h.core.project(id);
+    h.repo.put('project', { ...w, latestSummaryId: other.id, revision: w.revision + 1 });
     g.release();
     await run;
-    expect(h.core.work(id).latestSummaryId).toBe(other.id);
+    expect(h.core.project(id).latestSummaryId).toBe(other.id);
     expect(h.repo.list('job').at(-1)!.error).toContain('late result');
   });
 
@@ -411,7 +411,7 @@ it('exposes the same coverage and execution identity over an isolated HTTP snaps
         {
           hostname: '127.0.0.1',
           port: address.port,
-          path: `/api/v1/work-contexts/${id}`,
+          path: `/api/v1/projects/${id}/context`,
           headers: { Host: '127.0.0.1:4310' },
         },
         (res) => {
@@ -522,7 +522,7 @@ it('migrates legacy jobs missing analysis fields without promoting unverifiable 
   };
   // Use a fresh repository to load just the legacy persisted state.
   const next = harness();
-  for (const kind of ['connection', 'work', 'link', 'checkpoint', 'source'] as const)
+  for (const kind of ['connection', 'project', 'link', 'checkpoint', 'source'] as const)
     for (const entity of h.repo.list(kind)) next.repo.put(kind, entity);
   next.repo.put('job', legacy);
   await next.core.recover();

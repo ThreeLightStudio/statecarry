@@ -142,6 +142,6 @@ export function contextHarness(repo?: import('@statecarry/core').StateRepository
       threadIds: ['session-a', 'session-b', 'session-c', 'session-d', 'session-x'],
       discover: true,
     },
-  }).workId;
+  }).projectId;
   return { ...h, records, project };
 }

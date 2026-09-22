@@ -12,8 +12,8 @@ it('HTTP scopes preparation, evidence and explanation questions while keeping le
   });
   const server = createHttpServer(h.core, new ChangeEvents(), '/tmp/no-web', port);
   await new Promise<void>((r) => server.listen(port, '127.0.0.1', r));
-  const base = `http://127.0.0.1:${port}/api/v1/work-contexts/${id}`,
-    input = { requestId: 'prepare', summaryId: h.core.work(id).latestSummaryId };
+  const base = `http://127.0.0.1:${port}/api/v1/projects/${id}`,
+    input = { requestId: 'prepare', summaryId: h.core.project(id).latestSummaryId };
   const post = (url: string, payload: unknown, origin = `http://127.0.0.1:${port}`) =>
     fetch(url, {
       method: 'POST',

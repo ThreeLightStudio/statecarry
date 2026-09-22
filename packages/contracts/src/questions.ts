@@ -97,7 +97,7 @@ export type QuestionTurn = {
 };
 export type QuestionSession = {
   id: string;
-  workId: string;
+  projectId: string;
   summaryId: string;
   claimId: string | null;
   target?: { kind: 'explanation'; explanationId: string; nodeId: string };
@@ -135,7 +135,7 @@ export type QuestionContext = {
 // Only execution metadata is durable. Never store questions, candidates or answers here.
 export type QuestionExecution = {
   id: string;
-  workId: string;
+  projectId: string;
   sessionId: string;
   turnId: string;
   bodyHash: string;

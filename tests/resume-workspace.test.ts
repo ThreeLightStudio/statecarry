@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { StateCarry, type ProjectInspector } from '@statecarry/core';
 import { harness, source } from './helpers';
-import type { ResumeCandidate, WorkspaceSnapshot } from '@statecarry/contracts';
+import type { AnalysisCandidate, WorkspaceSnapshot } from '@statecarry/contracts';
 
 const workspace = (overrides: Partial<WorkspaceSnapshot> = {}): WorkspaceSnapshot => ({
   cwd: '/tmp/example',
@@ -14,7 +14,7 @@ const workspace = (overrides: Partial<WorkspaceSnapshot> = {}): WorkspaceSnapsho
   ...overrides,
 });
 
-const candidate = (records: ReturnType<typeof source>[]): ResumeCandidate => ({
+const candidate = (records: ReturnType<typeof source>[]): AnalysisCandidate => ({
   key: 'goal-a',
   goal: 'Fix export',
   currentState: 'The export is implemented and its check remains open.',
@@ -58,7 +58,7 @@ function withInspector() {
     requestId: h.core.ids.next(),
     expectedRevision: 0,
     payload: { title: 'Project', cwd: '/tmp/example', threadIds: ['thread-a'], discover: false },
-  }).workId;
+  }).projectId;
   return {
     ...h,
     core,
@@ -86,18 +86,21 @@ describe('resume workspace evidence', () => {
     ];
     h.records(records);
     let input: any;
-    h.summary.generateResume = async (value) => {
+    h.summary.generateAnalysis = async (value) => {
       input = value;
       return { candidates: [candidate(records)] };
     };
-    await h.core.resumes.refresh(h.id);
+    await h.core.analyses.refresh(h.id);
     expect(input.workspace).toMatchObject({ branch: 'main', commit: 'abc123', dirty: false });
-    expect(h.core.work(h.id).resume).toMatchObject({
+    expect(h.core.analysisRecord(h.id)?.result).toMatchObject({
       workspaceBefore: { branch: 'main' },
       workspaceAfter: { commit: 'abc123' },
     });
-    expect(h.core.resumes.view(h.id).workspace).toMatchObject({ branch: 'main', commit: 'abc123' });
-    expect(h.core.resumes.view(h.id).candidates[0].completion?.verified).toHaveLength(1);
+    expect(h.core.analyses.view(h.id).workspace).toMatchObject({
+      branch: 'main',
+      commit: 'abc123',
+    });
+    expect(h.core.analyses.view(h.id).candidates[0].completion?.verified).toHaveLength(1);
   });
 
   it('does not publish a brief when the workspace changes during analysis', async () => {
@@ -108,28 +111,28 @@ describe('resume workspace evidence', () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    h.summary.generateResume = async () => {
+    h.summary.generateAnalysis = async () => {
       await gate;
       return { candidates: [candidate(records)] };
     };
-    const pending = h.core.resumes.refresh(h.id);
+    const pending = h.core.analyses.refresh(h.id);
     await new Promise((resolve) => setTimeout(resolve, 0));
     h.setWorkspace({ branch: 'feature' });
     release();
     await pending;
-    expect(h.core.work(h.id).resume).toBeUndefined();
-    expect(h.core.resumes.view(h.id).error).toContain('changed while analysis');
+    expect(h.core.analysisRecord(h.id)?.result).toBeUndefined();
+    expect(h.core.analyses.view(h.id).error).toContain('changed while analysis');
   });
 
   it('marks a stored brief stale when the workspace later changes', async () => {
     const h = withInspector();
     const records = [source()];
     h.records(records);
-    h.summary.generateResume = async () => ({ candidates: [candidate(records)] });
-    await h.core.resumes.refresh(h.id);
+    h.summary.generateAnalysis = async () => ({ candidates: [candidate(records)] });
+    await h.core.analyses.refresh(h.id);
     h.setWorkspace({ commit: 'new-commit' });
     await h.core.projects.observe(h.id, 'en', undefined, false);
-    expect(h.core.resumes.view(h.id)).toMatchObject({
+    expect(h.core.analyses.view(h.id)).toMatchObject({
       stale: true,
       workspaceChanged: true,
       candidates: [expect.objectContaining({ key: 'goal-a' })],
@@ -140,8 +143,8 @@ describe('resume workspace evidence', () => {
     const h = withInspector();
     const records = [source()];
     h.records(records);
-    h.summary.generateResume = async () => ({ candidates: [candidate(records)] });
-    await h.core.resumes.refresh(h.id);
+    h.summary.generateAnalysis = async () => ({ candidates: [candidate(records)] });
+    await h.core.analyses.refresh(h.id);
     h.setWorkspace({
       status: 'unknown',
       branch: null,
@@ -150,7 +153,7 @@ describe('resume workspace evidence', () => {
       limitations: ['Workspace check unavailable'],
     });
     await h.core.projects.observe(h.id, 'en', undefined, false);
-    expect(h.core.resumes.view(h.id)).toMatchObject({
+    expect(h.core.analyses.view(h.id)).toMatchObject({
       state: 'limited',
       stale: true,
       workspaceChanged: false,
@@ -182,14 +185,14 @@ describe('resume workspace evidence', () => {
       ],
     });
     let input: any;
-    h.summary.generateResume = async (value) => {
+    h.summary.generateAnalysis = async (value) => {
       input = value;
       return { candidates: [candidate(records)] };
     };
 
-    await h.core.resumes.refresh(h.id);
+    await h.core.analyses.refresh(h.id);
 
-    expect(h.core.resumes.view(h.id)).toMatchObject({
+    expect(h.core.analyses.view(h.id)).toMatchObject({
       state: 'ready',
       stale: false,
       workspaceChanged: false,
@@ -209,11 +212,11 @@ describe('resume workspace evidence', () => {
     const h = withInspector();
     const records = [source()];
     h.records(records);
-    h.summary.generateResume = async () => ({ candidates: [candidate(records)] });
-    await h.core.resumes.refresh(h.id);
+    h.summary.generateAnalysis = async () => ({ candidates: [candidate(records)] });
+    await h.core.analyses.refresh(h.id);
     h.setWorkspace({ limitations: ['Only the project metadata was checked.'] });
     await h.core.projects.observe(h.id, 'en', undefined, false);
-    expect(h.core.resumes.view(h.id)).toMatchObject({
+    expect(h.core.analyses.view(h.id)).toMatchObject({
       stale: true,
       workspaceChanged: true,
       candidates: [expect.objectContaining({ key: 'goal-a' })],
@@ -224,19 +227,21 @@ describe('resume workspace evidence', () => {
     const h = withInspector();
     const records = [source()];
     h.records(records);
-    h.summary.generateResume = async () => ({ candidates: [candidate(records)] });
-    await h.core.resumes.refresh(h.id);
-    const work = h.core.work(h.id),
-      stored = work.resume!;
-    h.repo.put('work', {
-      ...work,
-      resume: {
+    h.summary.generateAnalysis = async () => ({ candidates: [candidate(records)] });
+    await h.core.analyses.refresh(h.id);
+    const work = h.core.project(h.id),
+      stored = h.core.analysisRecord(work.id)!.result;
+    h.repo.put('project', { ...work });
+    h.core.storeAnalysis({
+      id: work.id,
+      projectId: work.id,
+      result: {
         ...stored,
         workspaceBefore: workspace({ branch: 'main' }),
         workspaceAfter: workspace({ branch: 'feature' }),
       },
     });
-    expect(h.core.resumes.view(h.id)).toMatchObject({
+    expect(h.core.analyses.view(h.id)).toMatchObject({
       stale: true,
       workspaceChanged: true,
       candidates: [expect.objectContaining({ key: 'goal-a' })],
@@ -253,7 +258,7 @@ describe('resume workspace evidence', () => {
       },
     ];
     h.records(records);
-    h.summary.generateResume = async () => ({
+    h.summary.generateAnalysis = async () => ({
       candidates: [
         {
           ...candidate(records),
@@ -261,9 +266,9 @@ describe('resume workspace evidence', () => {
         },
       ],
     });
-    await h.core.resumes.refresh(h.id);
-    expect(h.core.resumes.view(h.id).candidates).toEqual([]);
-    expect(h.core.resumes.view(h.id).error).toContain('verification evidence');
+    await h.core.analyses.refresh(h.id);
+    expect(h.core.analyses.view(h.id).candidates).toEqual([]);
+    expect(h.core.analyses.view(h.id).error).toContain('verification evidence');
   });
 
   it('keeps agent implementation reports separate from confirmed implementation observations', async () => {
@@ -273,7 +278,7 @@ describe('resume workspace evidence', () => {
       actor: 'agent' as const,
     };
     h.records([report]);
-    h.summary.generateResume = async () => ({
+    h.summary.generateAnalysis = async () => ({
       candidates: [
         {
           ...candidate([report]),
@@ -281,8 +286,8 @@ describe('resume workspace evidence', () => {
         },
       ],
     });
-    await h.core.resumes.refresh(h.id);
-    const saved = h.core.resumes.view(h.id).candidates[0];
+    await h.core.analyses.refresh(h.id);
+    const saved = h.core.analyses.view(h.id).candidates[0];
     expect(saved.progress?.implemented).toEqual([]);
     expect(saved.progress?.reported).toEqual([{ revisionId: report.id, quote: report.text }]);
     expect(saved.prerequisites[0]).toContain('no file or tool observation');
@@ -292,7 +297,7 @@ describe('resume workspace evidence', () => {
     const h = withInspector();
     const report = source('The export was reported complete.', 'thread-a', 'completion');
     h.records([report]);
-    h.summary.generateResume = async () => ({
+    h.summary.generateAnalysis = async () => ({
       candidates: [
         {
           ...candidate([report]),
@@ -301,8 +306,8 @@ describe('resume workspace evidence', () => {
         },
       ],
     });
-    await h.core.resumes.refresh(h.id);
-    expect(h.core.resumes.view(h.id).candidates[0]).toMatchObject({
+    await h.core.analyses.refresh(h.id);
+    expect(h.core.analyses.view(h.id).candidates[0]).toMatchObject({
       status: 'unclear',
       reason: 'Completion was reported, but independent verification is not recorded.',
       nextAction: null,
@@ -314,13 +319,15 @@ describe('resume workspace evidence', () => {
     const h = withInspector();
     const report = source('The export was reported complete.', 'thread-a', 'legacy-completion');
     h.records([report]);
-    h.summary.generateResume = async () => ({ candidates: [candidate([report])] });
-    await h.core.resumes.refresh(h.id);
-    const work = h.core.work(h.id);
-    const stored = work.resume!;
-    h.repo.put('work', {
-      ...work,
-      resume: {
+    h.summary.generateAnalysis = async () => ({ candidates: [candidate([report])] });
+    await h.core.analyses.refresh(h.id);
+    const work = h.core.project(h.id);
+    const stored = h.core.analysisRecord(work.id)!.result;
+    h.repo.put('project', { ...work });
+    h.core.storeAnalysis({
+      id: work.id,
+      projectId: work.id,
+      result: {
         ...stored,
         candidates: [
           {
@@ -331,19 +338,19 @@ describe('resume workspace evidence', () => {
         ],
       },
     });
-    const restored = h.core.resumes.view(h.id).candidates[0];
+    const restored = h.core.analyses.view(h.id).candidates[0];
     expect(restored).toMatchObject({
       status: 'unclear',
       nextAction: null,
       doneWhen: null,
       actionSource: null,
     });
-    h.core.resumes.correct(h.id, {
+    h.core.analyses.correct(h.id, {
       candidateKey: restored.key,
-      version: h.core.resumes.view(h.id).version,
+      version: h.core.analyses.view(h.id).version,
       kind: 'restore',
     });
-    expect(h.core.resumes.view(h.id).candidates[0].status).toBe('unclear');
+    expect(h.core.analyses.view(h.id).candidates[0].status).toBe('unclear');
   });
 
   it('invalidates a brief when a nested progress or completion quote is no longer readable', async () => {
@@ -354,12 +361,12 @@ describe('resume workspace evidence', () => {
       source('The export check passed.', 'thread-a', 'verification'),
     ];
     h.records(records);
-    h.summary.generateResume = async () => ({ candidates: [candidate(records)] });
-    await h.core.resumes.refresh(h.id);
+    h.summary.generateAnalysis = async () => ({ candidates: [candidate(records)] });
+    await h.core.analyses.refresh(h.id);
 
     // Keep the revision ID linked but change its stored text. The quote is no
     // longer safe to display or use as completion evidence.
     h.repo.put('source', { ...records[2], text: 'The verification record is unavailable.' });
-    expect(h.core.resumes.view(h.id)).toMatchObject({ stale: true, candidates: [] });
+    expect(h.core.analyses.view(h.id)).toMatchObject({ stale: true, candidates: [] });
   });
 });

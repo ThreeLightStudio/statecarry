@@ -37,11 +37,11 @@ const goalExpression =
   /목표|확인해|정리해|만들어|구현해|goal|please (?:check|build|implement)|check .*export/i;
 const separateExpression = /별개|다른 목표|돌아가|복귀|separate|another goal|return to|back to/i;
 const point = (s: SourceRevision) => ({ turnId: s.turnId, itemId: s.itemId });
-export function goalCandidates(core: StateCarry, workId: string): GoalCandidate[] {
-  const work = core.work(workId),
-    sources = core.sources(workId),
-    previous = work.goalCandidates ?? [];
-  if (work.goal) return [];
+export function goalCandidates(core: StateCarry, projectId: string): GoalCandidate[] {
+  const work = core.project(projectId),
+    sources = core.sources(projectId),
+    previous: GoalCandidate[] = [];
+  if (core.directionIntent(work.id)) return [];
   const result: GoalCandidate[] = [];
   for (const threadId of new Set(sources.map((s) => s.threadId))) {
     const records = sources.filter((s) => s.threadId === threadId);
@@ -63,7 +63,7 @@ export function goalCandidates(core: StateCarry, workId: string): GoalCandidate[
         continue;
       if (relationshipEvidence([source], [...new Set(sources.map((s) => s.threadId))]).length)
         continue;
-      const id = core.ids.hash(['goal-candidate', workId, source.key]);
+      const id = core.ids.hash(['goal-candidate', projectId, source.key]);
       const old = previous.find((c) => c.id === id);
       const end = anchors[index + 1];
       result.push(

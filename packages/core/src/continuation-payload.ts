@@ -1,4 +1,4 @@
-import type { ContinuationPayload, ResumeCandidate, ResumeWork } from '@statecarry/contracts';
+import type { ContinuationPayload, AnalysisCandidate, AnalysisWork } from '@statecarry/contracts';
 
 /**
  * Build the executable or review handoff from Core-owned resume state.
@@ -6,8 +6,8 @@ import type { ContinuationPayload, ResumeCandidate, ResumeWork } from '@statecar
  * evidence and constraints are allowed to travel with the work.
  */
 export function buildContinuationPayload(
-  candidate: ResumeCandidate,
-  work: ResumeWork,
+  candidate: AnalysisCandidate,
+  work: AnalysisWork,
 ): ContinuationPayload | null {
   const stateBlocked =
     !!work.busy ||

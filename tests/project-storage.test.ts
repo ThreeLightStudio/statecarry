@@ -30,18 +30,18 @@ describe('project workspace production SQLite persistence', () => {
         threadIds: ['thread-a'],
       });
       h.core.projects.settings(
-        a.receipt.workId,
-        h.command(a.receipt.workId, {
+        a.receipt.projectId,
+        h.command(a.receipt.projectId, {
           title: 'Named project',
           purpose: 'Carry useful export context.',
           focused: true,
         }),
       );
-      await h.core.collect(a.receipt.workId);
-      await h.core.collect(b.receipt.workId);
+      await h.core.collect(a.receipt.projectId);
+      await h.core.collect(b.receipt.projectId);
       h.core.describeGoal(
-        a.receipt.workId,
-        h.command(a.receipt.workId, { text: 'A new current goal.' }),
+        a.receipt.projectId,
+        h.command(a.receipt.projectId, { text: 'A new current goal.' }),
       );
       const before = h.core.projects.list();
       repo.close();
@@ -51,7 +51,7 @@ describe('project workspace production SQLite persistence', () => {
       const reused = registerProject(restarted, { cwd: `${originals}/./`, title: 'New title' });
       expect(reused.receipt).toMatchObject({
         command: 'project-reuse',
-        workId: a.receipt.workId,
+        projectId: a.receipt.projectId,
         resultId: a.receipt.resultId,
       });
       expect(restarted.core.projects.list()).toEqual(before);
@@ -59,35 +59,35 @@ describe('project workspace production SQLite persistence', () => {
         title: 'Named project',
         purpose: 'Carry useful export context.',
         focused: true,
-        resume: { goalText: 'A new current goal.' },
+        analysis: { goalText: 'A new current goal.' },
       });
-      const command = deletionCommand(restarted, a.receipt.workId);
-      expect(restarted.core.projects.deletionPreview(a.receipt.workId)).toMatchObject({
+      const command = deletionCommand(restarted, a.receipt.projectId);
+      expect(restarted.core.projects.deletionPreview(a.receipt.projectId)).toMatchObject({
         exclusiveSources: 0,
         sharedSources: 1,
         blocked: false,
       });
-      const result = restarted.core.projects.delete(a.receipt.workId, command);
+      const result = restarted.core.projects.delete(a.receipt.projectId, command);
       expect(repo.get('source', source().id)).toEqual(source());
       expect(
-        repo.db.prepare('SELECT id FROM work_owners WHERE id=?').get(a.receipt.workId),
+        repo.db.prepare('SELECT id FROM project_owners WHERE id=?').get(a.receipt.projectId),
       ).toBeUndefined();
       expect(
-        repo.db.prepare('SELECT id FROM entities WHERE owner_id=?').all(a.receipt.workId),
+        repo.db.prepare('SELECT id FROM entities WHERE owner_id=?').all(a.receipt.projectId),
       ).toEqual([]);
       expect(readFileSync(originalPath, 'utf8')).toBe(originalText);
       repo.close();
       repo = new SQLiteRepository(data);
       const again = harness(repo);
-      expect(again.core.projects.delete(a.receipt.workId, command)).toEqual(result);
+      expect(again.core.projects.delete(a.receipt.projectId, command)).toEqual(result);
       expect(again.core.projects.create(a.command)).toEqual(a.receipt);
-      expect(again.core.projects.list().projects.map((project) => project.workId)).toEqual([
-        b.receipt.workId,
+      expect(again.core.projects.list().projects.map((project) => project.projectId)).toEqual([
+        b.receipt.projectId,
       ]);
-      const finalDelete = deletionCommand(again, b.receipt.workId);
-      expect(again.core.projects.deletionPreview(b.receipt.workId).exclusiveSources).toBe(1);
-      again.core.projects.delete(b.receipt.workId, finalDelete);
-      expect(repo.list('work')).toEqual([]);
+      const finalDelete = deletionCommand(again, b.receipt.projectId);
+      expect(again.core.projects.deletionPreview(b.receipt.projectId).exclusiveSources).toBe(1);
+      again.core.projects.delete(b.receipt.projectId, finalDelete);
+      expect(repo.list('project')).toEqual([]);
       expect(repo.list('source')).toEqual([]);
       expect(repo.db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
       expect(readFileSync(originalPath, 'utf8')).toBe(originalText);
@@ -110,15 +110,15 @@ describe('project workspace production SQLite persistence', () => {
     try {
       const h = harness(repo);
       const { receipt } = registerProject(h, { threadIds: ['thread-a'] });
-      await h.core.collect(receipt.workId);
+      await h.core.collect(receipt.projectId);
       const before = repo.db.prepare('SELECT * FROM entities ORDER BY kind,id').all();
-      const command = deletionCommand(h, receipt.workId);
-      expect(() => h.core.projects.delete(receipt.workId, command)).toThrow(
+      const command = deletionCommand(h, receipt.projectId);
+      expect(() => h.core.projects.delete(receipt.projectId, command)).toThrow(
         'injected final receipt failure',
       );
       expect(repo.db.prepare('SELECT * FROM entities ORDER BY kind,id').all()).toEqual(before);
       expect(
-        repo.db.prepare('SELECT id FROM work_owners WHERE id=?').get(receipt.workId),
+        repo.db.prepare('SELECT id FROM project_owners WHERE id=?').get(receipt.projectId),
       ).toBeDefined();
       expect(repo.db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
       expect(repo.get('source', source().id)).not.toBeNull();

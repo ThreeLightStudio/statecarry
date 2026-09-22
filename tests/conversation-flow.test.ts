@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { conversationFlows } from '../packages/core/src/conversation-flow';
-import {
-  Controller,
-  presentReturnContext,
-  type Gateway,
-  type LocalWorkState,
-} from '@statecarry/presentation';
+import { presentReturnContext } from '@statecarry/presentation';
 import type { Observation, SourceRevision, SummaryRevision } from '@statecarry/contracts';
 import { source } from './helpers';
 import { flowHarness } from './conversation-flow-fixtures';
@@ -185,72 +180,5 @@ describe('fixed-summary conversation flow', () => {
     const item = h.core.snapshot(id).conversationFlows![0]?.items[0];
     expect(item).toBeUndefined();
     expect(h.core.snapshot(id).summary).toBeNull();
-  });
-});
-
-describe('flow controller state', () => {
-  it('pins open flow through publication, preserves edits and only records raw reads after explicit opening', async () => {
-    const { h, id, records } = await flowHarness();
-    const observations: Observation[] = [],
-      memory = new Map<string, LocalWorkState>();
-    let reads = 0;
-    const gateway: Gateway = {
-      projects: async () => h.core.listProjects(),
-      connections: async () => h.repo.list('connection'),
-      snapshot: async (id) => h.core.snapshot(id),
-      evidence: async (id) => {
-        reads++;
-        return h.core.evidence(id);
-      },
-      subscribe: () => () => {},
-      discover: h.reader.discover,
-      command: async (path, command) =>
-        h.core.mutate(id, path.endsWith('visits') ? 'visits' : 'drafts', command),
-      receipt: async () => {
-        throw new Error('unused');
-      },
-      observe: async (o) => {
-        observations.push(o);
-      },
-    };
-    const controller = new Controller(
-      gateway,
-      {
-        read: (id) => memory.get(id) ?? null,
-        write: (id, state) => {
-          memory.set(id, state);
-        },
-      },
-      () => crypto.randomUUID(),
-    );
-    await controller.start(`#/work/${id}`);
-    await controller.action({ type: 'draft', value: '보존할 초안' });
-    await controller.action({ type: 'correction', value: '보존할 수정', slot: 'reason' });
-    await controller.action({ type: 'selectEvidence', id: records[0].id, selected: true });
-    await controller.action({ type: 'scroll', value: 440 });
-    const local = structuredClone(controller.getSnapshot().local),
-      flowId = controller.getSnapshot().detail!.current[0].flow.id;
-    await controller.action({ type: 'openFlow', id: flowId });
-    const opened = structuredClone(controller.getSnapshot().openedFlow);
-    await controller.action({ type: 'displayed', summaryId: opened!.summaryId });
-    expect(h.core.snapshot(id).visit!.evidenceIds).toEqual([]);
-    expect(reads).toBe(0);
-    expect(observations.filter((o) => o.kind === 'evidence')).toHaveLength(0);
-    h.records([source('새로운 요청입니다.', 'thread-a', 'request'), ...records.slice(1)]);
-    await h.core.collect(id);
-    await h.core.process(id);
-    await controller.refresh();
-    expect(controller.getSnapshot().openedFlow).toEqual(opened);
-    expect(controller.getSnapshot().detail!.summaryId).not.toBe(opened!.summaryId);
-    expect(controller.getSnapshot().local).toEqual(local);
-    await controller.action({ type: 'evidence', id: records[0].id, withinFlow: true });
-    expect(controller.getSnapshot().evidence[records[0].id].text).toBe(records[0].text);
-    expect(controller.getSnapshot().evidenceFocusId).toBeNull();
-    expect(observations.filter((o) => o.kind === 'evidence')).toHaveLength(1);
-    expect(observations.find((o) => o.kind === 'evidence')!.summaryId).toBe(opened!.summaryId);
-    await controller.action({ type: 'closeFlow' });
-    expect(controller.getSnapshot().openedFlow).toBeNull();
-    expect(controller.getSnapshot().local).toEqual({ ...local, expandedIds: [records[0].id] });
-    controller.stop();
   });
 });

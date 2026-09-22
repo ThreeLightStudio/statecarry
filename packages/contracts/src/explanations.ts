@@ -119,7 +119,7 @@ export type ExplanationInput = {
     relations: import('./goals').GoalRelation[];
     recordRanges: Record<string, import('./goals').RecordRange>;
   };
-  workId: string;
+  projectId: string;
   summaryId: string;
   sourceRevisionIds: string[];
   connectionRevision: number;
@@ -138,7 +138,7 @@ export type ExplanationContext = {
 };
 export type ExplanationRevision = {
   id: string;
-  workId: string;
+  projectId: string;
   summaryId: string;
   input: ExplanationInput;
   candidate: ExplanationCandidate;
@@ -159,7 +159,7 @@ export type ExplanationStatus =
   | 'result-unknown';
 export type ExplanationJob = {
   id: string;
-  workId: string;
+  projectId: string;
   summaryId: string;
   input: ExplanationInput;
   status: ExplanationStatus;

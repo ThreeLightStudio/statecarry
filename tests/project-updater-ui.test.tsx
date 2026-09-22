@@ -39,7 +39,7 @@ describe('desktop update UI', () => {
       return state;
     });
 
-    const mounted = await mountProjectRoot(fixture.projectGateway, fixture.resumeGateway);
+    const mounted = await mountProjectRoot(fixture.projectGateway, fixture.analysisGateway);
     try {
       await settle();
       expect(mounted.host.textContent).toContain('Settings');

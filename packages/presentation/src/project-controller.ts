@@ -1,11 +1,25 @@
-import type { ResumeCorrection } from '@statecarry/contracts';
-import type { ResumeGateway } from './resume';
-import { presentResumeWork, resumeHandoffText } from './resume';
-import type { ResumeMemory, SavedResumeEdits } from './resume-memory';
+import {
+  workDecisionKinds,
+  workingTreeGroupKey,
+  type ProjectModelView,
+  type WorkDiscussionSync,
+  type AnalysisCorrection,
+  type ReleaseProjectView,
+  type ReleasePolicyInput,
+  type ReleaseCreateInput,
+  type DeliveryTargetUpdate,
+  type ReleaseCheckUpdate,
+  type ReleasePolicyExceptionInput,
+} from '@statecarry/contracts';
+import type { AnalysisGateway } from './analysis';
+import { presentProjectAnalysis, analysisHandoffText } from './analysis';
+import type { AnalysisMemory, ProjectDrafts } from './project-drafts';
+import { presentProjectNow, type ProjectNowView } from './project-now';
 import {
   presentProjects,
   presentRegistrations,
   presentWorkingTree,
+  goalDiscussionText,
   projectError,
   type ProjectGateway,
   type ProjectRoute,
@@ -20,6 +34,7 @@ import {
 } from './projects';
 
 export type ProjectControllerState = {
+  decisions: Record<string, import('@statecarry/contracts').ProjectExecutionWorkspace | undefined>;
   route: ProjectRoute;
   projects: ProjectView[];
   loading: boolean;
@@ -31,9 +46,9 @@ export type ProjectControllerState = {
   memoryError: string | null;
   appUpdate: AppUpdateState | null;
   busyWorkId: string | null;
-  edits: Record<string, SavedResumeEdits>;
+  edits: Record<string, ProjectDrafts>;
   inspection: {
-    workId: string;
+    projectId: string;
     title: string;
     actor: string;
     at: string | null;
@@ -43,9 +58,15 @@ export type ProjectControllerState = {
   deletion: ProjectDeletionPreview | null;
   workingTrees: Record<string, WorkingTreeView | undefined>;
   workingTreeLoading: Record<string, boolean>;
+  workingTreeAnalysisLoading: Record<string, boolean>;
+  projectNow: Record<string, ProjectNowView | undefined>;
+  projectNowLoading: Record<string, boolean>;
+  projectNowInitializing: Record<string, boolean>;
+  releases: Record<string, ReleaseProjectView | undefined>;
+  releaseLoading: Record<string, boolean>;
 };
 const appUpdateCheckIntervalMs = 6 * 60 * 60 * 1000;
-const emptyEdits = (): SavedResumeEdits => ({
+const emptyEdits = (): ProjectDrafts => ({
   goalDraft: null,
   actionDrafts: [],
   expanded: [],
@@ -57,6 +78,7 @@ const emptyEdits = (): SavedResumeEdits => ({
 export class ProjectController {
   private workspace: ProjectWorkspace = { projects: [] };
   private value: ProjectControllerState = {
+    decisions: {},
     route: { page: 'home' },
     projects: [],
     loading: true,
@@ -74,6 +96,12 @@ export class ProjectController {
     deletion: null,
     workingTrees: {},
     workingTreeLoading: {},
+    workingTreeAnalysisLoading: {},
+    projectNow: {},
+    projectNowLoading: {},
+    projectNowInitializing: {},
+    releases: {},
+    releaseLoading: {},
   };
   private listeners = new Set<() => void>();
   private active = false;
@@ -83,12 +111,18 @@ export class ProjectController {
   private pending: Promise<void> | null = null;
   private workingTreeReads = new Map<string, Promise<WorkingTreeView | null>>();
   private observationReads = new Map<string, Promise<WorkingTreeView | null>>();
+  private workingTreeAnalysisReads = new Map<string, Promise<WorkingTreeView | null>>();
+  private projectNowReads = new Map<string, Promise<ProjectNowView | null>>();
+  private projectNowModels = new Map<string, ProjectModelView>();
+  private durableDiscussionKeys = new Map<string, Set<string>>();
   private readAgain = false;
   private hasLoaded = false;
   private hasRegistrations = false;
   private hydratingWorkIds = new Set<string>();
   private connectionLost = false;
   private streamConnected = false;
+  private startupReadyForStreamRefresh = false;
+  private streamConnectedDuringStartup = false;
   private allChanged = true;
   private changedWorkIds = new Set<string>();
   private settledDuringRead = new Set<string>();
@@ -99,9 +133,41 @@ export class ProjectController {
   private outputLanguage: 'en' | 'ko' = 'en';
   constructor(
     private gateway: ProjectGateway,
-    private resume: ResumeGateway,
-    private memory?: ResumeMemory,
+    private analysis: AnalysisGateway,
+    private memory?: AnalysisMemory,
   ) {}
+  private decisionQueue = new Map<string, Promise<unknown>>();
+  projectDecision(
+    id: string,
+    command?: import('@statecarry/contracts').ProjectExecutionCommand,
+  ): Promise<import('@statecarry/contracts').ProjectExecutionWorkspace> {
+    const pending = (this.decisionQueue.get(id) ?? Promise.resolve())
+      .catch(() => {})
+      .then(async () => {
+        const generation = this.generation;
+        const data = await this.gateway.execution(
+          id,
+          command,
+          this.value.decisions[id]?.record.version ?? 0,
+          this.outputLanguage,
+        );
+        if (!this.active || generation !== this.generation) return data;
+        this.set({
+          decisions: { ...this.value.decisions, [id]: data },
+          ...(data.workspace
+            ? {
+                workingTrees: {
+                  ...this.value.workingTrees,
+                  [id]: presentWorkingTree(data.workspace),
+                },
+              }
+            : {}),
+        });
+        return data;
+      });
+    this.decisionQueue.set(id, pending);
+    return pending;
+  }
   getSnapshot = () => this.value;
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -163,11 +229,11 @@ export class ProjectController {
       void this.refresh(true);
     }, 150);
   }
-  private invalidateRead(disconnected = false, workId: string | null = null) {
+  private invalidateRead(disconnected = false, projectId: string | null = null) {
     this.readEpoch++;
-    if (workId === null) this.allChanged = true;
-    else this.changedWorkIds.add(workId);
-    const affectsOriginal = workId === null || workId === this.value.route.workId;
+    if (projectId === null) this.allChanged = true;
+    else this.changedWorkIds.add(projectId);
+    const affectsOriginal = projectId === null || projectId === this.value.route.projectId;
     if (affectsOriginal) this.inspectionGeneration++;
     this.present({
       ...(disconnected ? { online: false, loading: false } : {}),
@@ -179,36 +245,53 @@ export class ProjectController {
   async start(route: ProjectRoute) {
     this.active = true;
     this.generation++;
+    this.startupReadyForStreamRefresh = false;
+    this.streamConnectedDuringStartup = false;
     this.connectionLost = false;
     this.streamConnected = false;
     this.invalidateRead();
     this.navigate(route);
-    this.unsubscribe = this.resume.subscribe?.(
+    this.unsubscribe = this.analysis.subscribe?.(
       (change) => {
         if (!this.active) return;
         if (change?.kind === 'collection-settled') {
-          if (!change.workId) return;
-          if (this.pending) this.settledDuringRead.add(change.workId);
+          if (!change.projectId) return;
+          if (this.pending) this.settledDuringRead.add(change.projectId);
           // A settled observation is not a data change. It only completes a
           // transient collecting snapshot observed by a concurrent GET.
           if (
             !this.workspace.projects.some(
-              (entry) => entry.workId === change.workId && entry.collecting,
+              (entry) => entry.projectId === change.projectId && entry.collecting,
             )
           )
             return;
         }
+        if (change?.projectId && this.value.projectNowInitializing[change.projectId]) return;
+        if (
+          change?.projectId === this.value.route.projectId &&
+          change?.projectId &&
+          this.value.decisions[change.projectId]
+        )
+          void this.projectDecision(change.projectId).catch(() => {});
+        if (change?.projectId === this.value.route.projectId && change?.projectId)
+          void this.readProjectNow(change.projectId);
         if (change?.topic) {
+          if (change.topic === 'observation' || change.topic === 'working-tree-analysis') {
+            if (change.projectId && change.projectId === this.value.route.projectId)
+              void this.inspectWorkingTree(change.projectId);
+            return;
+          }
           if (
-            change.workId &&
-            change.workId === this.value.route.workId &&
-            (change.topic === 'observation' || change.topic === 'working-tree-analysis')
+            change.topic === 'overview' &&
+            change.projectId &&
+            this.value.route.page === 'project' &&
+            change.projectId === this.value.route.projectId
           )
-            void this.inspectWorkingTree(change.workId);
+            return;
           this.scheduleRead();
           return;
         }
-        this.invalidateRead(false, change?.workId ?? null);
+        this.invalidateRead(false, change?.projectId ?? null);
         this.scheduleRead();
       },
       (state) => {
@@ -223,6 +306,10 @@ export class ProjectController {
             !this.streamConnected || this.connectionLost || (!this.pending && !this.value.online);
           this.streamConnected = true;
           this.connectionLost = false;
+          if (!this.startupReadyForStreamRefresh) {
+            this.streamConnectedDuringStartup = true;
+            return;
+          }
           // The first GET may precede the server's stream subscription. Recheck
           // once after connection so changes in that gap cannot be missed.
           if (!needsRead) return;
@@ -241,43 +328,63 @@ export class ProjectController {
         return;
       void this.checkAppUpdate();
     }, appUpdateCheckIntervalMs);
-    if (this.gateway.registrations) {
-      try {
-        const registrations = await this.gateway.registrations();
-        if (!this.active) return;
-        this.hasRegistrations = true;
-        this.hydratingWorkIds = new Set(
-          registrations.projects
-            .filter((project) => !project.disconnectedAt)
-            .map((project) => project.workId),
-        );
-        this.workspace = {
-          projects: registrations.projects.map((project) => ({
-            ...project,
-            acceptedKeys: [],
-            pausedKeys: [],
-            collecting: false,
-            resume: null,
-          })),
-        };
-        for (const entry of registrations.projects) this.readEdits(entry.workId);
-        this.set({
-          projects: presentRegistrations(registrations, true),
-          online: true,
-          loading: false,
-          loadingDetails: this.hydratingWorkIds.size > 0,
-          error: null,
-        });
+    try {
+      const registrations = await this.gateway.registrations();
+      if (!this.active) return;
+      this.hasRegistrations = true;
+      this.hydratingWorkIds = new Set(
+        registrations.projects
+          .filter((project) => !project.disconnectedAt)
+          .map((project) => project.projectId),
+      );
+      this.workspace = {
+        projects: registrations.projects.map((project) => ({
+          ...project,
+          acceptedKeys: [],
+          pausedKeys: [],
+          collecting: false,
+          analysis: null,
+        })),
+      };
+      for (const entry of registrations.projects) this.readEdits(entry.projectId);
+      this.set({
+        projects: presentRegistrations(registrations, true),
+        online: true,
+        loading: false,
+        loadingDetails: this.hydratingWorkIds.size > 0,
+        error: null,
+      });
+      if (route.page === 'project' && route.projectId) await this.enterProject(route.projectId);
+      await this.refresh(true);
+      this.startupReadyForStreamRefresh = true;
+      if (this.streamConnectedDuringStartup) {
+        this.streamConnectedDuringStartup = false;
+        this.invalidateRead();
         await this.refresh(true);
-        void this.observeCurrentProject();
-        return;
-      } catch {
-        // Older or temporarily unavailable registration reads fall back to the
-        // full workspace read so startup remains backward-compatible.
       }
+      return;
+    } catch (error) {
+      if (this.active)
+        this.set({
+          loading: false,
+          loadingDetails: false,
+          online: false,
+          error: projectError(error),
+        });
+      this.startupReadyForStreamRefresh = true;
     }
-    await this.refresh();
-    void this.observeCurrentProject();
+  }
+
+  private async enterProject(id: string) {
+    const view = await this.readProjectNow(id);
+    if (
+      !view ||
+      !this.active ||
+      this.value.route.page !== 'project' ||
+      this.value.route.projectId !== id
+    )
+      return;
+    void this.observeWorkingTree(id);
   }
   stop() {
     this.active = false;
@@ -368,6 +475,360 @@ export class ProjectController {
         });
     }
   }
+  private markProjectNowChecking(id: string) {
+    const current = this.value.projectNow[id];
+    if (!current) return;
+    this.set({
+      projectNow: {
+        ...this.value.projectNow,
+        [id]: { ...current, checking: true, freshness: 'checking' },
+      },
+    });
+  }
+  private workItemForDiscussion(id: string, key: string): string | null {
+    return this.projectNowModels.get(id)?.workItems.some((item) => item.id === key) ? key : null;
+  }
+  private browserPersistedEdits(value: ProjectDrafts): ProjectDrafts {
+    const {
+      selectedKey: _selectedKey,
+      selectedExplicit: _selectedExplicit,
+      selectedTaskSnapshot: _selectedTaskSnapshot,
+      ...drafts
+    } = value;
+    return {
+      ...drafts,
+      taskDiscussions: drafts.taskDiscussions?.map(([key, discussion]) => [
+        key,
+        { ...discussion, turns: [] },
+      ]),
+    };
+  }
+  private persistEdits(id: string, value: ProjectDrafts) {
+    try {
+      this.memory?.write(id, this.browserPersistedEdits(value));
+    } catch {
+      this.set({
+        memoryError:
+          'This browser could not save your draft. Keep this tab open or copy your unfinished text.',
+      });
+    }
+  }
+  private hydrateDurableDiscussions(
+    id: string,
+    model: ProjectModelView,
+    skipKeys: ReadonlySet<string> = new Set(),
+  ) {
+    if (!model.discussions.length) return;
+    const old = this.readEdits(id);
+    const durable = new Set(this.durableDiscussionKeys.get(id) ?? []);
+    const next = new Map(old.taskDiscussions ?? []);
+    for (const record of model.discussions) {
+      const key = record.workItemId;
+      if (!key || skipKeys.has(key)) continue;
+      durable.add(key);
+      const local = next.get(key);
+      next.set(key, {
+        version: record.basis,
+        input: local?.input ?? '',
+        turns: record.turns.map((turn) => ({
+          question: turn.question,
+          answer: turn.answer,
+          version: turn.basis,
+        })),
+      });
+    }
+    this.durableDiscussionKeys.set(id, durable);
+    const edits = { ...old, taskDiscussions: [...next] };
+    this.set({ edits: { ...this.value.edits, [id]: edits } });
+    this.persistEdits(id, edits);
+  }
+  private discussionSync(
+    id: string,
+    key: string,
+    discussion: NonNullable<ProjectDrafts['taskDiscussions']>[number][1],
+  ): WorkDiscussionSync | null {
+    const workItemId = this.workItemForDiscussion(id, key);
+    if (!workItemId) return null;
+    return {
+      workItemId,
+      basis: discussion.version,
+      turns: discussion.turns.map((turn) => ({
+        question: turn.question,
+        answer: turn.answer,
+        basis: turn.version ?? discussion.version,
+      })),
+    };
+  }
+  private markDiscussionPending(id: string, key: string) {
+    const durable = new Set(this.durableDiscussionKeys.get(id) ?? []);
+    if (!durable.delete(key)) return;
+    if (durable.size) this.durableDiscussionKeys.set(id, durable);
+    else this.durableDiscussionKeys.delete(id);
+  }
+  private async syncDiscussionToCore(id: string, key: string) {
+    const project = this.value.projects.find((item) => item.id === id);
+    const discussion = this.readEdits(id).taskDiscussions?.find(
+      ([candidate]) => candidate === key,
+    )?.[1];
+    if (!project || !discussion) return;
+    const input = this.discussionSync(id, key, discussion);
+    if (!input) return;
+    const model = await this.gateway.syncDiscussion(id, project.revision, input);
+    this.projectNowModels.set(id, model);
+    const durable = new Set(this.durableDiscussionKeys.get(id) ?? []);
+    durable.add(key);
+    this.durableDiscussionKeys.set(id, durable);
+    this.persistEdits(id, this.readEdits(id));
+  }
+  async readProjectNow(id: string): Promise<ProjectNowView | null> {
+    if (!this.active) return null;
+    const existing = this.projectNowReads.get(id);
+    if (existing) return existing;
+    const generation = this.generation;
+    this.set({ projectNowLoading: { ...this.value.projectNowLoading, [id]: true } });
+    // Register the pending read before invoking a gateway that may throw synchronously.
+    // Otherwise its cleanup runs first and leaves a failed promise cached forever.
+    const read = Promise.resolve().then(async () => {
+      try {
+        let bundle = await this.gateway.now(id);
+        if (!this.active || generation !== this.generation) return null;
+        this.projectNowModels.set(id, bundle.model);
+        this.hydrateDurableDiscussions(id, bundle.model);
+        this.set({
+          projectNow: {
+            ...this.value.projectNow,
+            [id]: presentProjectNow(bundle.model, bundle.now),
+          },
+        });
+        if (!bundle.initialized) {
+          this.set({
+            projectNowInitializing: { ...this.value.projectNowInitializing, [id]: true },
+          });
+          bundle = await this.gateway.initialize(id, this.outputLanguage);
+          if (!this.active || generation !== this.generation) return null;
+        }
+        this.projectNowModels.set(id, bundle.model);
+        this.hydrateDurableDiscussions(id, bundle.model);
+        this.persistEdits(id, this.readEdits(id));
+        const view = presentProjectNow(bundle.model, bundle.now);
+        this.set({
+          projectNow: { ...this.value.projectNow, [id]: view },
+          projectNowLoading: { ...this.value.projectNowLoading, [id]: false },
+          projectNowInitializing: { ...this.value.projectNowInitializing, [id]: false },
+          error: null,
+        });
+        return view;
+      } catch (error) {
+        if (this.active && generation === this.generation)
+          this.set({
+            projectNowLoading: { ...this.value.projectNowLoading, [id]: false },
+            projectNowInitializing: { ...this.value.projectNowInitializing, [id]: false },
+            error: projectError(error),
+          });
+        return null;
+      } finally {
+        this.projectNowReads.delete(id);
+      }
+    });
+    this.projectNowReads.set(id, read);
+    return read;
+  }
+  async readRelease(id: string): Promise<ReleaseProjectView | null> {
+    if (!this.gateway.release) return null;
+    this.set({ releaseLoading: { ...this.value.releaseLoading, [id]: true } });
+    try {
+      const value = await this.gateway.release(id);
+      if (!this.active) return value;
+      this.set({
+        releases: { ...this.value.releases, [id]: value },
+        releaseLoading: { ...this.value.releaseLoading, [id]: false },
+      });
+      return value;
+    } catch (error) {
+      if (this.active)
+        this.set({
+          releaseLoading: { ...this.value.releaseLoading, [id]: false },
+          error: projectError(error),
+        });
+      return null;
+    }
+  }
+  private async releaseMutation(
+    id: string,
+    run: (project: ProjectView) => Promise<ReleaseProjectView>,
+  ): Promise<ReleaseProjectView | null> {
+    const project = this.value.projects.find((item) => item.id === id);
+    if (!project) return null;
+    this.set({ busyWorkId: id, error: null });
+    try {
+      const value = await run(project);
+      if (this.active) this.set({ releases: { ...this.value.releases, [id]: value } });
+      await this.readProjectNow(id);
+      return value;
+    } catch (error) {
+      if (this.active) this.set({ error: projectError(error) });
+      return null;
+    } finally {
+      if (this.active) this.set({ busyWorkId: null });
+    }
+  }
+  setReleasePolicy(id: string, input: ReleasePolicyInput) {
+    if (!this.gateway.setReleasePolicy) return Promise.resolve(null);
+    return this.releaseMutation(id, (project) =>
+      this.gateway.setReleasePolicy!(id, project.revision, input),
+    );
+  }
+  createRelease(id: string, input: ReleaseCreateInput) {
+    if (!this.gateway.createRelease) return Promise.resolve(null);
+    return this.releaseMutation(id, (project) =>
+      this.gateway.createRelease!(id, project.revision, input),
+    );
+  }
+  updateDelivery(id: string, releaseId: string, input: DeliveryTargetUpdate) {
+    if (!this.gateway.updateDelivery) return Promise.resolve(null);
+    return this.releaseMutation(id, (project) =>
+      this.gateway.updateDelivery!(id, project.revision, releaseId, input),
+    );
+  }
+  updateReleaseCheck(id: string, releaseId: string, input: ReleaseCheckUpdate) {
+    if (!this.gateway.updateReleaseCheck) return Promise.resolve(null);
+    return this.releaseMutation(id, (project) =>
+      this.gateway.updateReleaseCheck!(id, project.revision, releaseId, input),
+    );
+  }
+  confirmRelease(id: string, releaseId: string) {
+    if (!this.gateway.confirmRelease) return Promise.resolve(null);
+    return this.releaseMutation(id, (project) =>
+      this.gateway.confirmRelease!(id, project.revision, releaseId),
+    );
+  }
+  createReleaseException(id: string, input: ReleasePolicyExceptionInput) {
+    if (!this.gateway.createReleaseException) return Promise.resolve(null);
+    return this.releaseMutation(id, (project) =>
+      this.gateway.createReleaseException!(id, project.revision, input),
+    );
+  }
+  async selectWorkItem(id: string, workItemId: string): Promise<ProjectNowView | null> {
+    const project = this.value.projects.find((item) => item.id === id);
+    if (!project) return null;
+    this.set({ busyWorkId: id, error: null });
+    try {
+      await this.gateway.selectWork(id, project.revision, workItemId);
+      return await this.readProjectNow(id);
+    } catch (error) {
+      if (this.active) this.set({ error: projectError(error) });
+      return null;
+    } finally {
+      if (this.active) this.set({ busyWorkId: null });
+    }
+  }
+  async createWorkItem(
+    id: string,
+    title: string,
+    completionCondition: string | null,
+  ): Promise<ProjectNowView | null> {
+    const project = this.value.projects.find((item) => item.id === id);
+    const cleanTitle = title.trim();
+    if (!project || !cleanTitle) return null;
+    this.set({ busyWorkId: id, error: null });
+    try {
+      await this.gateway.createWork(id, project.revision, {
+        title: cleanTitle,
+        completionCondition: completionCondition?.trim() || null,
+      });
+      return await this.readProjectNow(id);
+    } catch (error) {
+      if (this.active) this.set({ error: projectError(error) });
+      return null;
+    } finally {
+      if (this.active) this.set({ busyWorkId: null });
+    }
+  }
+  async stopWorkItem(id: string, workItemId: string): Promise<ProjectNowView | null> {
+    const project = this.value.projects.find((item) => item.id === id);
+    if (!project) return null;
+    this.set({ busyWorkId: id, error: null });
+    try {
+      await this.gateway.stopWork(id, project.revision, workItemId);
+      return await this.readProjectNow(id);
+    } catch (error) {
+      if (this.active) this.set({ error: projectError(error) });
+      return null;
+    } finally {
+      if (this.active) this.set({ busyWorkId: null });
+    }
+  }
+  async pauseWorkItem(id: string, workItemId: string): Promise<ProjectNowView | null> {
+    const project = this.value.projects.find((item) => item.id === id);
+    if (!project) return null;
+    this.set({ busyWorkId: id, error: null });
+    try {
+      await this.gateway.pauseWork(id, project.revision, workItemId);
+      return await this.readProjectNow(id);
+    } catch (error) {
+      if (this.active) this.set({ error: projectError(error) });
+      return null;
+    } finally {
+      if (this.active) this.set({ busyWorkId: null });
+    }
+  }
+  async resumeWorkItem(id: string, workItemId: string): Promise<ProjectNowView | null> {
+    const project = this.value.projects.find((item) => item.id === id);
+    if (!project) return null;
+    this.set({ busyWorkId: id, error: null });
+    try {
+      await this.gateway.resumeWork(id, project.revision, workItemId);
+      return await this.readProjectNow(id);
+    } catch (error) {
+      if (this.active) this.set({ error: projectError(error) });
+      return null;
+    } finally {
+      if (this.active) this.set({ busyWorkId: null });
+    }
+  }
+  async completeWorkItem(id: string, workItemId: string): Promise<ProjectNowView | null> {
+    const project = this.value.projects.find((item) => item.id === id);
+    if (!project) return null;
+    this.set({ busyWorkId: id, error: null });
+    try {
+      await this.gateway.completeWork(id, project.revision, workItemId);
+      return await this.readProjectNow(id);
+    } catch (error) {
+      if (this.active) this.set({ error: projectError(error) });
+      return null;
+    } finally {
+      if (this.active) this.set({ busyWorkId: null });
+    }
+  }
+  async selectProposal(id: string, proposalKey: string): Promise<ProjectNowView | null> {
+    const project = this.value.projects.find((item) => item.id === id);
+    if (!project) return null;
+    this.set({ busyWorkId: id, error: null });
+    try {
+      await this.gateway.selectProposal(id, project.revision, proposalKey);
+      return await this.readProjectNow(id);
+    } catch (error) {
+      if (this.active) this.set({ error: projectError(error) });
+      return null;
+    } finally {
+      if (this.active) this.set({ busyWorkId: null });
+    }
+  }
+  async continueDirectionConflict(id: string): Promise<ProjectNowView | null> {
+    if (!this.gateway.continueDirectionConflict) return null;
+    const project = this.value.projects.find((item) => item.id === id);
+    if (!project) return null;
+    this.set({ busyWorkId: id, error: null });
+    try {
+      await this.gateway.continueDirectionConflict(id, project.revision);
+      return await this.readProjectNow(id);
+    } catch (error) {
+      if (this.active) this.set({ error: projectError(error) });
+      return null;
+    } finally {
+      if (this.active) this.set({ busyWorkId: null });
+    }
+  }
   navigate(route: ProjectRoute) {
     this.inspectionGeneration++;
     this.set({
@@ -378,15 +839,18 @@ export class ProjectController {
       error: null,
       notice: null,
     });
-    if (route.workId && route.candidateKey) this.select(route.workId, route.candidateKey);
-    if (route.page === 'project' && route.workId && this.hasLoaded)
-      void this.inspectWorkingTree(route.workId);
+    if (route.page === 'project' && route.projectId && (this.hasRegistrations || this.hasLoaded))
+      void this.enterProject(route.projectId);
+    if (route.page === 'original' && route.projectId && this.hasLoaded) void this.readOriginal();
   }
   /** Returning to the app checks files/current access without preparing AI output. */
   async checkForChanges() {
     if (!this.active) return Promise.resolve();
-    await this.refresh(true);
+    const route = this.value.route;
+    if (route.page === 'project' && route.projectId) this.markProjectNowChecking(route.projectId);
     await this.observeCurrentProject();
+    if (route.page === 'project' && route.projectId) await this.readProjectNow(route.projectId);
+    void this.refresh(true);
   }
   async refresh(background = false): Promise<void> {
     if (!this.active) return;
@@ -413,23 +877,23 @@ export class ProjectController {
           if (readEpoch !== this.readEpoch) continue;
           if (
             workspace.projects.some(
-              (entry) => entry.collecting && this.settledDuringRead.has(entry.workId),
+              (entry) => entry.collecting && this.settledDuringRead.has(entry.projectId),
             )
           ) {
             this.readAgain = true;
             continue;
           }
           const removed = this.workspace.projects.filter(
-            (old) => !workspace.projects.some((entry) => entry.workId === old.workId),
+            (old) => !workspace.projects.some((entry) => entry.projectId === old.projectId),
           );
-          const originalId = this.value.route.workId;
+          const originalId = this.value.route.projectId;
           const previousOriginal = this.workspace.projects.find(
-            (entry) => entry.workId === originalId,
+            (entry) => entry.projectId === originalId,
           );
-          const nextOriginal = workspace.projects.find((entry) => entry.workId === originalId);
+          const nextOriginal = workspace.projects.find((entry) => entry.projectId === originalId);
           if (
             previousOriginal?.revision !== nextOriginal?.revision ||
-            previousOriginal?.resume?.version !== nextOriginal?.resume?.version ||
+            previousOriginal?.analysis?.version !== nextOriginal?.analysis?.version ||
             previousOriginal?.disconnectedAt !== nextOriginal?.disconnectedAt
           ) {
             this.inspectionGeneration++;
@@ -441,12 +905,11 @@ export class ProjectController {
           this.hydratingWorkIds.clear();
           this.allChanged = false;
           this.changedWorkIds.clear();
-          for (const entry of workspace.projects) this.readEdits(entry.workId);
-          for (const entry of removed) this.clearEdits(entry.workId);
+          for (const entry of workspace.projects) this.readEdits(entry.projectId);
+          for (const entry of removed) this.clearEdits(entry.projectId);
           const route = this.value.route;
-          if (route.workId && route.candidateKey) this.select(route.workId, route.candidateKey);
           try {
-            this.memory?.prune?.(workspace.projects.map((entry) => entry.workId));
+            this.memory?.prune?.(workspace.projects.map((entry) => entry.projectId));
           } catch {
             this.set({
               memoryError:
@@ -460,7 +923,12 @@ export class ProjectController {
             loading: false,
             loadingDetails: false,
           });
-          if (route.page === 'project' && route.workId) void this.inspectWorkingTree(route.workId);
+          if (route.page === 'project' && route.projectId) {
+            if (!background) {
+              await this.readProjectNow(route.projectId);
+              void this.inspectWorkingTree(route.projectId);
+            }
+          }
           if (
             this.value.route.page === 'original' &&
             !this.value.inspection &&
@@ -491,7 +959,7 @@ export class ProjectController {
     return this.pending;
   }
   async inspectWorkingTree(id: string): Promise<WorkingTreeView | null> {
-    if (!this.active || !this.gateway.workspace) return null;
+    if (!this.active) return null;
     const language = this.outputLanguage;
     const readKey = `${id}:${language}`;
     const existing = this.workingTreeReads.get(readKey);
@@ -509,10 +977,7 @@ export class ProjectController {
         return view;
       } catch (error) {
         if (this.active && language === this.outputLanguage)
-          this.set({
-            workingTreeLoading: { ...this.value.workingTreeLoading, [id]: false },
-            error: projectError(error),
-          });
+          this.set({ workingTreeLoading: { ...this.value.workingTreeLoading, [id]: false } });
         return null;
       } finally {
         this.workingTreeReads.delete(readKey);
@@ -522,7 +987,7 @@ export class ProjectController {
     return read;
   }
   private async observeWorkingTree(id: string): Promise<WorkingTreeView | null> {
-    if (!this.active || !this.gateway.observe) return this.inspectWorkingTree(id);
+    if (!this.active) return null;
     const language = this.outputLanguage;
     const readKey = [id, language].join(':');
     const existing = this.observationReads.get(readKey);
@@ -533,10 +998,11 @@ export class ProjectController {
         if (!this.active || language !== this.outputLanguage) return null;
         const view = presentWorkingTree(snapshot);
         this.set({ workingTrees: { ...this.value.workingTrees, [id]: view } });
+        void this.readProjectNow(id);
+        if (snapshot.dirty && !snapshot.workingTreeAnalysis) void this.analyzeWorkingTree(id);
         return view;
       } catch (error) {
-        if (this.active && language === this.outputLanguage)
-          this.set({ error: projectError(error) });
+        void error;
         return null;
       } finally {
         this.observationReads.delete(readKey);
@@ -546,33 +1012,62 @@ export class ProjectController {
     return read;
   }
   private async analyzeWorkingTree(id: string): Promise<WorkingTreeView | null> {
-    if (!this.active || !this.gateway.analyzeWorkspace) return this.inspectWorkingTree(id);
+    if (!this.active) return null;
     const language = this.outputLanguage;
-    try {
-      const snapshot = await this.gateway.analyzeWorkspace(id, language);
-      if (!this.active || language !== this.outputLanguage) return null;
-      const view = presentWorkingTree(snapshot);
-      this.set({ workingTrees: { ...this.value.workingTrees, [id]: view } });
-      return view;
-    } catch (error) {
-      if (this.active && language === this.outputLanguage) this.set({ error: projectError(error) });
-      return null;
-    }
+    const readKey = [id, language].join(':');
+    const existing = this.workingTreeAnalysisReads.get(readKey);
+    if (existing) return existing;
+    this.set({
+      workingTreeAnalysisLoading: { ...this.value.workingTreeAnalysisLoading, [id]: true },
+    });
+    const read = (async () => {
+      try {
+        const snapshot = await this.gateway.analyzeWorkspace!(id, language);
+        if (!this.active || language !== this.outputLanguage) return null;
+        const view = presentWorkingTree(snapshot);
+        this.set({
+          workingTrees: { ...this.value.workingTrees, [id]: view },
+          workingTreeAnalysisLoading: { ...this.value.workingTreeAnalysisLoading, [id]: false },
+        });
+        return view;
+      } catch (error) {
+        void error;
+        if (this.active && language === this.outputLanguage)
+          this.set({
+            workingTreeAnalysisLoading: { ...this.value.workingTreeAnalysisLoading, [id]: false },
+          });
+        return null;
+      } finally {
+        this.workingTreeAnalysisReads.delete(readKey);
+      }
+    })();
+    this.workingTreeAnalysisReads.set(readKey, read);
+    return read;
   }
   private observeCurrentProject(): Promise<WorkingTreeView | null> {
     const route = this.value.route;
-    if (route.page !== 'project' || !route.workId) return Promise.resolve(null);
-    if (!this.workspace.projects.some((entry) => entry.workId === route.workId))
+    if (route.page !== 'project' || !route.projectId) return Promise.resolve(null);
+    if (!this.workspace.projects.some((entry) => entry.projectId === route.projectId))
       return Promise.resolve(null);
-    return this.observeWorkingTree(route.workId);
+    return this.observeWorkingTree(route.projectId);
   }
-  async workingTreeHandoff(id: string): Promise<string | null> {
+  async workingTreeHandoff(id: string, groupIndexes?: number[]): Promise<string | null> {
     const project = this.value.projects.find((item) => item.id === id);
     if (!project || project.disconnected) return null;
     const tree = this.value.workingTrees[id] ?? (await this.inspectWorkingTree(id));
     if (!tree || tree.kind === 'clean' || tree.kind === 'no-git') return null;
-    const groups = tree.groups
-      .map((group, index) => {
+    const selectedIndexes =
+      groupIndexes && groupIndexes.length > 0
+        ? new Set(groupIndexes.filter((index) => Number.isInteger(index) && index >= 0))
+        : null;
+    const selectedGroups = selectedIndexes
+      ? tree.groups
+          .map((group, index) => ({ group, index }))
+          .filter(({ index }) => selectedIndexes.has(index))
+      : tree.groups.map((group, index) => ({ group, index }));
+    if (tree.groups.length > 0 && selectedGroups.length === 0) return null;
+    const groups = selectedGroups
+      .map(({ group, index }) => {
         const openItems = group.openItems.length
           ? group.openItems.map((item) => `  - ${item}`).join('\n')
           : '  - No specific open item was established from the current diff.';
@@ -599,7 +1094,9 @@ export class ProjectController {
       })
       .join('\n\n');
     const analyzed = tree.groups.length > 0;
-    const hasSuggestedNextStep = tree.groups.some((group) => !!group.suggestedNextStep);
+    const scoped = analyzed && selectedGroups.length < tree.groups.length;
+    const hasSuggestedNextStep = selectedGroups.some(({ group }) => !!group.suggestedNextStep);
+    const selectedFiles = [...new Set(selectedGroups.flatMap(({ group }) => group.files))];
     return [
       analyzed
         ? 'You are continuing work from a repository state already analyzed by StateCarry.'
@@ -612,19 +1109,29 @@ export class ProjectController {
       `Last commit: ${tree.lastCommit ?? 'unknown'}`,
       `Changed files: ${tree.fileCount}`,
       `Tracked diff: +${tree.additions} / -${tree.deletions}${tree.untrackedCount ? ` · ${tree.untrackedCount} untracked` : ''}`,
+      ...(scoped
+        ? [
+            `Selected work groups: ${selectedGroups.length} of ${tree.groups.length}`,
+            `Selected changed files: ${selectedFiles.length}`,
+          ]
+        : []),
       '',
       analyzed ? `StateCarry summary: ${tree.summary}` : tree.summary,
       ...(analyzed ? ['', 'Reconstructed work:', groups] : []),
       '',
       analyzed
         ? hasSuggestedNextStep
-          ? 'Continue from this analyzed state. Preserve unrelated uncommitted changes and keep the reconstructed work groups separate. Start with the suggested next step for the relevant work group unless the current files contradict this handoff. Do not redo broad repository reconstruction first.'
-          : 'Continue from this analyzed state. Preserve unrelated uncommitted changes and keep the reconstructed work groups separate. StateCarry did not establish a useful first action from the diff, so wait for the user’s direction rather than inventing work. Do not redo broad repository reconstruction unless the current files contradict this handoff.'
+          ? scoped
+            ? 'Continue only the selected work groups below. Preserve every other uncommitted change and do not expand the requested scope unless the selected files make that impossible. Start with the suggested next step for the selected work unless the current files contradict this handoff.'
+            : 'Continue from this analyzed state. Preserve unrelated uncommitted changes and keep the reconstructed work groups separate. Start with the suggested next step for the relevant work group unless the current files contradict this handoff. Do not redo broad repository reconstruction first.'
+          : scoped
+            ? 'Work only within the selected work groups below. Preserve every other uncommitted change. StateCarry did not establish a useful first action, so wait for the user’s direction rather than inventing work.'
+            : 'Continue from this analyzed state. Preserve unrelated uncommitted changes and keep the reconstructed work groups separate. StateCarry did not establish a useful first action from the diff, so wait for the user’s direction rather than inventing work. Do not redo broad repository reconstruction unless the current files contradict this handoff.'
         : 'StateCarry could not reconstruct semantic work groups. Inspect the current diff before changing files, preserve unrelated changes, and establish the work in progress before continuing.',
       'Do not assume prior conversation context.',
     ].join('\n');
   }
-  private readEdits(id: string): SavedResumeEdits {
+  private readEdits(id: string): ProjectDrafts {
     if (this.value.edits[id]) return this.value.edits[id];
     let saved = emptyEdits();
     try {
@@ -637,20 +1144,13 @@ export class ProjectController {
     this.set({ edits: { ...this.value.edits, [id]: saved } });
     return saved;
   }
-  private edit(id: string, update: (old: SavedResumeEdits) => SavedResumeEdits) {
+  private edit(id: string, update: (old: ProjectDrafts) => ProjectDrafts) {
     // A removed screen can finish its scroll cleanup after a reset response.
     // Browser input never registers work or recreates its retired storage key.
-    if (!this.workspace.projects.some((entry) => entry.workId === id)) return;
+    if (!this.workspace.projects.some((entry) => entry.projectId === id)) return;
     const next = update(this.readEdits(id));
     this.set({ edits: { ...this.value.edits, [id]: next } });
-    try {
-      this.memory?.write(id, next);
-    } catch {
-      this.set({
-        memoryError:
-          'This browser could not save your draft. Keep this tab open or copy your unfinished text.',
-      });
-    }
+    this.persistEdits(id, next);
   }
   private clearEdits(id: string) {
     try {
@@ -663,15 +1163,68 @@ export class ProjectController {
     }
     const edits = { ...this.value.edits };
     delete edits[id];
+    this.durableDiscussionKeys.delete(id);
     this.set({ edits });
   }
   private entry(id: string) {
-    const entry = this.workspace.projects.find((item) => item.workId === id);
+    const entry = this.workspace.projects.find((item) => item.projectId === id);
     if (!entry) throw Object.assign(new Error('Project unavailable'), { code: 'NOT_FOUND' });
     return entry;
   }
   select(id: string, key: string) {
-    this.edit(id, (old) => ({ ...old, selectedKey: key }));
+    const project = this.value.projects.find((item) => item.id === id);
+    const task = [...(project?.tasks ?? []), ...(project?.dismissed ?? [])].find(
+      (item) => item.key === key,
+    );
+    this.edit(id, (old) => ({
+      ...old,
+      selectedKey: key,
+      selectedExplicit: true,
+      ...(task
+        ? {
+            selectedTaskSnapshot: {
+              key: task.key,
+              title: task.title,
+              statusLabel: task.statusLabel,
+              currentState: task.currentState,
+              reason: task.reason,
+              nextAction: task.nextAction,
+              doneWhen: task.doneWhen,
+            },
+          }
+        : {}),
+    }));
+  }
+  selectWorkingTree(id: string) {
+    this.edit(id, (old) => {
+      const next = { ...old };
+      delete next.selectedKey;
+      delete next.selectedExplicit;
+      delete next.keptWorkingTreeKey;
+      return next;
+    });
+  }
+  clearSelection(id: string) {
+    this.edit(id, (old) => {
+      const next = { ...old };
+      delete next.selectedKey;
+      delete next.selectedExplicit;
+      return next;
+    });
+  }
+  clearLegacyKeptDecision(id: string) {
+    this.edit(id, (old) => {
+      const { keptWorkingTreeKey: _previous, ...next } = old;
+      return next;
+    });
+  }
+  keepWorkingTree(id: string, key: string) {
+    this.edit(id, (old) => {
+      const next = { ...old, keptWorkingTreeKey: key };
+      delete next.selectedKey;
+      delete next.selectedExplicit;
+      return next;
+    });
   }
   recordScroll(id: string, scroll: number) {
     this.edit(id, (old) => ({ ...old, scroll: Math.max(0, scroll) }));
@@ -685,7 +1238,7 @@ export class ProjectController {
     }));
   }
   editGoal(id: string, text?: string) {
-    const work = this.entry(id).resume;
+    const work = this.entry(id).analysis;
     if (!work) return;
     this.edit(id, (old) => ({
       ...old,
@@ -701,8 +1254,227 @@ export class ProjectController {
       },
     }));
   }
+  prepareGoalDiscussion(id: string) {
+    const project = this.value.projects.find((item) => item.id === id);
+    if (!project) return;
+    const version = project.version;
+    this.edit(id, (old) => ({
+      ...old,
+      goalDiscussionDraft:
+        old.goalDiscussionDraft?.version === version
+          ? old.goalDiscussionDraft
+          : { text: goalDiscussionText(project, this.value.workingTrees[id]), version },
+    }));
+  }
+  editGoalDiscussion(id: string, text: string) {
+    const project = this.value.projects.find((item) => item.id === id);
+    if (!project) return;
+    this.edit(id, (old) => ({ ...old, goalDiscussionDraft: { text, version: project.version } }));
+  }
+  discardGoalDiscussion(id: string) {
+    this.edit(id, (old) => ({ ...old, goalDiscussionDraft: null }));
+  }
+  focusWorkingTree(
+    id: string,
+    key: string,
+    mode: NonNullable<ProjectDrafts['workingTreeFocus']>['mode'],
+  ) {
+    const tree = this.value.workingTrees[id];
+    if (!tree) return;
+    this.edit(id, (old) => ({
+      ...old,
+      workingTreeFocus: {
+        key,
+        basis: tree.discussionBasis ?? '',
+        mode,
+        stopped:
+          mode === 'stopped' ||
+          (old.workingTreeFocus?.key === key &&
+            old.workingTreeFocus.stopped === true &&
+            mode !== 'continue'),
+      },
+    }));
+    if (mode === 'discuss') this.openTaskDiscussion(id, key);
+  }
+  clearWorkingTreeFocus(id: string) {
+    this.edit(id, (old) => {
+      const next = { ...old };
+      delete next.workingTreeFocus;
+      return next;
+    });
+  }
+  private discussionVersion(id: string, key: string): string {
+    const project = this.value.projects.find((item) => item.id === id);
+    const tree = this.value.workingTrees[id];
+    return key.startsWith('working-tree:')
+      ? `${project?.version ?? ''}:${tree?.discussionBasis ?? ''}`
+      : (project?.version ?? '');
+  }
+  openTaskDiscussion(id: string, key: string) {
+    const project = this.value.projects.find((item) => item.id === id);
+    const task = [...(project?.tasks ?? []), ...(project?.dismissed ?? [])].find(
+      (item) => item.key === key,
+    );
+    const tree = this.value.workingTrees[id];
+    const isWorkingTree =
+      key === workingTreeGroupKey() ||
+      tree?.groups.some((group) => workingTreeGroupKey(group) === key);
+    if (!project || (!task && !isWorkingTree && !this.workItemForDiscussion(id, key))) return;
+    if (task) this.select(id, key);
+    this.edit(id, (old) => ({
+      ...old,
+      taskDiscussions: old.taskDiscussions?.some(([candidate]) => candidate === key)
+        ? old.taskDiscussions
+        : [
+            ...(old.taskDiscussions ?? []),
+            [key, { version: this.discussionVersion(id, key), input: '', turns: [] }],
+          ],
+    }));
+  }
+  linkTaskDiscussion(id: string, from: string, to: string) {
+    if (from === to) return;
+    this.openTaskDiscussion(id, to);
+    this.markDiscussionPending(id, to);
+    this.edit(id, (old) => {
+      const source = old.taskDiscussions?.find(([key]) => key === from)?.[1];
+      const target = old.taskDiscussions?.find(([key]) => key === to)?.[1];
+      if (!source || !target) return old;
+      return {
+        ...old,
+        taskDiscussions: old.taskDiscussions?.map(([key, discussion]) =>
+          key !== to
+            ? [key, discussion]
+            : [
+                key,
+                {
+                  ...target,
+                  input: target.input || source.input,
+                  turns: [
+                    ...source.turns.map((turn) => ({
+                      ...turn,
+                      version: turn.version ?? source.version,
+                    })),
+                    ...target.turns,
+                  ].slice(-10),
+                },
+              ],
+        ),
+      };
+    });
+    void this.syncDiscussionToCore(id, to).catch((error) => {
+      if (this.active) this.set({ error: projectError(error) });
+    });
+  }
+  editTaskDiscussionInput(id: string, key: string, input: string) {
+    const project = this.value.projects.find((item) => item.id === id);
+    if (!project) return;
+    this.edit(id, (old) => {
+      const previous = old.taskDiscussions?.find(([candidate]) => candidate === key)?.[1] ?? {
+        version: this.discussionVersion(id, key),
+        input: '',
+        turns: [],
+      };
+      return {
+        ...old,
+        taskDiscussions: [
+          ...(old.taskDiscussions ?? []).filter(([candidate]) => candidate !== key),
+          [key, { ...previous, input }],
+        ],
+      };
+    });
+  }
+  rebaseTaskDiscussion(id: string, key: string) {
+    const project = this.value.projects.find((item) => item.id === id);
+    if (!project) return;
+    this.markDiscussionPending(id, key);
+    this.edit(id, (old) => ({
+      ...old,
+      taskDiscussions: (old.taskDiscussions ?? []).map(([candidate, discussion]) =>
+        candidate === key
+          ? [
+              candidate,
+              {
+                ...discussion,
+                turns: discussion.turns.map((turn) => ({
+                  ...turn,
+                  version: turn.version ?? discussion.version,
+                })),
+                version: this.discussionVersion(id, key),
+              },
+            ]
+          : [candidate, discussion],
+      ),
+    }));
+    void this.syncDiscussionToCore(id, key).catch((error) => {
+      if (this.active) this.set({ error: projectError(error) });
+    });
+  }
+  async askTaskDiscussion(id: string, key: string, questionOverride?: string) {
+    const project = this.value.projects.find((item) => item.id === id);
+    const discussion = this.value.edits[id]?.taskDiscussions?.find(
+      ([candidate]) => candidate === key,
+    )?.[1];
+    const question = questionOverride?.trim() || discussion?.input.trim();
+    if (
+      !project ||
+      !discussion ||
+      !question ||
+      discussion.version !== this.discussionVersion(id, key)
+    )
+      return;
+    if (!this.analysis.discussTask) throw new Error('Task discussion is unavailable.');
+    const history = discussion.turns
+      .slice(-9)
+      .map((turn) => ({
+        question: turn.question,
+        answer: [
+          ...turn.answer.items.map((item) => item.text),
+          ...turn.answer.unknowns.map((item) => `Unknown: ${item}`),
+        ].join('\n'),
+      }));
+    const response = await this.analysis.discussTask(id, {
+      workItemId: key,
+      version: project.version || 'working-tree',
+      question,
+      history,
+    });
+    this.markDiscussionPending(id, key);
+    this.edit(id, (old) => {
+      const current = old.taskDiscussions?.find(([candidate]) => candidate === key)?.[1];
+      if (!current) return old;
+      const answer = {
+        items: response.answer.items.map((item) => ({
+          id: item.id,
+          kind: item.kind,
+          nature: item.nature,
+          text: item.text,
+          uncertainty: item.uncertainty,
+          evidence: item.evidence.map((reference) => reference.revisionId),
+        })),
+        unknowns: response.answer.unknowns,
+        limitations: response.limitations,
+      };
+      return {
+        ...old,
+        taskDiscussions: [
+          ...(old.taskDiscussions ?? []).filter(([candidate]) => candidate !== key),
+          [
+            key,
+            {
+              ...current,
+              input: !questionOverride && current.input.trim() === question ? '' : current.input,
+              turns: [...current.turns, { question, answer, version: discussion.version }].slice(
+                -10,
+              ),
+            },
+          ],
+        ],
+      };
+    });
+    if (this.workItemForDiscussion(id, key)) await this.readProjectNow(id);
+  }
   editAction(id: string, key: string, action?: string, done?: string) {
-    const work = this.entry(id).resume;
+    const work = this.entry(id).analysis;
     const task = work?.candidates.find((item) => item.key === key);
     if (!task || !work) return;
     this.edit(id, (old) => {
@@ -733,7 +1505,7 @@ export class ProjectController {
     }));
   }
   rebaseGoal(id: string) {
-    const version = this.entry(id).resume?.version;
+    const version = this.entry(id).analysis?.version;
     if (version)
       this.edit(id, (old) => ({
         ...old,
@@ -741,7 +1513,7 @@ export class ProjectController {
       }));
   }
   rebaseAction(id: string, key: string) {
-    const version = this.entry(id).resume?.version;
+    const version = this.entry(id).analysis?.version;
     if (version)
       this.edit(id, (old) => ({
         ...old,
@@ -763,7 +1535,7 @@ export class ProjectController {
       await action();
       if (!this.active || generation !== this.generation) return false;
       await this.refresh();
-      if (this.value.route.workId === id || id === 'new') this.set({ notice });
+      if (this.value.route.projectId === id || id === 'new') this.set({ notice });
       return true;
     } catch (error) {
       if (this.active && generation === this.generation) {
@@ -777,28 +1549,31 @@ export class ProjectController {
   }
   async saveGoal(id: string) {
     const draft = this.readEdits(id).goalDraft;
-    const work = this.entry(id).resume;
+    const work = this.entry(id).analysis;
     const generation = this.generation;
     if (!draft?.text.trim()) return;
     if (
       work &&
       draft.version === work.version &&
+      work.goalOrigin === 'user-input' &&
       draft.text.trim() === (work.goalText ?? '').trim()
     ) {
       this.discardGoal(id);
-      if (this.value.route.workId === id) this.set({ notice: 'No changes to save.' });
+      if (this.value.route.projectId === id) this.set({ notice: 'No changes to save.' });
       return;
     }
     await this.mutate(
       id,
       async () => {
-        await this.resume.setGoal(id, draft.text.trim(), draft.version);
+        await this.analysis.setGoal(id, draft.text.trim(), draft.version);
         if (
           this.active &&
           generation === this.generation &&
           this.value.edits[id]?.goalDraft === draft
-        )
+        ) {
           this.discardGoal(id);
+          this.discardGoalDiscussion(id);
+        }
       },
       'Goal saved. Update the overview when you want StateCarry to check the project again.',
     );
@@ -810,7 +1585,7 @@ export class ProjectController {
     await this.mutate(
       id,
       async () => {
-        await this.resume.correct(id, {
+        await this.analysis.correct(id, {
           candidateKey: key,
           version: draft.version,
           kind: 'wrong-action',
@@ -827,8 +1602,8 @@ export class ProjectController {
       'Next step saved.',
     );
   }
-  async correct(id: string, key: string, kind: ResumeCorrection['kind']) {
-    const work = this.entry(id).resume;
+  async correct(id: string, key: string, kind: AnalysisCorrection['kind']) {
+    const work = this.entry(id).analysis;
     if (!work) return;
     const candidate = work.candidates.find((item) => item.key === key);
     const acceptingResult =
@@ -838,7 +1613,7 @@ export class ProjectController {
         !!candidate.completion?.verified?.length);
     await this.mutate(
       id,
-      () => this.resume.correct(id, { candidateKey: key, version: work.version, kind }),
+      () => this.analysis.correct(id, { candidateKey: key, version: work.version, kind }),
       kind === 'done'
         ? acceptingResult
           ? "Result accepted. StateCarry won't create a new task automatically."
@@ -855,8 +1630,8 @@ export class ProjectController {
       'Overview update started. You can keep reading while StateCarry checks the project.',
     );
   }
-  async create(input: ProjectCreateInput): Promise<{ workId: string; reused: boolean } | null> {
-    const outcome: { value: { workId: string; reused: boolean } | null } = { value: null };
+  async create(input: ProjectCreateInput): Promise<{ projectId: string; reused: boolean } | null> {
+    const outcome: { value: { projectId: string; reused: boolean } | null } = { value: null };
     const saved = await this.mutate(
       'new',
       async () => {
@@ -875,7 +1650,10 @@ export class ProjectController {
           }
         }
         const receipt = await this.gateway.create(createInput);
-        outcome.value = { workId: receipt.workId, reused: receipt.command === 'project-reuse' };
+        outcome.value = {
+          projectId: receipt.projectId,
+          reused: receipt.command === 'project-reuse',
+        };
       },
       '',
     );
@@ -883,7 +1661,7 @@ export class ProjectController {
     if (!saved || !result) return null;
     if (!result.reused) {
       try {
-        await this.refreshOverview(result.workId);
+        await this.refreshOverview(result.projectId);
       } catch {
         // Registration is already durable. A failed first overview request must
         // not turn project creation into a failed create or send the user back
@@ -949,7 +1727,7 @@ export class ProjectController {
     const readEpoch = this.readEpoch;
     try {
       const preview = await this.gateway.deletionPreview(id);
-      if (this.value.route.workId !== id || readEpoch !== this.readEpoch) return false;
+      if (this.value.route.projectId !== id || readEpoch !== this.readEpoch) return false;
       this.set({ deletion: preview, error: null });
       return true;
     } catch (error) {
@@ -959,7 +1737,7 @@ export class ProjectController {
   }
   async remove(id: string): Promise<boolean> {
     const preview = this.value.deletion;
-    if (preview?.workId !== id || preview.blocked) return false;
+    if (preview?.projectId !== id || preview.blocked) return false;
     return this.mutate(
       id,
       async () => {
@@ -973,10 +1751,10 @@ export class ProjectController {
   }
   async handoff(id: string, key: string): Promise<string | null> {
     if (!this.value.online || this.needsCurrent(id) || this.value.busyWorkId) return null;
-    const before = this.entry(id).resume;
+    const before = this.entry(id).analysis;
     await this.refresh();
-    const work = this.workspace.projects.find((entry) => entry.workId === id)?.resume;
-    const candidate = work ? presentResumeWork(work, key).selected : null;
+    const work = this.workspace.projects.find((entry) => entry.projectId === id)?.analysis;
+    const candidate = work ? presentProjectAnalysis(work, key).selected : null;
     if (
       !this.value.online ||
       !work ||
@@ -988,13 +1766,13 @@ export class ProjectController {
       });
       return null;
     }
-    return resumeHandoffText(candidate, work);
+    return analysisHandoffText(candidate, work);
   }
   private async readOriginal() {
     const route = this.value.route;
     const generation = ++this.inspectionGeneration;
-    if (route.page !== 'original' || !route.workId || !route.sourceId) return;
-    const project = this.value.projects.find((item) => item.id === route.workId);
+    if (route.page !== 'original' || !route.projectId || !route.sourceId) return;
+    const project = this.value.projects.find((item) => item.id === route.projectId);
     const allowed = project?.tasks.some((task) =>
       task.originals.some((source) => source.id === route.sourceId),
     );
@@ -1008,7 +1786,7 @@ export class ProjectController {
     }
     this.set({ inspection: null, inspectionLoading: true });
     try {
-      const source = await this.gateway.evidence(route.workId, route.sourceId);
+      const source = await this.gateway.evidence(route.projectId, route.sourceId);
       if (!this.active || generation !== this.inspectionGeneration) return;
       const actor = {
         user: 'Your message',
@@ -1018,7 +1796,7 @@ export class ProjectController {
       }[source.actor];
       this.set({
         inspection: {
-          workId: route.workId,
+          projectId: route.projectId,
           title: 'Original record',
           actor,
           at: source.eventAt,
@@ -1048,9 +1826,9 @@ export class ProjectController {
     if (this.outputLanguage === language) return;
     this.outputLanguage = language;
     const route = this.value.route;
-    if (this.active && this.hasLoaded && route.page === 'project' && route.workId) {
-      void this.inspectWorkingTree(route.workId);
-      void this.analyzeWorkingTree(route.workId);
+    if (this.active && this.hasLoaded && route.page === 'project' && route.projectId) {
+      void this.inspectWorkingTree(route.projectId);
+      void this.analyzeWorkingTree(route.projectId);
     }
   }
   async localizeGeneratedOverviews(language: 'en' | 'ko'): Promise<boolean> {
@@ -1059,18 +1837,18 @@ export class ProjectController {
     const targets = this.workspace.projects.filter(
       (entry) =>
         !entry.disconnectedAt &&
-        !!entry.resume?.generatedAt &&
-        (entry.resume.outputLanguage ?? 'en') !== language,
+        !!entry.analysis?.generatedAt &&
+        (entry.analysis.outputLanguage ?? 'en') !== language,
     );
     if (!targets.length) return true;
-    if (!this.resume.localize) {
+    if (!this.analysis.localize) {
       this.set({ error: 'Existing overview language cannot be updated in this environment.' });
       return false;
     }
     const generation = this.generation;
     this.set({ busyWorkId: 'response-language', error: null, notice: null });
     try {
-      for (const target of targets) await this.resume.localize(target.workId, language);
+      for (const target of targets) await this.analysis.localize(target.projectId, language);
       if (!this.active || generation !== this.generation) return false;
       await this.refresh();
       if (!this.active || generation !== this.generation) return false;
@@ -1092,7 +1870,9 @@ export class ProjectController {
     }
   }
   private refreshOverview(id: string) {
-    return this.outputLanguage === 'ko' ? this.resume.refresh(id, 'ko') : this.resume.refresh(id);
+    return this.outputLanguage === 'ko'
+      ? this.analysis.refresh(id, 'ko')
+      : this.analysis.refresh(id);
   }
   discover(cwd: string) {
     return this.gateway.discover(cwd);

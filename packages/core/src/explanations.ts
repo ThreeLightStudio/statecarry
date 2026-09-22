@@ -26,16 +26,16 @@ export class Explanations {
   private recovering: Promise<void> | null = null;
   private storageUnknown = false;
   constructor(private core: StateCarry) {}
-  hasPendingWork(workId: string): boolean {
+  hasPendingWork(projectId: string): boolean {
     return (
       this.storageUnknown ||
       !!this.recovering ||
-      this.runningWorkId === workId ||
+      this.runningWorkId === projectId ||
       this.core.repo
         .list('explanationJob')
         .some(
           (job) =>
-            job.workId === workId &&
+            job.projectId === projectId &&
             ['waiting', 'queued', 'generating', 'repairing', 'checking', 'result-unknown'].includes(
               job.status,
             ),
@@ -58,10 +58,10 @@ export class Explanations {
     );
   }
   private scope(input: ExplanationInput, current = false): SourceRevision[] {
-    const w = this.core.work(input.workId),
-      c = this.core.repo.get('connection', w.projectId),
+    const w = this.core.project(input.projectId),
+      c = this.core.repo.get('connection', w.connectionId),
       summary = this.core.repo.get('summary', input.summaryId);
-    if (JSON.stringify(input.goal?.intent) !== JSON.stringify(w.goal))
+    if (JSON.stringify(input.goal?.intent) !== JSON.stringify(this.core.directionIntent(w.id)))
       throw new DomainError('SOURCE_UNAVAILABLE', 'Goal changed; prepare a new explanation.', 409);
     const keys = new Set(this.core.sources(w.id).map((s) => s.key));
     const linked = new Set(
@@ -73,7 +73,7 @@ export class Explanations {
     const sources = input.sourceRevisionIds.map((id) => this.core.repo.get('source', id));
     if (
       !c ||
-      summary?.workId !== w.id ||
+      summary?.projectId !== w.id ||
       summary.linkVersion !== input.linkVersion ||
       JSON.stringify(summary.sourceRevisionIds) !== JSON.stringify(input.sourceRevisionIds) ||
       sources.some((s) => !s || !keys.has(s.key) || !linked.has(s.threadId))
@@ -99,9 +99,9 @@ export class Explanations {
       );
     return sources as SourceRevision[];
   }
-  get(workId: string, id: string) {
+  get(projectId: string, id: string) {
     const r = this.core.repo.get('explanation', id);
-    if (!r || r.workId !== workId)
+    if (!r || r.projectId !== projectId)
       throw new DomainError('NOT_FOUND', 'The explanation was not found.', 404);
     if (r.jobId !== this.core.ids.hash({ ...r.input, capturedAt: undefined }))
       throw new DomainError(
@@ -112,8 +112,8 @@ export class Explanations {
     this.scope(r.input);
     return r;
   }
-  evidence(workId: string, id: string, revisionId: string) {
-    const r = this.get(workId, id);
+  evidence(projectId: string, id: string, revisionId: string) {
+    const r = this.get(projectId, id);
     if (
       ![...r.candidate.nodes, ...r.candidate.links].some((n) =>
         n.evidence.some((e) => e.revisionId === revisionId),
@@ -122,11 +122,11 @@ export class Explanations {
       throw new DomainError('NOT_FOUND', 'This is not a citation in this explanation.', 404);
     return this.scope(r.input).find((s) => s.id === revisionId)!;
   }
-  view(workId: string): ExplanationView {
-    const w = this.core.work(workId);
+  view(projectId: string): ExplanationView {
+    const w = this.core.project(projectId);
     const accessible = this.core.repo
       .list('explanation')
-      .filter((r) => r.workId === workId)
+      .filter((r) => r.projectId === projectId)
       .filter((r) => {
         try {
           this.scope(r.input);
@@ -137,7 +137,7 @@ export class Explanations {
       });
     const jobs = this.core.repo
       .list('explanationJob')
-      .filter((j) => j.workId === workId && j.summaryId === w.latestSummaryId);
+      .filter((j) => j.projectId === projectId && j.summaryId === w.latestSummaryId);
     const job = jobs
       .filter((j) => {
         try {
@@ -173,11 +173,11 @@ export class Explanations {
         : null,
     };
   }
-  prepare(workId: string, value: unknown) {
+  prepare(projectId: string, value: unknown) {
     const request = explanationPrepareSchema.parse(value);
     if (!this.available())
       throw new DomainError('CAPABILITY_UNSUPPORTED', 'Explanation generation is unavailable.');
-    const hash = this.core.ids.hash({ action: 'explanation-prepare', workId, request });
+    const hash = this.core.ids.hash({ action: 'explanation-prepare', projectId, request });
     const old = this.core.repo.get('receipt', request.requestId);
     if (old && old.bodyHash !== hash)
       throw new DomainError(
@@ -185,13 +185,16 @@ export class Explanations {
         'This request ID was used for another explanation.',
         409,
       );
-    if (old) return this.view(workId);
-    const w = this.core.work(workId),
+    if (old) return this.view(projectId);
+    const w = this.core.project(projectId),
       summary = this.core.repo.get('summary', request.summaryId),
-      connection = this.core.repo.get('connection', w.projectId)!;
-    if (!summary || summary.workId !== workId || summary.id !== w.latestSummaryId)
+      connection = this.core.repo.get('connection', w.connectionId)!;
+    if (!summary || summary.projectId !== projectId || summary.id !== w.latestSummaryId)
       throw new DomainError('REVISION_CONFLICT', 'The displayed summary changed.', 409);
-    if (w.goal?.evidenceId && !summary.sourceRevisionIds.includes(w.goal.evidenceId))
+    if (
+      this.core.directionIntent(w.id)?.evidenceId &&
+      !summary.sourceRevisionIds.includes(this.core.directionIntent(w.id)!.evidenceId!)
+    )
       throw new DomainError(
         'SOURCE_UNAVAILABLE',
         'The confirmed goal source is outside this input. Review the goal scope.',
@@ -202,13 +205,13 @@ export class Explanations {
       throw new DomainError('SOURCE_UNAVAILABLE', 'Explanation sources are unavailable.', 409);
     const selected = selectExplanationRanges(summary, sources as SourceRevision[]);
     const input: ExplanationInput = {
-      ...(w.goal
+      ...(this.core.directionIntent(w.id)
         ? {
             goal: {
-              intent: w.goal,
+              intent: this.core.directionIntent(w.id)!,
               recordRanges: connection.recordRanges ?? {},
               relations: this.core
-                .links(workId)
+                .links(projectId)
                 .filter((l) => l.status === 'linked')
                 .map((l) => ({
                   threadId: l.threadId,
@@ -229,7 +232,7 @@ export class Explanations {
             },
           }
         : {}),
-      workId,
+      projectId,
       summaryId: summary.id,
       sourceRevisionIds: [...summary.sourceRevisionIds],
       connectionRevision: connection.revision,
@@ -243,7 +246,7 @@ export class Explanations {
           ...summary.limitations,
           ...this.core.repo
             .list('checkpoint')
-            .filter((cp) => cp.workId === workId && cp.status !== 'checked')
+            .filter((cp) => cp.projectId === projectId && cp.status !== 'checked')
             .map(
               (cp) =>
                 `Included session ${cp.threadId} was not fully read: ${cp.limitations.join('; ')}`,
@@ -271,7 +274,7 @@ export class Explanations {
       if (!this.core.repo.get('explanationJob', id))
         this.save({
           id,
-          workId,
+          projectId,
           summaryId: summary.id,
           input,
           status: 'waiting',
@@ -291,39 +294,39 @@ export class Explanations {
         id: request.requestId,
         command: 'explanation-prepare',
         bodyHash: hash,
-        workId,
+        projectId,
         committedRevision: w.revision,
         resultId: id,
         createdAt: this.now(),
       });
     });
-    this.core.events.changed(workId);
+    this.core.events.changed(projectId);
     this.tick();
-    return this.view(workId);
+    return this.view(projectId);
   }
-  preparePublished(workId: string) {
+  preparePublished(projectId: string) {
     if (!this.available()) return;
-    const summaryId = this.core.work(workId).latestSummaryId;
+    const summaryId = this.core.project(projectId).latestSummaryId;
     if (summaryId)
-      this.prepare(workId, {
+      this.prepare(projectId, {
         requestId: this.core.ids.hash([
           'explanation-published',
-          workId,
+          projectId,
           summaryId,
           EXPLANATION_POLICY,
         ]),
         summaryId,
       });
   }
-  retry(workId: string, jobId: string, value: unknown) {
+  retry(projectId: string, jobId: string, value: unknown) {
     const request = explanationRetrySchema.parse(value),
-      hash = this.core.ids.hash({ workId, jobId, action: 'explanation-retry', request });
+      hash = this.core.ids.hash({ projectId, jobId, action: 'explanation-retry', request });
     const prior = this.core.repo.get('receipt', request.requestId);
     if (prior && prior.bodyHash !== hash)
       throw new DomainError('IDEMPOTENCY_CONFLICT', 'The retry request ID does not match.', 409);
-    if (prior) return this.view(workId);
+    if (prior) return this.view(projectId);
     const job = this.core.repo.get('explanationJob', jobId);
-    if (!job || job.workId !== workId)
+    if (!job || job.projectId !== projectId)
       throw new DomainError('NOT_FOUND', 'The explanation job was not found.', 404);
     this.scope(job.input, true);
     if (
@@ -338,14 +341,14 @@ export class Explanations {
         id: request.requestId,
         command: 'explanation-retry',
         bodyHash: hash,
-        workId,
-        committedRevision: this.core.work(workId).revision,
+        projectId,
+        committedRevision: this.core.project(projectId).revision,
         resultId: jobId,
         createdAt: this.now(),
       });
     });
     this.tick();
-    return this.view(workId);
+    return this.view(projectId);
   }
   tick() {
     if (!this.closing && !this.task && this.hasUnresolvedExecution() && !this.recovering)
@@ -378,7 +381,7 @@ export class Explanations {
     for (const j of valid) if (j.status === 'waiting') this.save({ ...j, status: 'queued' });
     const job = valid[0];
     if (!job) return;
-    this.runningWorkId = job.workId;
+    this.runningWorkId = job.projectId;
     this.task = this.run(this.core.repo.get('explanationJob', job.id)!)
       .catch(() => {
         this.storageUnknown = true;
@@ -386,7 +389,7 @@ export class Explanations {
       .finally(() => {
         this.task = null;
         this.runningWorkId = null;
-        this.core.events.changed(job.workId);
+        this.core.events.changed(job.projectId);
       });
   }
   private async run(original: ExplanationJob) {
@@ -397,7 +400,7 @@ export class Explanations {
         throw new DomainError('RESULT_UNKNOWN', 'Replaced by another explanation run.');
       job = { ...job, ...patch, updatedAt: this.now() };
       this.save(job);
-      this.core.events.changed(job.workId);
+      this.core.events.changed(job.projectId);
     };
     this.save(job);
     const validate = () => {
@@ -476,7 +479,7 @@ export class Explanations {
             validate();
             const result: ExplanationRevision = {
               id: this.core.ids.next(),
-              workId: job.workId,
+              projectId: job.projectId,
               summaryId: job.summaryId,
               input: job.input,
               candidate,

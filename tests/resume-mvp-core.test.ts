@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { StateCarry, type ProjectInspector } from '@statecarry/core';
-import type { ResumeCandidate, WorkspaceSnapshot } from '@statecarry/contracts';
+import type { AnalysisCandidate, WorkspaceSnapshot } from '@statecarry/contracts';
 import { harness, source } from './helpers';
 
-const candidate = (record = source()): ResumeCandidate => ({
+const candidate = (record = source()): AnalysisCandidate => ({
   key: 'goal-a',
   goal: 'Ship the export',
   currentState: 'The export is implemented and its check remains open.',
@@ -75,9 +75,9 @@ describe('resume MVP core boundaries', () => {
         threadIds: [],
         discover: false,
       },
-    }).workId;
+    }).projectId;
     let supplied: any;
-    h.summary.generateResume = async (input: any) => {
+    h.summary.generateAnalysis = async (input: any) => {
       supplied = input;
       const git = input.records.find((record: any) => record.kind === 'gitObservation');
       return {
@@ -100,16 +100,16 @@ describe('resume MVP core boundaries', () => {
         ],
       };
     };
-    await core.resumes.refresh(id);
+    await core.analyses.refresh(id);
     expect(supplied.sessions).toEqual([{ id: 'project-inspection', title: 'Project inspection' }]);
     expect(supplied.records.some((record: any) => record.kind === 'gitObservation')).toBe(true);
     expect(supplied.records.some((record: any) => record.kind === 'fileObservation')).toBe(true);
-    expect(core.resumes.view(id)).toMatchObject({
+    expect(core.analyses.view(id)).toMatchObject({
       sessionCount: 0,
       state: 'ready',
       candidates: [expect.objectContaining({ threadId: 'project-inspection' })],
     });
-    expect(core.projects.list().projects[0].resume).toMatchObject({
+    expect(core.projects.list().projects[0].analysis).toMatchObject({
       sessionCount: 0,
       state: 'ready',
       candidates: [expect.objectContaining({ threadId: 'project-inspection' })],
@@ -146,11 +146,11 @@ describe('resume MVP core boundaries', () => {
       requestId: h.core.ids.next(),
       expectedRevision: 0,
       payload: { title: 'Project', cwd: '/tmp/example', threadIds: ['thread-a'], discover: false },
-    }).workId;
+    }).projectId;
     const record = source('The export check is still open.');
     h.records([record]);
-    h.summary.generateResume = async () => ({ candidates: [candidate(record)] });
-    await core.resumes.refresh(id);
+    h.summary.generateAnalysis = async () => ({ candidates: [candidate(record)] });
+    await core.analyses.refresh(id);
     current = snapshot([
       {
         path: 'src/export.ts',
@@ -162,7 +162,7 @@ describe('resume MVP core boundaries', () => {
       },
     ]);
     await core.projects.observe(id, 'en', undefined, false);
-    expect(core.resumes.view(id)).toMatchObject({
+    expect(core.analyses.view(id)).toMatchObject({
       workspaceChanged: true,
       stale: true,
       candidates: [expect.objectContaining({ key: 'goal-a' })],
@@ -199,9 +199,9 @@ describe('resume MVP core boundaries', () => {
       requestId: h.core.ids.next(),
       expectedRevision: 0,
       payload: { title: 'Project', cwd: '/tmp/example', threadIds: ['thread-a'], discover: false },
-    }).workId;
+    }).projectId;
     let fileRecord: any;
-    h.summary.generateResume = async (input: any) => {
+    h.summary.generateAnalysis = async (input: any) => {
       fileRecord = input.records.find((record: any) => record.kind === 'fileObservation');
       return {
         candidates: [
@@ -218,9 +218,9 @@ describe('resume MVP core boundaries', () => {
         ],
       };
     };
-    await core.resumes.refresh(id);
+    await core.analyses.refresh(id);
     expect(fileRecord).toBeTruthy();
-    expect(core.resumes.view(id).candidates[0].progress?.implemented?.[0].revisionId).toBe(
+    expect(core.analyses.view(id).candidates[0].progress?.implemented?.[0].revisionId).toBe(
       fileRecord.revisionId,
     );
   });
@@ -255,11 +255,11 @@ describe('resume MVP core boundaries', () => {
       requestId: h.core.ids.next(),
       expectedRevision: 0,
       payload: { title: 'Project', cwd: '/tmp/example', threadIds: ['thread-a'], discover: false },
-    }).workId;
+    }).projectId;
     const record = source();
     h.records([record]);
-    h.summary.generateResume = async () => ({ candidates: [candidate(record)] });
-    await core.resumes.refresh(id);
+    h.summary.generateAnalysis = async () => ({ candidates: [candidate(record)] });
+    await core.analyses.refresh(id);
     current = {
       ...current,
       status: 'unknown',
@@ -269,7 +269,7 @@ describe('resume MVP core boundaries', () => {
       limitations: ['Workspace state unavailable'],
     };
     await core.projects.observe(id, 'en', undefined, false);
-    expect(core.resumes.view(id)).toMatchObject({
+    expect(core.analyses.view(id)).toMatchObject({
       state: 'limited',
       candidates: [expect.objectContaining({ key: 'goal-a' })],
       workspaceChanged: false,
@@ -279,35 +279,35 @@ describe('resume MVP core boundaries', () => {
   it('stores and clears an explicit coordination conversation', () => {
     const h = harness(),
       id = h.connect(),
-      initial = h.core.resumes.view(id),
-      firstRevision = h.core.work(id).revision;
+      initial = h.core.analyses.view(id),
+      firstRevision = h.core.project(id).revision;
     expect(
-      h.core.resumes.setCoordination(id, { version: initial.version, threadId: 'thread-a' })
+      h.core.analyses.setCoordination(id, { version: initial.version, threadId: 'thread-a' })
         .coordination,
     ).toMatchObject({ state: 'recommended', threadId: 'thread-a' });
-    expect(h.core.work(id).revision).toBe(firstRevision + 1);
-    const selected = h.core.resumes.view(id);
+    expect(h.core.project(id).revision).toBe(firstRevision + 1);
+    const selected = h.core.analyses.view(id);
     expect(
-      h.core.resumes.setCoordination(id, { version: selected.version, threadId: null }).coordination
-        ?.state,
+      h.core.analyses.setCoordination(id, { version: selected.version, threadId: null })
+        .coordination?.state,
     ).toBe('none');
-    expect(h.core.work(id).revision).toBe(firstRevision + 2);
+    expect(h.core.project(id).revision).toBe(firstRevision + 2);
   });
   it('keeps the last checked brief when a later collection is partial', async () => {
     const h = harness(),
       id = h.connect(),
       record = source();
     h.records([record]);
-    h.summary.generateResume = async () => ({ candidates: [candidate(record)] });
-    await h.core.resumes.refresh(id);
+    h.summary.generateAnalysis = async () => ({ candidates: [candidate(record)] });
+    await h.core.analyses.refresh(id);
     const read = h.reader.read;
     h.reader.read = async (...args) => ({
       ...(await read(...args)),
       status: 'partial',
       limitations: ['A connected record could not be read.'],
     });
-    await h.core.resumes.refresh(id);
-    expect(h.core.resumes.view(id)).toMatchObject({
+    await h.core.analyses.refresh(id);
+    expect(h.core.analyses.view(id)).toMatchObject({
       state: 'limited',
       stale: true,
       candidates: [expect.objectContaining({ key: 'goal-a' })],
@@ -344,7 +344,7 @@ describe('resume MVP core boundaries', () => {
       requestId: core.ids.next(),
       expectedRevision: 0,
       payload: { title: 'Project', cwd: '/tmp/example', threadIds: ['thread-a'], discover: false },
-    }).workId;
+    }).projectId;
     const record = source('A conversation excerpt that is only partially available.');
     h.records([record]);
     const read = h.reader.read.bind(h.reader);
@@ -354,7 +354,7 @@ describe('resume MVP core boundaries', () => {
       limitations: ['A Codex record could not be read.'],
     });
     let supplied: any;
-    h.summary.generateResume = async (input: any) => {
+    h.summary.generateAnalysis = async (input: any) => {
       supplied = input;
       const git = input.records.find((item: any) => item.kind === 'gitObservation');
       return {
@@ -378,10 +378,10 @@ describe('resume MVP core boundaries', () => {
       };
     };
 
-    await core.resumes.refresh(id);
+    await core.analyses.refresh(id);
 
     expect(supplied.coverage.limitations.join(' ')).toContain('partial');
-    expect(core.resumes.view(id)).toMatchObject({
+    expect(core.analyses.view(id)).toMatchObject({
       state: 'ready',
       stale: false,
       candidates: [
@@ -397,9 +397,13 @@ describe('resume MVP core boundaries', () => {
     const h = harness(),
       id = h.connect();
     h.records([source()]);
-    h.summary.generateResume = async () => ({ candidates: [] });
-    await h.core.resumes.refresh(id);
-    expect(h.core.resumes.view(id)).toMatchObject({ state: 'empty', candidates: [], stale: false });
+    h.summary.generateAnalysis = async () => ({ candidates: [] });
+    await h.core.analyses.refresh(id);
+    expect(h.core.analyses.view(id)).toMatchObject({
+      state: 'empty',
+      candidates: [],
+      stale: false,
+    });
   });
 
   it('restores a candidate dismissed as the wrong work', async () => {
@@ -407,22 +411,22 @@ describe('resume MVP core boundaries', () => {
       id = h.connect(),
       record = source();
     h.records([record]);
-    h.summary.generateResume = async () => ({ candidates: [candidate(record)] });
-    await h.core.resumes.refresh(id);
-    const initial = h.core.resumes.view(id);
-    h.core.resumes.correct(id, {
+    h.summary.generateAnalysis = async () => ({ candidates: [candidate(record)] });
+    await h.core.analyses.refresh(id);
+    const initial = h.core.analyses.view(id);
+    h.core.analyses.correct(id, {
       candidateKey: 'goal-a',
       version: initial.version,
       kind: 'wrong-work',
     });
-    const dismissed = h.core.resumes.view(id);
+    const dismissed = h.core.analyses.view(id);
     expect(dismissed.dismissedKeys).toEqual(['goal-a']);
-    h.core.resumes.correct(id, {
+    h.core.analyses.correct(id, {
       candidateKey: 'goal-a',
       version: dismissed.version,
       kind: 'restore',
     });
-    expect(h.core.resumes.view(id).candidates).toEqual([
+    expect(h.core.analyses.view(id).candidates).toEqual([
       expect.objectContaining({ key: 'goal-a' }),
     ]);
   });

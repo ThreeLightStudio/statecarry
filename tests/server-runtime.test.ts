@@ -53,7 +53,7 @@ describe('server runtime lifecycle', () => {
           {
             hostname: runtime.host,
             port,
-            path: '/api/v1/project-workspace',
+            path: '/api/v1/projects',
             headers: { Host: `${runtime.host}:${port}` },
           },
           (res) => {
@@ -115,6 +115,36 @@ describe('server runtime lifecycle', () => {
       expect(runtime.server.listening).toBe(false);
     } finally {
       req?.destroy();
+      await runtime.stop().catch(() => {});
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not auto-collect existing projects in the default resume runtime', async () => {
+    const dataDir = temporaryDataDir();
+    const port = await freePort();
+    const seeded = createServerRuntime({ dataDir, port });
+    seeded.core.connect({
+      requestId: seeded.core.ids.next(),
+      expectedRevision: 0,
+      payload: {
+        title: 'Existing project',
+        cwd: '/tmp/existing-project',
+        threadIds: ['thread-a'],
+        discover: false,
+      },
+    });
+    await seeded.stop();
+
+    vi.useFakeTimers();
+    const runtime = createServerRuntime({ dataDir, port });
+    const collect = vi.spyOn(runtime.core, 'collect').mockResolvedValue();
+    try {
+      await runtime.start();
+      expect(collect).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(collect).not.toHaveBeenCalled();
+    } finally {
       await runtime.stop().catch(() => {});
       rmSync(dataDir, { recursive: true, force: true });
     }

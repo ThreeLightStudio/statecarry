@@ -133,7 +133,7 @@ function register(core: StateCarry, cwd: string, index: number) {
       threadIds: [],
       discover: false,
     },
-  }).workId;
+  }).projectId;
 }
 
 async function listScenario(projectCount: number) {
@@ -182,12 +182,12 @@ async function semanticScenario() {
   const root = repository('semantic');
   try {
     const { core, counters, repo, h, inspector } = fixture();
-    const workId = register(core, root, 0);
+    const projectId = register(core, root, 0);
     counters.inspect = 0;
     counters.probe = 0;
     counters.analysis = 0;
     const firstStarted = performance.now();
-    await core.projects.observe(workId, 'en');
+    await core.projects.observe(projectId, 'en');
     const firstMs = performance.now() - firstStarted;
     const afterFirst = {
       probe: counters.probe,
@@ -195,7 +195,7 @@ async function semanticScenario() {
       analysis: counters.analysis,
     };
     const secondStarted = performance.now();
-    await core.projects.observe(workId, 'en');
+    await core.projects.observe(projectId, 'en');
     const unchangedReentryMs = performance.now() - secondStarted;
     const afterSecond = {
       probe: counters.probe,
@@ -205,7 +205,7 @@ async function semanticScenario() {
     const unrelated = join(root, 'src', 'sample-0900.ts');
     const now = new Date();
     utimesSync(unrelated, now, now);
-    await core.projects.observe(workId, 'en');
+    await core.projects.observe(projectId, 'en');
     const afterMtime = {
       probe: counters.probe,
       inspect: counters.inspect,
@@ -223,10 +223,10 @@ async function semanticScenario() {
       inspector,
     );
     const restartReadStarted = performance.now();
-    await restarted.projects.workspace(workId, 'en');
+    await restarted.projects.workspace(projectId, 'en');
     const restartSavedReadMs = performance.now() - restartReadStarted;
     const restartObserveStarted = performance.now();
-    await restarted.projects.observe(workId, 'en');
+    await restarted.projects.observe(projectId, 'en');
     const restartObserveMs = performance.now() - restartObserveStarted;
     const afterRestart = {
       probe: counters.probe,
@@ -252,10 +252,10 @@ function settingsScenario() {
   const root = repository('settings');
   try {
     const { core, counters } = fixture();
-    const workId = register(core, root, 0);
+    const projectId = register(core, root, 0);
     counters.changeEvent = 0;
-    const work = core.work(workId);
-    core.projects.settings(workId, {
+    const work = core.project(projectId);
+    core.projects.settings(projectId, {
       requestId: identity.next(),
       expectedRevision: work.revision,
       payload: { title: 'Renamed benchmark', purpose: 'Measure event emission.', focused: false },

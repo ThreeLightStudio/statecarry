@@ -75,7 +75,7 @@ describe('continuation execution boundary', () => {
     const send = session.send as ReturnType<typeof vi.fn>;
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({
-        workId: id,
+        projectId: id,
         threadId: 'new-thread',
         text: expect.stringContaining('Run the focused verification'),
       }),
@@ -232,7 +232,7 @@ describe('continuation execution boundary', () => {
   it('does not send a continuation prepared against an older work revision', async () => {
     const { h, id, command, session } = await prepared();
     const continuation = h.core.continuations.prepare(id, command);
-    h.repo.put('work', { ...h.core.work(id), revision: h.core.work(id).revision + 1 });
+    h.repo.put('project', { ...h.core.project(id), revision: h.core.project(id).revision + 1 });
     await expect(
       h.core.continuations.send(id, h.command(id, { continuationId: continuation.id })),
     ).rejects.toMatchObject({ code: 'REVISION_CONFLICT' });
@@ -268,11 +268,13 @@ describe('continuation execution boundary', () => {
       requestId: h.core.ids.next(),
       expectedRevision: 0,
       payload: { title: 'Project', cwd: current.cwd, threadIds: ['thread-a'], discover: false },
-    }).workId;
-    const work = core.work(id);
-    core.repo.put('work', {
-      ...work,
-      resume: {
+    }).projectId;
+    const work = core.project(id);
+    core.repo.put('project', { ...work });
+    core.repo.put('projectAnalysis', {
+      id: work.id,
+      projectId: work.id,
+      result: {
         scope: 'scope',
         version: 'version',
         generatedAt: current.checkedAt,
@@ -312,7 +314,7 @@ describe('continuation execution boundary', () => {
     const session = executor();
     const { h, id } = await prepared(session);
     const record = h.core.sources(id)[0];
-    h.summary.generateResume = async () => ({
+    h.summary.generateAnalysis = async () => ({
       candidates: [
         {
           key: 'resume',
@@ -331,8 +333,8 @@ describe('continuation execution boundary', () => {
         },
       ],
     });
-    await h.core.resumes.refresh(id);
-    const view = h.core.resumes.view(id),
+    await h.core.analyses.refresh(id);
+    const view = h.core.analyses.view(id),
       candidate = view.candidates[0];
     const continuation = h.core.continuations.prepare(
       id,

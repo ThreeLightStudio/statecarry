@@ -117,7 +117,7 @@ export type ReturnContextViewModel = {
   viewedEvidenceCount: number;
   viewedSummaryId: string | null;
   viewedAt: string;
-  workId: string;
+  projectId: string;
   title: string;
   revision: number;
   summaryId: string | null;
@@ -362,7 +362,7 @@ export function presentReturnContext(
     effortLabel: summary?.analysis
       ? `Summary ${summary.analysis.summaryEffort} · Check ${summary.analysis.checkEffort}`
       : 'Previous reasoning effort not recorded',
-    workId: snapshot.work.id,
+    projectId: snapshot.work.id,
     title: snapshot.work.title,
     revision: snapshot.work.revision,
     summaryId: summary?.id ?? null,

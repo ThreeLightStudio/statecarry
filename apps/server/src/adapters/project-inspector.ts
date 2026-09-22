@@ -1,3 +1,4 @@
+import { inspectChangeScope } from './project-scope';
 import { execFile, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -599,6 +600,7 @@ async function sampleFilesAsync(
 
 /** Read-only Git metadata and bounded, clue-aware source-file observations. */
 export class GitProjectInspector implements ProjectInspector {
+  scope = inspectChangeScope;
   async probeAsync(cwd: string): Promise<WorkspaceProbe> {
     const checkedAt = new Date().toISOString();
     let root = resolve(cwd);

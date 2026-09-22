@@ -23,7 +23,7 @@ describe('prepared continuation validity', () => {
     const record = source('Use this checked record for the next action.', 'thread-a', 'evidence');
     h.records([record]);
 
-    const connection = h.core.connection(h.core.work(id).projectId);
+    const connection = h.core.connection(h.core.project(id).connectionId);
     h.core.updateConnection(
       connection.id,
       h.command(id, {
@@ -64,7 +64,7 @@ describe('prepared continuation validity', () => {
     };
     await h.core.collect(id);
 
-    expect(h.core.work(id).revision).toBe(continuation.target.expectedRevision);
+    expect(h.core.project(id).revision).toBe(continuation.target.expectedRevision);
     expect(h.core.accessibleSource(id, record.id)).toBeNull();
     await expect(
       h.core.continuations.send(id, h.command(id, { continuationId: continuation.id })),

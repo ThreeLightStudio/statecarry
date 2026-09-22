@@ -20,21 +20,30 @@ afterEach(() => vi.unstubAllGlobals());
 it('uses the real Root and Core to disconnect, restore the same registration, and reject navigation from a late read', async () => {
   const core = harness();
   const id = core.connect();
-  const connectionId = core.core.work(id).projectId;
+  const connectionId = core.core.project(id).connectionId;
   const h = projectUiFixture([]);
+  h.projectGateway.registrations = vi.fn(async () => core.core.projects.registrations());
   h.projectGateway.list = vi.fn(async () => core.core.projects.list());
+  h.projectGateway.now = vi.fn(async (projectId) => ({
+    initialized: true,
+    model: core.core.projectModel.view(projectId),
+    now: core.core.now.resolve(projectId),
+  }));
   h.projectGateway.connections = vi.fn(async () => core.core.listConnections());
-  h.projectGateway.disconnect = vi.fn(async (workId, revision) =>
-    core.core.projects.disconnect(workId, {
-      ...core.command(workId, {}),
+  h.projectGateway.disconnect = vi.fn(async (projectId, revision) =>
+    core.core.projects.disconnect(projectId, {
+      ...core.command(projectId, {}),
       expectedRevision: revision,
     }),
   );
-  h.projectGateway.restore = vi.fn(async (workId, revision) =>
-    core.core.projects.restore(workId, { ...core.command(workId, {}), expectedRevision: revision }),
+  h.projectGateway.restore = vi.fn(async (projectId, revision) =>
+    core.core.projects.restore(projectId, {
+      ...core.command(projectId, {}),
+      expectedRevision: revision,
+    }),
   );
-  window.history.replaceState(null, '', `#/details/${id}`);
-  const mounted = await mountProjectRoot(h.projectGateway, h.resumeGateway);
+  window.history.replaceState(null, '', `#/project/${id}`);
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
   try {
     expect(window.location.hash).toBe(`#/project/${id}`);
     await follow(mounted.host, `#/project/${id}/settings`);
@@ -44,7 +53,7 @@ it('uses the real Root and Core to disconnect, restore the same registration, an
     await go('#/projects');
     expect(mounted.host.textContent).toContain('Disconnected');
     expect(core.core.projects.list().projects).toEqual([
-      expect.objectContaining({ workId: id, disconnectedAt: expect.any(String) }),
+      expect.objectContaining({ projectId: id, disconnectedAt: expect.any(String) }),
     ]);
     expect(core.core.listProjects()).toEqual([]);
     expect(h.projectGateway.delete).not.toHaveBeenCalled();
@@ -52,10 +61,10 @@ it('uses the real Root and Core to disconnect, restore the same registration, an
     await press(mounted.host, 'Reconnect project');
     expect(window.location.hash).toBe('#/projects');
     expect(core.core.projects.list().projects).toEqual([
-      expect.objectContaining({ workId: id, disconnectedAt: null, connectionId }),
+      expect.objectContaining({ projectId: id, disconnectedAt: null, connectionId }),
     ]);
-    expect(core.core.connection(connectionId).workId).toBe(id);
-    expect(core.core.listProjects()).toEqual([expect.objectContaining({ workId: id })]);
+    expect(core.core.connection(connectionId).projectId).toBe(id);
+    expect(core.core.listProjects()).toEqual([expect.objectContaining({ projectId: id })]);
 
     const pending = deferred<ProjectWorkspace>();
     vi.mocked(h.projectGateway.list).mockImplementationOnce(() => pending.promise);
@@ -67,9 +76,9 @@ it('uses the real Root and Core to disconnect, restore the same registration, an
     await settle();
     expect(window.location.hash).toBe('#/home');
     expect(mounted.host.querySelector('h1')?.textContent).toBe('Where will you pick up?');
-    expect(h.resumeGateway.refresh).not.toHaveBeenCalled();
-    expect(h.resumeGateway.setGoal).not.toHaveBeenCalled();
-    expect(h.resumeGateway.correct).not.toHaveBeenCalled();
+    expect(h.analysisGateway.refresh).not.toHaveBeenCalled();
+    expect(h.analysisGateway.setGoal).not.toHaveBeenCalled();
+    expect(h.analysisGateway.correct).not.toHaveBeenCalled();
     expect(core.counts().generationCalls).toBe(0);
     expect(core.counts().checkCalls).toBe(0);
   } finally {

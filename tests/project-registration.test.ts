@@ -17,14 +17,14 @@ describe('project registration by normalized folder', () => {
       expect(receipt).toMatchObject({
         id: command.requestId,
         command: 'project-reuse',
-        workId: first.receipt.workId,
+        projectId: first.receipt.projectId,
         resultId: first.receipt.resultId,
         committedRevision: first.receipt.committedRevision,
       });
       expect(h.core.projects.create(command)).toEqual(receipt);
     }
     expect(h.core.projects.create(first.command)).toEqual(first.receipt);
-    expect(h.repo.list('work')).toHaveLength(1);
+    expect(h.repo.list('project')).toHaveLength(1);
     expect(h.repo.list('connection')).toHaveLength(1);
     expect(changed).not.toHaveBeenCalled();
   });
@@ -34,7 +34,7 @@ describe('project registration by normalized folder', () => {
     const read = vi.spyOn(h.reader, 'read');
     const discover = vi.spyOn(h.reader, 'discover');
     const generate = vi.fn();
-    h.summary.generateResume = generate;
+    h.summary.generateAnalysis = generate;
     const range = {
       start: { turnId: 'chosen-turn', itemId: 'first-item' },
       end: { turnId: 'chosen-turn', itemId: 'last-item' },
@@ -46,7 +46,7 @@ describe('project registration by normalized folder', () => {
       startTurnIds: { 'thread-a': 'chosen-turn' },
       recordRanges: { 'thread-a': range },
     });
-    const id = first.receipt.workId;
+    const id = first.receipt.projectId;
     h.core.projects.settings(
       id,
       h.command(id, {
@@ -55,10 +55,10 @@ describe('project registration by normalized folder', () => {
         focused: true,
       }),
     );
-    const beforeWork = h.core.work(id);
+    const beforeWork = h.core.project(id);
     const beforeConnection = h.core.connection(first.receipt.resultId);
     const beforeLinks = h.core.links(id);
-    const version = h.core.resumes.view(id).version;
+    const version = h.core.analyses.view(id).version;
     const duplicate = registerProject(h, {
       cwd: '/tmp/./example/',
       title: 'Do not replace the saved title',
@@ -71,14 +71,14 @@ describe('project registration by normalized folder', () => {
     });
     expect(duplicate.receipt).toMatchObject({
       command: 'project-reuse',
-      workId: id,
+      projectId: id,
       resultId: first.receipt.resultId,
       committedRevision: beforeWork.revision,
     });
-    expect(h.core.work(id)).toEqual(beforeWork);
+    expect(h.core.project(id)).toEqual(beforeWork);
     expect(h.core.connection(first.receipt.resultId)).toEqual(beforeConnection);
     expect(h.core.links(id)).toEqual(beforeLinks);
-    expect(h.core.resumes.view(id).version).toBe(version);
+    expect(h.core.analyses.view(id).version).toBe(version);
     expect(h.repo.list('source')).toEqual([]);
     expect(read).not.toHaveBeenCalled();
     expect(discover).not.toHaveBeenCalled();
@@ -98,17 +98,17 @@ describe('project registration by normalized folder', () => {
       startTurnIds: beforeConnection.startTurnIds,
       recordRanges: { 'thread-a': range },
     });
-    expect(h.repo.list('work')).toHaveLength(1);
-    expect(h.core.work(id).goal).toEqual(beforeWork.goal);
+    expect(h.repo.list('project')).toHaveLength(1);
+    expect(h.core.directionIntent(id)).toEqual(h.core.directionIntent(beforeWork.id));
   });
 
   it('returns a disconnected registration without restoring it or replacing its saved goal', () => {
     const h = harness();
     const first = registerProject(h, { goal: 'Keep the disconnected goal.' });
-    const id = first.receipt.workId;
+    const id = first.receipt.projectId;
     h.core.projects.disconnect(id, h.command(id, {}));
     const before = h.core.projects.list();
-    const beforeWork = h.core.work(id);
+    const beforeWork = h.core.project(id);
     const beforeConnection = h.repo.get('connection', first.receipt.resultId);
     const duplicate = registerProject(h, {
       cwd: '/tmp/./example/',
@@ -119,12 +119,12 @@ describe('project registration by normalized folder', () => {
     });
     expect(duplicate.receipt).toMatchObject({
       command: 'project-reuse',
-      workId: id,
+      projectId: id,
       resultId: first.receipt.resultId,
       committedRevision: beforeWork.revision,
     });
     expect(h.core.projects.list()).toEqual(before);
-    expect(h.core.work(id)).toEqual(beforeWork);
+    expect(h.core.project(id)).toEqual(beforeWork);
     expect(h.repo.get('connection', first.receipt.resultId)).toEqual(beforeConnection);
     expect(h.core.listConnections()).toEqual([]);
   });
@@ -142,16 +142,16 @@ describe('project registration by normalized folder', () => {
         discover: false,
       },
     });
-    const work = h.core.work(receipt.workId);
+    const work = h.core.project(receipt.projectId);
     const connection = h.core.connection(receipt.resultId);
-    expect(work.projectProfile).toBeUndefined();
+    expect(work.purposes).toEqual([]);
     const reused = registerProject(h, { title: 'New title', purpose: 'New purpose.' }).receipt;
     expect(reused).toMatchObject({
       command: 'project-reuse',
-      workId: receipt.workId,
+      projectId: receipt.projectId,
       resultId: receipt.resultId,
     });
-    expect(h.core.work(receipt.workId)).toEqual(work);
+    expect(h.core.project(receipt.projectId)).toEqual(work);
     expect(h.core.connection(receipt.resultId)).toEqual(connection);
   });
 
@@ -161,7 +161,7 @@ describe('project registration by normalized folder', () => {
     const b = registerProject(h, { cwd: '/two/export/', title: 'Export' });
     expect(a.receipt.command).toBe('project-create');
     expect(b.receipt.command).toBe('project-create');
-    expect(a.receipt.workId).not.toBe(b.receipt.workId);
+    expect(a.receipt.projectId).not.toBe(b.receipt.projectId);
     expect(a.receipt.resultId).not.toBe(b.receipt.resultId);
     expect(h.repo.list('connection').map((connection) => connection.cwd)).toEqual([
       '/one/export',
@@ -176,7 +176,7 @@ describe('project registration by normalized folder', () => {
     expect(h.core.connection(first.receipt.resultId).cwd).toBe('/');
     expect(reused.receipt).toMatchObject({
       command: 'project-reuse',
-      workId: first.receipt.workId,
+      projectId: first.receipt.projectId,
     });
     expect(h.repo.list('connection')).toHaveLength(1);
   });
@@ -185,7 +185,7 @@ describe('project registration by normalized folder', () => {
     const h = harness();
     const first = registerProject(h);
     const reused = registerProject(h, { cwd: '/tmp/./example' });
-    const id = first.receipt.workId;
+    const id = first.receipt.projectId;
     h.core.projects.settings(id, h.command(id, { title: 'Changed', purpose: '', focused: false }));
     const before = structuredClone((h.repo as MemoryRepository).data);
     expect(h.core.projects.create(reused.command)).toEqual(reused.receipt);
@@ -205,7 +205,7 @@ describe('project registration by normalized folder', () => {
     ).toThrowError(expect.objectContaining({ code: 'REVISION_CONFLICT' }));
     expect((h.repo as MemoryRepository).data).toEqual(before);
     const latest = registerProject(h).receipt;
-    expect(latest.committedRevision).toBe(h.core.work(id).revision);
+    expect(latest.committedRevision).toBe(h.core.project(id).revision);
   });
 
   it.each([false, true])(
@@ -213,8 +213,12 @@ describe('project registration by normalized folder', () => {
     (disconnected) => {
       const h = harness();
       h.connect();
+      const first = h.repo.list('project')[0];
       const second = h.connect();
-      const connection = h.core.connection(h.core.work(second).projectId);
+      const connectionId = h.core.project(second).connectionId;
+      h.repo.put('project', { ...h.core.project(second), cwd: first.cwd });
+      h.repo.put('connection', { ...h.core.connection(connectionId), cwd: first.cwd });
+      const connection = h.core.connection(h.core.project(second).connectionId);
       h.repo.put('connection', {
         ...connection,
         cwd: '/tmp/./example/',
@@ -236,13 +240,13 @@ describe('project registration by normalized folder', () => {
     const h = harness();
     const first = registerProject(h);
     const reused = registerProject(h, { cwd: '/tmp/./example' });
-    h.core.projects.delete(first.receipt.workId, deletionCommand(h, first.receipt.workId));
+    h.core.projects.delete(first.receipt.projectId, deletionCommand(h, first.receipt.projectId));
     const replacement = registerProject(h);
     expect(replacement.receipt.command).toBe('project-create');
-    expect(replacement.receipt.workId).not.toBe(first.receipt.workId);
+    expect(replacement.receipt.projectId).not.toBe(first.receipt.projectId);
     expect(h.core.projects.create(first.command)).toEqual(first.receipt);
     expect(h.core.projects.create(reused.command)).toEqual(reused.receipt);
-    expect(h.repo.list('work').map((work) => work.id)).toEqual([replacement.receipt.workId]);
+    expect(h.repo.list('project').map((work) => work.id)).toEqual([replacement.receipt.projectId]);
   });
 
   it('leaves existing content and receipts intact when saving the reuse receipt fails', () => {

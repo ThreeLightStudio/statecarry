@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { ResumeCandidate } from '@statecarry/contracts';
+import type { AnalysisCandidate } from '@statecarry/contracts';
 import { harness, source } from './helpers';
 
-const candidate = (): ResumeCandidate => ({
+const candidate = (): AnalysisCandidate => ({
   key: 'reentry-check',
   goal: 'Finish the checked result',
   currentState: 'The implementation is recorded; the final check remains.',
@@ -21,18 +21,18 @@ describe('resume re-entry refresh behavior', () => {
     const h = harness();
     const id = h.connect();
     let calls = 0;
-    h.summary.generateResume = async () => {
+    h.summary.generateAnalysis = async () => {
       calls += 1;
       return { candidates: [candidate()] };
     };
 
-    await h.core.resumes.refresh(id);
+    await h.core.analyses.refresh(id);
     expect(calls).toBe(1);
 
     // These are the reads performed by a route remount/restart. Reading the
     // stored brief must never be an implicit request for another model call.
-    expect(h.core.resumes.view(id).candidates).toHaveLength(1);
-    expect(h.core.resumes.view(id).candidates[0].key).toBe('reentry-check');
+    expect(h.core.analyses.view(id).candidates).toHaveLength(1);
+    expect(h.core.analyses.view(id).candidates[0].key).toBe('reentry-check');
     expect(calls).toBe(1);
   });
 
@@ -48,45 +48,45 @@ describe('resume re-entry refresh behavior', () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    h.summary.generateResume = async () => {
+    h.summary.generateAnalysis = async () => {
       calls += 1;
       entered();
       await gate;
       return { candidates: [candidate()] };
     };
 
-    const first = h.core.resumes.refresh(id);
+    const first = h.core.analyses.refresh(id);
     await started;
-    const second = h.core.resumes.refresh(id);
+    const second = h.core.analyses.refresh(id);
     release();
     await Promise.all([first, second]);
 
     expect(calls).toBe(1);
-    expect(h.core.resumes.view(id).candidates).toHaveLength(1);
+    expect(h.core.analyses.view(id).candidates).toHaveLength(1);
   });
 
   it('keeps the saved brief after an explicit refresh fails without retrying on view', async () => {
     const h = harness();
     const id = h.connect();
     let calls = 0;
-    h.summary.generateResume = async () => {
+    h.summary.generateAnalysis = async () => {
       calls += 1;
       return { candidates: [candidate()] };
     };
-    await h.core.resumes.refresh(id);
+    await h.core.analyses.refresh(id);
 
-    h.summary.generateResume = async () => {
+    h.summary.generateAnalysis = async () => {
       calls += 1;
       throw new Error('provider unavailable');
     };
-    await h.core.resumes.refresh(id);
+    await h.core.analyses.refresh(id);
 
-    expect(h.core.resumes.view(id)).toMatchObject({
+    expect(h.core.analyses.view(id)).toMatchObject({
       state: 'limited',
       candidates: [expect.objectContaining({ key: 'reentry-check' })],
     });
     expect(calls).toBe(2);
-    h.core.resumes.view(id);
+    h.core.analyses.view(id);
     expect(calls).toBe(2);
   });
 });

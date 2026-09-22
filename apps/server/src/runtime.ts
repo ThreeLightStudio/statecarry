@@ -11,7 +11,7 @@ import { CodexNavigator } from './adapters/navigator';
 import { observationLog } from './adapters/observation-log';
 import { GitProjectInspector } from './adapters/project-inspector';
 import { ProjectAssetStore, type LocalProjectAssetPicker } from './adapters/local-project-assets';
-import { UnsupportedSessionExecutor } from './adapters/session-executor';
+import { CodexSessionExecutor } from './adapters/session-executor';
 import { settingsFromEnvironment } from './adapters/summary-settings';
 import { SQLiteRepository } from './adapters/sqlite';
 import { ChangeEvents, createHttpServer } from './http';
@@ -58,7 +58,7 @@ export function createServerRuntime(options: ServerRuntimeOptions = {}) {
     { now: () => new Date().toISOString() },
     identity,
     events,
-    new UnsupportedSessionExecutor(),
+    new CodexSessionExecutor(),
     new GitProjectInspector(),
   );
   const server = createHttpServer(core, events, webDir, port, {
@@ -153,6 +153,7 @@ export function createServerRuntime(options: ServerRuntimeOptions = {}) {
         });
         if (stopped) return;
         server.on('error', handleServerError);
+        background.deferExisting();
         background.tick();
         timer = setInterval(() => {
           background.tick();

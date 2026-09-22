@@ -6,9 +6,9 @@ import { deferred, deletionCommand, projectCandidate, registerProject } from './
 import { fixtureAnswer, questionHarness } from './question-fixtures';
 import { explanationHarness, fixtureExplanation } from './explanation-fixtures';
 
-function executionRows(h: ReturnType<typeof harness>, workId: string) {
+function executionRows(h: ReturnType<typeof harness>, projectId: string) {
   const input: ExplanationInput = {
-    workId,
+    projectId,
     summaryId: 'summary-fixture',
     sourceRevisionIds: [],
     connectionRevision: 1,
@@ -23,7 +23,7 @@ function executionRows(h: ReturnType<typeof harness>, workId: string) {
   return {
     job: {
       id: 'summary-job',
-      workId,
+      projectId,
       inputVersion: '',
       extractorVersion: 'fixture',
       status: 'applied',
@@ -39,7 +39,7 @@ function executionRows(h: ReturnType<typeof harness>, workId: string) {
     },
     explanationJob: {
       id: 'explanation-job',
-      workId,
+      projectId,
       summaryId: input.summaryId,
       input,
       status: 'ready',
@@ -57,7 +57,7 @@ function executionRows(h: ReturnType<typeof harness>, workId: string) {
     },
     questionExecution: {
       id: 'question-execution',
-      workId,
+      projectId,
       sessionId: 'session',
       turnId: 'turn',
       bodyHash: 'body',
@@ -69,13 +69,13 @@ function executionRows(h: ReturnType<typeof harness>, workId: string) {
     },
     continuation: {
       id: 'continuation',
-      workId,
+      projectId,
       requestId: 'continuation-request',
       target: {
         mode: 'new-session',
         threadId: null,
         title: 'Next session',
-        workId,
+        projectId,
         payload: {
           goal: null,
           currentState: 'Ready.',
@@ -83,7 +83,7 @@ function executionRows(h: ReturnType<typeof harness>, workId: string) {
           constraints: [],
           doneWhen: 'The check passes.',
         },
-        expectedRevision: h.core.work(workId).revision,
+        expectedRevision: h.core.project(projectId).revision,
       },
       state: 'sent',
       threadId: 'created-thread',
@@ -97,8 +97,8 @@ function executionRows(h: ReturnType<typeof harness>, workId: string) {
       target: {
         title: 'Recorded session',
         role: 'work',
-        workId,
-        expectedRevision: h.core.work(workId).revision,
+        projectId,
+        expectedRevision: h.core.project(projectId).revision,
         summaryId: input.summaryId,
         threadId: 'thread-a',
         evidenceIds: [],
@@ -131,20 +131,20 @@ describe('project deletion ownership and transaction', () => {
     const oldExclusive = source('Old exclusive revision.', 'exclusive-thread');
     const unrelated = source('Not owned by either registration.', 'unrelated');
     h.reader.read = async (threadId) => read([threadId === 'thread-a' ? shared : exclusive]);
-    await h.core.collect(a.receipt.workId);
-    await h.core.collect(b.receipt.workId);
+    await h.core.collect(a.receipt.projectId);
+    await h.core.collect(b.receipt.projectId);
     h.repo.put('source', historical);
     h.repo.put('source', oldExclusive);
     h.repo.put('source', unrelated);
-    h.core.projects.disconnect(b.receipt.workId, h.command(b.receipt.workId, {}));
-    const otherBefore = h.core.work(b.receipt.workId);
+    h.core.projects.disconnect(b.receipt.projectId, h.command(b.receipt.projectId, {}));
+    const otherBefore = h.core.project(b.receipt.projectId);
     const otherConnection = h.repo.get('connection', b.receipt.resultId);
-    const rows = executionRows(h, a.receipt.workId);
+    const rows = executionRows(h, a.receipt.projectId);
     for (const kind of Object.keys(rows) as (keyof typeof rows)[]) h.repo.put(kind, rows[kind]);
-    const workId = a.receipt.workId;
+    const projectId = a.receipt.projectId;
     h.repo.put('draft', {
       id: 'draft',
-      workId,
+      projectId,
       threadId: 'thread-a',
       evidenceIds: [shared.id],
       summaryId: 'summary-fixture',
@@ -154,7 +154,7 @@ describe('project deletion ownership and transaction', () => {
     });
     h.repo.put('overlay', {
       id: 'overlay',
-      workId,
+      projectId,
       slot: 'next',
       text: 'Private correction.',
       baseSummaryId: 'summary-fixture',
@@ -165,13 +165,13 @@ describe('project deletion ownership and transaction', () => {
     });
     h.repo.put('visit', {
       id: 'visit',
-      workId,
+      projectId,
       summaryId: 'summary-fixture',
       evidenceIds: [shared.id],
       at: AT,
     });
     const before = structuredClone((h.repo as MemoryRepository).data);
-    const preview = h.core.projects.deletionPreview(workId);
+    const preview = h.core.projects.deletionPreview(projectId);
     expect(preview).toMatchObject({ blocked: false, exclusiveSources: 2, sharedSources: 2 });
     expect(preview.explanation).toContain('cannot be restored');
     expect(preview.explanation).toContain('request receipts');
@@ -179,11 +179,11 @@ describe('project deletion ownership and transaction', () => {
     expect(preview.explanation).toContain('observations.jsonl');
     expect(preview.explanation).toContain('backups are not removed');
     expect((h.repo as MemoryRepository).data).toEqual(before);
-    const command = deletionCommand(h, workId);
-    const result = h.core.projects.delete(workId, command);
-    expect(h.core.projects.delete(workId, command)).toEqual(result);
+    const command = deletionCommand(h, projectId);
+    const result = h.core.projects.delete(projectId, command);
+    expect(h.core.projects.delete(projectId, command)).toEqual(result);
     expect(h.core.projects.create(a.command)).toEqual(a.receipt);
-    expect(h.repo.get('work', workId)).toBeNull();
+    expect(h.repo.get('project', projectId)).toBeNull();
     expect(h.repo.get('connection', a.receipt.resultId)).toBeNull();
     for (const kind of Object.keys(rows) as (keyof typeof rows)[])
       expect(h.repo.list(kind)).toEqual([]);
@@ -196,26 +196,26 @@ describe('project deletion ownership and transaction', () => {
         .map((item) => item.id)
         .sort(),
     ).toEqual([shared.id, historical.id, unrelated.id].sort());
-    expect(h.core.work(b.receipt.workId)).toEqual(otherBefore);
+    expect(h.core.project(b.receipt.projectId)).toEqual(otherBefore);
     expect(h.repo.get('connection', b.receipt.resultId)).toEqual(otherConnection);
-    expect(h.core.projects.list().projects.map((project) => project.workId)).toEqual([
-      b.receipt.workId,
+    expect(h.core.projects.list().projects.map((project) => project.projectId)).toEqual([
+      b.receipt.projectId,
     ]);
     expect(() =>
-      h.core.projects.restore(workId, {
+      h.core.projects.restore(projectId, {
         requestId: 'cannot-restore',
         expectedRevision: result.committedRevision,
         payload: {},
       }),
     ).toThrowError(expect.objectContaining({ code: 'NOT_FOUND' }));
     expect(() =>
-      h.core.projects.delete(workId, { ...command, payload: { token: 'different' } }),
+      h.core.projects.delete(projectId, { ...command, payload: { token: 'different' } }),
     ).toThrowError(expect.objectContaining({ code: 'IDEMPOTENCY_CONFLICT' }));
   });
 
   it('revalidates content changes without a revision bump and new sharing after preview', async () => {
     const h = harness();
-    const id = registerProject(h, { threadIds: ['thread-a'] }).receipt.workId;
+    const id = registerProject(h, { threadIds: ['thread-a'] }).receipt.projectId;
     await h.core.collect(id);
     const command = deletionCommand(h, id);
     expect(() =>
@@ -223,12 +223,12 @@ describe('project deletion ownership and transaction', () => {
     ).toThrowError(expect.objectContaining({ code: 'PROJECT_DELETION_CHANGED' }));
     h.repo.put('visit', {
       id: 'new-visit',
-      workId: id,
+      projectId: id,
       summaryId: 'summary',
       evidenceIds: [],
       at: AT,
     });
-    expect(h.core.work(id).revision).toBe(command.expectedRevision);
+    expect(h.core.project(id).revision).toBe(command.expectedRevision);
     expect(() => h.core.projects.delete(id, command)).toThrowError(
       expect.objectContaining({ code: 'PROJECT_DELETION_CHANGED' }),
     );
@@ -242,7 +242,7 @@ describe('project deletion ownership and transaction', () => {
     expect(() => h.core.projects.delete(id, stale)).toThrowError(
       expect.objectContaining({ code: 'REVISION_CONFLICT' }),
     );
-    expect(h.repo.get('work', id)).not.toBeNull();
+    expect(h.repo.get('project', id)).not.toBeNull();
     expect(h.repo.list('source')).toHaveLength(1);
   });
 
@@ -255,7 +255,7 @@ describe('project deletion ownership and transaction', () => {
     }
     const repo = new FailingRemoval();
     const h = harness(repo);
-    const id = registerProject(h, { threadIds: ['thread-a'] }).receipt.workId;
+    const id = registerProject(h, { threadIds: ['thread-a'] }).receipt.projectId;
     await h.core.collect(id);
     const command = deletionCommand(h, id);
     const before = structuredClone(repo.data);
@@ -268,7 +268,7 @@ describe('project deletion ownership and transaction', () => {
     'blocks an unresolved %s even with no recorded remote process',
     (kind) => {
       const h = harness();
-      const id = registerProject(h).receipt.workId;
+      const id = registerProject(h).receipt.projectId;
       const rows = executionRows(h, id);
       const row = rows[kind];
       h.repo.put(kind, {
@@ -284,26 +284,26 @@ describe('project deletion ownership and transaction', () => {
         expect.objectContaining({ code: 'PROJECT_BUSY', status: 409 }),
       );
       expect(h.repo.get(kind, row.id)).not.toBeNull();
-      expect(h.repo.get('work', id)).not.toBeNull();
+      expect(h.repo.get('project', id)).not.toBeNull();
     },
   );
 
   it('blocks queued jobs but does not block another project’s unrelated work', () => {
     const h = harness();
-    const a = registerProject(h).receipt.workId;
-    const b = registerProject(h, { cwd: '/tmp/other-project' }).receipt.workId;
+    const a = registerProject(h).receipt.projectId;
+    const b = registerProject(h, { cwd: '/tmp/other-project' }).receipt.projectId;
     h.repo.put('job', { ...executionRows(h, a).job, status: 'queued' });
     expect(h.core.projects.deletionPreview(a).blocked).toBe(true);
     expect(h.core.projects.deletionPreview(b).blocked).toBe(false);
     h.core.projects.delete(b, deletionCommand(h, b));
-    expect(h.repo.get('work', a)).not.toBeNull();
+    expect(h.repo.get('project', a)).not.toBeNull();
   });
 });
 
 describe('project deletion while work is awaiting a response', () => {
   it('blocks an in-flight collection and allows deletion only after it settles', async () => {
     const h = harness();
-    const id = registerProject(h, { threadIds: ['thread-a'] }).receipt.workId;
+    const id = registerProject(h, { threadIds: ['thread-a'] }).receipt.projectId;
     const gate = deferred<SourceRead>();
     h.reader.read = () => gate.promise;
     const command = deletionCommand(h, id);
@@ -315,21 +315,21 @@ describe('project deletion while work is awaiting a response', () => {
     gate.resolve(read([source()]));
     await collecting;
     h.core.projects.delete(id, deletionCommand(h, id));
-    expect(h.repo.get('work', id)).toBeNull();
+    expect(h.repo.get('project', id)).toBeNull();
     expect(h.repo.list('source')).toEqual([]);
   });
 
   it('blocks live Resume analysis independently of durable summary jobs', async () => {
     const h = harness();
-    const id = registerProject(h, { threadIds: ['thread-a'] }).receipt.workId;
+    const id = registerProject(h, { threadIds: ['thread-a'] }).receipt.projectId;
     const entered = deferred<void>();
     const gate = deferred<void>();
-    h.summary.generateResume = async () => {
+    h.summary.generateAnalysis = async () => {
       entered.resolve();
       await gate.promise;
       return { candidates: [projectCandidate()] };
     };
-    const pending = h.core.resumes.refresh(id);
+    const pending = h.core.analyses.refresh(id);
     await entered.promise;
     expect(h.repo.list('job')).toEqual([]);
     expect(h.core.projects.deletionPreview(id).blocked).toBe(true);
@@ -341,8 +341,8 @@ describe('project deletion while work is awaiting a response', () => {
     gate.resolve();
     await pending;
     h.core.projects.delete(id, deletionCommand(h, id));
-    expect(h.repo.get('work', id)).toBeNull();
-    expect(h.core.resumes.list()).toEqual([]);
+    expect(h.repo.get('project', id)).toBeNull();
+    expect(h.core.analyses.list()).toEqual([]);
   });
 
   it('blocks discovery until its pending source result is settled', async () => {
@@ -352,11 +352,11 @@ describe('project deletion while work is awaiting a response', () => {
     h.reader.discover = () => gate.promise;
     const pending = h.core.discover(h.core.connection(receipt.resultId));
     expect(() =>
-      h.core.projects.delete(receipt.workId, deletionCommand(h, receipt.workId)),
+      h.core.projects.delete(receipt.projectId, deletionCommand(h, receipt.projectId)),
     ).toThrowError(expect.objectContaining({ code: 'PROJECT_BUSY' }));
     gate.resolve({ threads: [], complete: true, limitations: [] });
     await pending;
-    h.core.projects.delete(receipt.workId, deletionCommand(h, receipt.workId));
+    h.core.projects.delete(receipt.projectId, deletionCommand(h, receipt.projectId));
     expect(h.repo.get('connection', receipt.resultId)).toBeNull();
   });
 

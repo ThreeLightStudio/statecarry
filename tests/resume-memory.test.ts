@@ -1,14 +1,7 @@
-import { expect, it, vi } from 'vitest';
-import { LocalResumeMemory } from '../apps/web/src/adapters/resume-memory';
-import type { SavedResumeEdits } from '@statecarry/presentation';
-
-const edits = (): SavedResumeEdits => ({
-  selectedKey: 'second',
-  goalDraft: { text: 'Unsaved goal', version: 'v1' },
-  actionDrafts: [['second', { action: 'Check the output', done: 'Output checked', version: 'v1' }]],
-  expanded: ['correction'],
-  scroll: 320,
-});
+import { expect, it } from 'vitest';
+import { LocalProjectDraftMemory } from '../apps/web/src/adapters/project-draft-memory';
+import type { ProjectDrafts } from '@statecarry/presentation';
+const prefix = 'statecarry.project-drafts.v3.';
 function storage() {
   const values = new Map<string, string>();
   return {
@@ -17,167 +10,125 @@ function storage() {
     setItem: (key: string, value: string) => {
       values.set(key, value);
     },
+    removeItem: (key: string) => {
+      values.delete(key);
+    },
+    keys: () => values.keys(),
   };
 }
-it('restores per-work draft versions from a new adapter without transient state or evidence', () => {
+const drafts: ProjectDrafts = {
+  goalDraft: { text: 'Unsent direction', version: 'v1' },
+  actionDrafts: [['work-a', { action: 'Check export', done: 'Export opens', version: 'v1' }]],
+  expanded: ['context'],
+  scroll: 120,
+  selectedKey: 'old-selection',
+  selectedExplicit: true,
+  taskDiscussions: [
+    [
+      'work-a',
+      {
+        version: 'basis',
+        input: 'Unsent question',
+        turns: [
+          {
+            question: 'Old question',
+            answer: { items: [], unknowns: ['PRIVATE_ANSWER'], limitations: [] },
+          },
+        ],
+      },
+    ],
+  ],
+};
+it('persists only unsent input and temporary view state across a new adapter', () => {
+  const data = storage(),
+    memory = new LocalProjectDraftMemory(() => data);
+  memory.write('a', drafts);
+  const saved = new LocalProjectDraftMemory(() => data).read('a');
+  expect(saved).toMatchObject({
+    goalDraft: drafts.goalDraft,
+    actionDrafts: drafts.actionDrafts,
+    expanded: ['context'],
+    scroll: 120,
+    taskDiscussions: [['work-a', { input: 'Unsent question', version: 'basis', turns: [] }]],
+  });
+  expect(saved).not.toHaveProperty('selectedKey');
+  expect(saved).not.toHaveProperty('selectedExplicit');
+  expect(data.getItem(prefix + 'a')).not.toMatch(/PRIVATE_ANSWER|Old question|old-selection|turns/);
+});
+it('removes all retired app draft keys while preserving current inputs and unrelated settings', () => {
   const data = storage();
-  const first = new LocalResumeMemory(() => data);
-  first.write('A', {
-    ...edits(),
-    busy: true,
-    candidates: ['do not cache'],
-    evidence: ['private quote'],
-  } as SavedResumeEdits);
-  first.write('B', { ...edits(), goalDraft: null, actionDrafts: [] });
-  const restarted = new LocalResumeMemory(() => data);
-  expect(restarted.read('A')).toEqual(edits());
-  expect(restarted.read('B')?.goalDraft).toBeNull();
-  expect(data.getItem('statecarry.resume.v1.A')).not.toMatch(
-    /busy|candidates|evidence|private quote/,
+  for (const old of [
+    'statecarry.resume.v1.a',
+    'statecarry.resume.v2.a',
+    'statecarry.work.v1.a',
+    'statecarry.project-action.v1.a',
+  ])
+    data.setItem(old, 'OLD_CONTENT');
+  data.setItem('statecarry.settings', 'KEEP_SETTINGS');
+  data.setItem('another-app', 'KEEP_OTHER');
+  const memory = new LocalProjectDraftMemory(() => data);
+  memory.write('a', drafts);
+  memory.write('absent', drafts);
+  memory.prune(['a']);
+  expect([...data.values.keys()].sort()).toEqual(
+    ['another-app', 'statecarry.settings', prefix + 'a'].sort(),
   );
+  expect(data.getItem('statecarry.settings')).toBe('KEEP_SETTINGS');
 });
-it.each([
-  '{',
-  JSON.stringify({ schema: 2 }),
-  JSON.stringify({ schema: 1, workId: 'B', state: edits() }),
-  JSON.stringify({
-    schema: 1,
-    workId: 'A',
-    state: { ...edits(), actionDrafts: [['x', { action: 3 }]] },
-  }),
-])('does not use malformed, obsolete, or another-work memory', (raw) => {
+it('does not interpret old envelopes, malformed JSON, or another project’s input', () => {
+  const data = storage(),
+    memory = new LocalProjectDraftMemory(() => data);
+  for (const raw of [
+    '{',
+    JSON.stringify({ schema: 2, projectId: 'a', state: drafts }),
+    JSON.stringify({ schema: 3, projectId: 'b', state: drafts }),
+  ]) {
+    data.setItem(prefix + 'a', raw);
+    expect(memory.read('a')).toBeNull();
+    expect(data.getItem(prefix + 'a')).toBe(raw);
+  }
+});
+it('supports input-only storage without ever reading retired keys', () => {
   const data = storage();
-  data.setItem('statecarry.resume.v1.A', raw);
-  expect(new LocalResumeMemory(() => data).read('A')).toBeNull();
-  expect(data.getItem('statecarry.resume.v1.A')).toBe(raw);
-});
-it('reports storage access failures to the caller instead of promising persistence', () => {
-  const memory = new LocalResumeMemory(() => {
-    throw new Error('storage disabled');
-  });
-  expect(() => memory.read('A')).toThrow('storage disabled');
-  expect(() => memory.write('A', edits())).toThrow('storage disabled');
-  expect(() => memory.prune(['A'])).toThrow('storage disabled');
-});
-
-function removableStorage() {
-  const data = storage();
-  return {
-    ...data,
-    get length() {
-      return data.values.size;
-    },
-    key: (index: number) => [...data.values.keys()][index] ?? null,
-    removeItem: vi.fn((key: string) => {
-      data.values.delete(key);
-    }),
-  };
-}
-
-it('prunes only absent registration IDs in the Resume and legacy work namespaces without transferring drafts', () => {
-  const data = removableStorage();
-  const memory = new LocalResumeMemory(() => data);
-  for (const id of ['old-a', 'old-b', 'current', 'disconnected']) memory.write(id, edits());
-  data.setItem('statecarry.resume.v1.orphan-malformed', '{');
-  data.setItem('statecarry.work.v1.old-a', 'old detail draft');
-  data.setItem('statecarry.work.v1.old-b', 'another old detail draft');
-  data.setItem('statecarry.work.v1.current', 'current detail draft');
-  data.setItem('statecarry.work.v1.disconnected', 'disconnected detail draft');
-  const unrelated = {
-    'statecarry.resume.v2.old-a': 'another schema',
-    'statecarry.resume.v1': 'another key',
-    'statecarry.resume.v1.': 'not a registration ID',
-    'statecarry.browser.v1.old-a': 'legacy detail input',
-    'statecarry.work.v2.old-a': 'another work schema',
-    'statecarry.work.v1.': 'not a registration ID',
-    'statecarry.settings': 'keep settings',
-    'statecarry.theme': 'keep theme',
-    'other-application-key': 'untouched',
-  };
-  for (const [key, value] of Object.entries(unrelated)) data.setItem(key, value);
-  const current = data.getItem('statecarry.resume.v1.current');
-  const disconnected = data.getItem('statecarry.resume.v1.disconnected');
-
-  memory.prune(['new-statecarry', 'current', 'disconnected']);
-
-  expect(data.removeItem.mock.calls).toEqual([
-    ['statecarry.resume.v1.old-a'],
-    ['statecarry.resume.v1.old-b'],
-    ['statecarry.resume.v1.orphan-malformed'],
-    ['statecarry.work.v1.old-a'],
-    ['statecarry.work.v1.old-b'],
-  ]);
-  expect(data.getItem('statecarry.resume.v1.current')).toBe(current);
-  expect(data.getItem('statecarry.resume.v1.disconnected')).toBe(disconnected);
-  expect(data.getItem('statecarry.work.v1.current')).toBe('current detail draft');
-  expect(data.getItem('statecarry.work.v1.disconnected')).toBe('disconnected detail draft');
-  for (const [key, value] of Object.entries(unrelated)) expect(data.getItem(key)).toBe(value);
-  const restarted = new LocalResumeMemory(() => data);
-  expect(restarted.read('old-a')).toBeNull();
-  expect(restarted.read('old-b')).toBeNull();
-  expect(restarted.read('new-statecarry')).toBeNull();
-  expect(restarted.read('disconnected')).toEqual(edits());
-  data.removeItem.mockClear();
-  memory.prune(['new-statecarry', 'current', 'disconnected']);
-  expect(data.removeItem).not.toHaveBeenCalled();
-});
-
-it('supports enumerable storage adapters and an authoritative empty list', () => {
-  const data = storage();
-  const removeItem = vi.fn((key: string) => {
-    data.values.delete(key);
-  });
-  const memory = new LocalResumeMemory(() => ({
-    ...data,
-    keys: () => data.values.keys(),
-    removeItem,
+  const memory = new LocalProjectDraftMemory(() => ({
+    getItem: data.getItem,
+    setItem: data.setItem,
   }));
-  memory.write('old-a', edits());
-  memory.write('old-b', edits());
-  data.setItem('other-key', 'keep');
-  memory.prune([]);
-  expect(data.values).toEqual(new Map([['other-key', 'keep']]));
-  expect(removeItem).toHaveBeenCalledTimes(2);
+  memory.write('a', drafts);
+  expect(memory.read('a')?.goalDraft).toEqual(drafts.goalDraft);
 });
-
-it('leaves existing get/set-only storage mocks compatible', () => {
+it('reports storage access and write failures to the UI instead of silently losing input', () => {
   const data = storage();
-  const memory = new LocalResumeMemory(() => data);
-  memory.write('A', edits());
-  expect(() => memory.prune([])).not.toThrow();
-  expect(memory.read('A')).toEqual(edits());
-});
-
-it('reports enumeration failure before removing any draft', () => {
-  const data = removableStorage();
-  const memory = new LocalResumeMemory(() => ({
+  const read = new LocalProjectDraftMemory(() => ({
     ...data,
-    key: (index: number) => {
-      if (index === 1) throw new Error('key enumeration denied');
-      return data.key(index);
+    getItem: () => {
+      throw new Error('blocked');
     },
   }));
-  memory.write('old-a', edits());
-  memory.write('old-b', edits());
-  expect(() => memory.prune([])).toThrow('key enumeration denied');
-  expect(data.removeItem).not.toHaveBeenCalled();
-  expect(memory.read('old-a')).toEqual(edits());
-  expect(memory.read('old-b')).toEqual(edits());
-});
-
-it('reports removal failures without clearing active or unrelated storage', () => {
-  const data = removableStorage();
-  const memory = new LocalResumeMemory(() => ({
+  expect(() => read.read('a')).toThrow('blocked');
+  const write = new LocalProjectDraftMemory(() => ({
     ...data,
-    removeItem: () => {
-      throw new Error('removal denied');
+    setItem: () => {
+      throw new Error('full');
     },
   }));
-  memory.write('active', edits());
-  memory.write('old', edits());
-  data.setItem('other-key', 'keep');
-  expect(() => memory.prune(['active'])).toThrow('removal denied');
-  expect(memory.read('active')).toEqual(edits());
-  expect(memory.read('old')).toEqual(edits());
-  expect(data.getItem('other-key')).toBe('keep');
+  expect(() => write.write('a', drafts)).toThrow('full');
+});
+it('reports cleanup failures and retries them without touching unrelated data', () => {
+  const data = storage();
+  data.setItem('statecarry.resume.v2.a', 'OLD');
+  data.setItem('settings', 'KEEP');
+  let fail = true;
+  const memory = new LocalProjectDraftMemory(() => ({
+    ...data,
+    removeItem: (key) => {
+      if (fail) throw new Error('cleanup blocked');
+      data.removeItem(key);
+    },
+  }));
+  expect(() => memory.prune(['a'])).toThrow('cleanup blocked');
+  expect(data.getItem('settings')).toBe('KEEP');
+  fail = false;
+  memory.prune(['a']);
+  expect(data.getItem('statecarry.resume.v2.a')).toBeNull();
 });
