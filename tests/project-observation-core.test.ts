@@ -130,6 +130,16 @@ function analysis() {
   };
 }
 
+function waitForRelease() {
+  let release!: () => void;
+  return {
+    wait: new Promise<void>((resolve) => {
+      release = resolve;
+    }),
+    release: () => release(),
+  };
+}
+
 describe('project observation reuse', () => {
   it('keeps reads passive and reenters an unchanged project with probe only', async () => {
     const repo = new MemoryRepository();
@@ -212,6 +222,146 @@ describe('project observation reuse', () => {
       repo.close();
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  it('removes clean working-tree proposals and restores them from a matching cached observation', async () => {
+    const repo = new MemoryRepository();
+    let dirty = true;
+    let fingerprint = 'dirty-a';
+    const inspector: ProjectInspector = {
+      probe: (cwd) => ({
+        cwd,
+        root: cwd,
+        branch: 'main',
+        commit: 'abcdef',
+        statusFingerprint: fingerprint,
+        status: 'checked',
+        checkedAt: AT,
+        limitations: [],
+      }),
+      inspect: () =>
+        dirty
+          ? observedSnapshot()
+          : {
+              ...observedSnapshot(),
+              dirty: false,
+              changedPaths: [],
+              changedFiles: [],
+              changedFileCount: 0,
+              additions: 0,
+              deletions: 0,
+              diffPreview: '',
+              files: [],
+            },
+    };
+    const generate = vi.fn(async () => analysis());
+    const { core } = coreWithObservation(repo, inspector, generate);
+    const projectId = register(core);
+
+    await core.projects.observe(projectId);
+    expect(core.workMatcher.proposals(projectId)).toHaveLength(1);
+
+    dirty = false;
+    fingerprint = 'clean-b';
+    await core.projects.observe(projectId);
+    expect(core.workMatcher.proposals(projectId)).toEqual([]);
+
+    dirty = true;
+    fingerprint = 'dirty-c';
+    await core.projects.observe(projectId);
+    expect(core.workMatcher.proposals(projectId)).toHaveLength(1);
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let a late dirty analysis restore proposals after a newer clean observation', async () => {
+    const repo = new MemoryRepository();
+    let dirty = true;
+    let fingerprint = 'dirty-a';
+    const inspector: ProjectInspector = {
+      probe: (cwd) => ({
+        cwd,
+        root: cwd,
+        branch: 'main',
+        commit: 'abcdef',
+        statusFingerprint: fingerprint,
+        status: 'checked',
+        checkedAt: AT,
+        limitations: [],
+      }),
+      inspect: () =>
+        dirty
+          ? observedSnapshot()
+          : {
+              ...observedSnapshot(),
+              dirty: false,
+              changedPaths: [],
+              changedFiles: [],
+              changedFileCount: 0,
+              additions: 0,
+              deletions: 0,
+              diffPreview: '',
+              files: [],
+            },
+    };
+    const started = waitForRelease();
+    const release = waitForRelease();
+    const generate = vi.fn(async () => {
+      started.release();
+      await release.wait;
+      return analysis();
+    });
+    const { core } = coreWithObservation(repo, inspector, generate);
+    const projectId = register(core);
+
+    const first = core.projects.observe(projectId);
+    await started.wait;
+    dirty = false;
+    fingerprint = 'clean-b';
+    await core.projects.observe(projectId);
+    release.release();
+    await first;
+
+    expect(core.projects.latestSnapshot(projectId).dirty).toBe(false);
+    expect(core.workMatcher.proposals(projectId)).toEqual([]);
+  });
+
+  it('keeps a newer observation when an older inspection response arrives late', async () => {
+    const entered = waitForRelease();
+    const release = waitForRelease();
+    let inspections = 0;
+    const clean = {
+      ...observedSnapshot(),
+      dirty: false,
+      changedPaths: [],
+      changedFiles: [],
+      changedFileCount: 0,
+      additions: 0,
+      deletions: 0,
+      diffPreview: '',
+      files: [],
+    };
+    const inspector: ProjectInspector = {
+      inspect: () => clean,
+      inspectAsync: async () => {
+        inspections++;
+        if (inspections === 1) {
+          entered.release();
+          await release.wait;
+          return observedSnapshot();
+        }
+        return clean;
+      },
+    };
+    const { core } = coreWithObservation(new MemoryRepository(), inspector, vi.fn());
+    const projectId = register(core);
+
+    const older = core.projects.observe(projectId, 'en', undefined, false);
+    await entered.wait;
+    await core.projects.observe(projectId, 'en', undefined, false);
+    release.release();
+    await older;
+
+    expect(core.projects.latestSnapshot(projectId).dirty).toBe(false);
   });
 });
 

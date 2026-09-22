@@ -36,20 +36,38 @@ export class WorkMatcher {
     source: WorkProposal['source'],
     proposals: WorkProposal[],
     outputLanguage: 'en' | 'ko',
-  ) {
+  ): boolean {
+    const previous = this.core.repo
+      .list('workProposal')
+      .filter((record) => record.projectId === projectId && record.proposal.source === source)
+      .sort((a, b) => a.id.localeCompare(b.id));
+    const next = [...proposals]
+      .map((proposal) => ({ id: this.core.ids.hash([projectId, proposal.key]), proposal }))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    if (
+      previous.length === next.length &&
+      previous.every(
+        (record, index) =>
+          record.outputLanguage === outputLanguage &&
+          record.id === next[index].id &&
+          JSON.stringify(record.proposal) === JSON.stringify(next[index].proposal),
+      )
+    )
+      return false;
     this.core.repo.transaction(() => {
       for (const record of this.core.repo.list('workProposal'))
         if (record.projectId === projectId && record.proposal.source === source)
           this.core.repo.remove('workProposal', record.id);
-      for (const proposal of proposals)
+      for (const { id, proposal } of next)
         this.core.repo.put('workProposal', {
-          id: this.core.ids.hash([projectId, proposal.key]),
+          id,
           projectId,
           proposal,
           outputLanguage,
           generatedAt: this.core.clock.now(),
         });
     });
+    return true;
   }
   proposals(projectId: string): WorkProposal[] {
     this.core.project(projectId);

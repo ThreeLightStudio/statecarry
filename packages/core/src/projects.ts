@@ -28,6 +28,8 @@ import { normalizeProjectFolder } from './project-folder';
 
 export class Projects {
   private workingTreeAnalysisPending = new Map<string, { promise: Promise<WorkingTreeAnalysis> }>();
+  /** A later check always wins over an earlier, slower inspection. */
+  private observationRequests = new Map<string, number>();
   constructor(private core: StateCarry) {}
 
   private hash(action: string, projectId: string | null, command: Command) {
@@ -158,6 +160,7 @@ export class Projects {
     return this.core.ids.hash({
       branch: snapshot.branch,
       commit: snapshot.commit,
+      dirty: snapshot.dirty,
       changedFiles: snapshot.changedFiles ?? [],
       changedFileCount: snapshot.changedFileCount ?? 0,
       additions: snapshot.additions ?? 0,
@@ -254,17 +257,61 @@ export class Projects {
     return record ? { ...snapshot, workingTreeAnalysis: record.result } : snapshot;
   }
 
+  private isLatestObservation(observation: ProjectObservation): boolean {
+    const latest = this.latestObservation(observation.projectId);
+    // Analysis may safely finish across a metadata-only probe change, but not
+    // across different repository evidence (especially dirty to clean).
+    return latest?.semanticKey === observation.semanticKey;
+  }
+
+  private publishWorkingTreeProposals(
+    work: ProjectRecord,
+    observation: ProjectObservation,
+    analysis: WorkingTreeAnalysis | null,
+    outputLanguage: 'en' | 'ko',
+  ): boolean {
+    return this.core.workMatcher.replaceProposals(
+      work.id,
+      'working-tree-group',
+      (analysis?.groups ?? []).map((group) => ({
+        key: workingTreeGroupKey(group),
+        source: 'working-tree-group',
+        title: group.title,
+        state: 'active',
+        currentState: group.currentState,
+        uncertainty: group.openItems[0] ?? null,
+        nextAction: group.suggestedNextStep,
+        doneWhen: group.doneWhen,
+        evidenceBasis: observation.semanticKey,
+      })),
+      outputLanguage,
+    );
+  }
+
   private async analyzeObservation(
     work: ProjectRecord,
     observation: ProjectObservation,
     outputLanguage: 'en' | 'ko',
   ): Promise<WorkspaceSnapshot> {
     const snapshot = this.withoutAnalysis(observation.snapshot);
-    if (!snapshot.dirty || !this.core.summary.analyzeWorkingTree) return snapshot;
+    if (!snapshot.dirty || !this.core.summary.analyzeWorkingTree) {
+      if (
+        !snapshot.dirty &&
+        this.isLatestObservation(observation) &&
+        this.publishWorkingTreeProposals(work, observation, null, outputLanguage)
+      )
+        this.core.events.changed(work.id, 'working-tree-analysis');
+      return snapshot;
+    }
     const semanticKey = this.semanticKey(work, observation, outputLanguage);
     const recordId = this.analysisRecordId(work.id, semanticKey);
     const stored = this.core.repo.get('workingTreeAnalysis', recordId);
-    if (stored) return { ...snapshot, workingTreeAnalysis: stored.result };
+    if (stored) {
+      if (!this.isLatestObservation(observation)) return this.latestSnapshot(work.id);
+      if (this.publishWorkingTreeProposals(work, observation, stored.result, outputLanguage))
+        this.core.events.changed(work.id, 'working-tree-analysis');
+      return { ...snapshot, workingTreeAnalysis: stored.result };
+    }
     const pending = this.workingTreeAnalysisPending.get(recordId);
     if (pending) return { ...snapshot, workingTreeAnalysis: await pending.promise };
     try {
@@ -276,6 +323,8 @@ export class Projects {
       });
       this.workingTreeAnalysisPending.set(recordId, { promise });
       const rawResult = await promise;
+      // Never let an older inspection restore proposals after a newer check.
+      if (!this.isLatestObservation(observation)) return this.latestSnapshot(work.id);
       const previous = this.core.repo
         .list('workingTreeAnalysis')
         .filter((item) => item.projectId === work.id)
@@ -309,25 +358,11 @@ export class Projects {
         generatedAt: this.core.clock.now(),
       };
       this.core.repo.put('workingTreeAnalysis', record);
-      this.core.workMatcher.replaceProposals(
-        work.id,
-        'working-tree-group',
-        record.result.groups.map((group) => ({
-          key: workingTreeGroupKey(group),
-          source: 'working-tree-group',
-          title: group.title,
-          state: 'active',
-          currentState: group.currentState,
-          uncertainty: group.openItems[0] ?? null,
-          nextAction: group.suggestedNextStep,
-          doneWhen: group.doneWhen,
-          evidenceBasis: observation.semanticKey,
-        })),
-        outputLanguage,
-      );
+      this.publishWorkingTreeProposals(work, observation, record.result, outputLanguage);
       this.core.events.changed(work.id, 'working-tree-analysis');
       return { ...snapshot, workingTreeAnalysis: result };
     } catch (error) {
+      if (!this.isLatestObservation(observation)) return this.latestSnapshot(work.id);
       this.core.reportError(error, 'working-tree-analysis', work.id);
       const detail = error instanceof Error ? error.message : String(error);
       return {
@@ -358,6 +393,8 @@ export class Projects {
     hints?: WorkspaceInspectionHints,
     analyze = true,
   ): Promise<WorkspaceSnapshot> {
+    const request = (this.observationRequests.get(projectId) ?? 0) + 1;
+    this.observationRequests.set(projectId, request);
     const work = this.core.project(projectId);
     const connection = this.connection(work);
     const inspector = this.core.projectInspector;
@@ -374,10 +411,13 @@ export class Projects {
         ? await inspector.probeAsync(connection.cwd)
         : inspector.probe!(connection.cwd);
       probeKey = this.probeKey(probe);
-      if (previous?.probeKey === probeKey)
+      if (previous?.probeKey === probeKey) {
+        if (this.observationRequests.get(projectId) !== request)
+          return this.latestSnapshot(projectId);
         return analyze
           ? this.analyzeObservation(work, previous, outputLanguage)
           : this.withoutAnalysis(previous.snapshot);
+      }
       snapshot = workspaceSnapshotSchema.parse(
         inspector.inspectAsync
           ? await inspector.inspectAsync(
@@ -393,11 +433,15 @@ export class Projects {
           : inspector.inspect(connection.cwd, hints),
       );
       probeKey = this.inspectionKey(snapshot);
-      if (previous?.probeKey === probeKey)
+      if (previous?.probeKey === probeKey) {
+        if (this.observationRequests.get(projectId) !== request)
+          return this.latestSnapshot(projectId);
         return analyze
           ? this.analyzeObservation(work, previous, outputLanguage)
           : this.withoutAnalysis(previous.snapshot);
+      }
     }
+    if (this.observationRequests.get(projectId) !== request) return this.latestSnapshot(projectId);
     snapshot = this.withoutAnalysis(snapshot);
     const observation: ProjectObservation = {
       id: projectId,
@@ -409,6 +453,7 @@ export class Projects {
       snapshot,
     };
     this.core.repo.put('projectObservation', observation);
+    if (!snapshot.dirty) this.publishWorkingTreeProposals(work, observation, null, outputLanguage);
     if (previous?.inspectionKey !== observation.inspectionKey)
       this.core.events.changed(projectId, 'observation');
     return analyze
