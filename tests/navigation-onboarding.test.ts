@@ -3,6 +3,7 @@ import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { verifyNavigationArrival } from '../apps/server/src/adapters/navigation-onboarding';
+import { directNavigationEvidenceFile } from '../apps/server/src/adapters/navigation-verification';
 
 const dirs: string[] = [];
 const id = '00000000-0000-4000-8000-000000000001';
@@ -28,14 +29,14 @@ describe('first-install arrival confirmation', () => {
       const options = setup(answer);
       expect((await verifyNavigationArrival(options)).action).toBe('arrival-unconfirmed');
       expect(options.dispatch).toHaveBeenCalledWith(id);
-      expect(existsSync(join(options.dataDir, 'navigation-verification.json'))).toBe(false);
+      expect(existsSync(join(options.dataDir, directNavigationEvidenceFile))).toBe(false);
     },
   );
   it('records explicit human confirmation without a source checkout or old report', async () => {
     const options = setup(`arrived ${id}`);
     expect((await verifyNavigationArrival(options)).action).toBe('user-confirmed-arrival');
     const evidence = JSON.parse(
-      readFileSync(join(options.dataDir, 'navigation-verification.json'), 'utf8'),
+      readFileSync(join(options.dataDir, directNavigationEvidenceFile), 'utf8'),
     );
     expect(evidence).toMatchObject({
       targetId: id,
@@ -47,11 +48,23 @@ describe('first-install arrival confirmation', () => {
   });
   it('preserves invalid existing evidence without dispatching', async () => {
     const options = setup();
-    const path = join(options.dataDir, 'navigation-verification.json');
+    const path = join(options.dataDir, directNavigationEvidenceFile);
     writeFileSync(path, 'broken');
     expect((await verifyNavigationArrival(options)).action).toBe('existing-preserved');
     expect(options.dispatch).not.toHaveBeenCalled();
     expect(readFileSync(path, 'utf8')).toBe('broken');
+  });
+  it('records direct-open evidence without changing a retired verification record', async () => {
+    const options = setup(`arrived ${id}`);
+    const legacyPath = join(options.dataDir, 'navigation-verification.json');
+    const legacy = '{"dispatch":"rtk proxy open","historical":true}\n';
+    writeFileSync(legacyPath, legacy);
+
+    expect((await verifyNavigationArrival(options)).action).toBe('user-confirmed-arrival');
+    expect(readFileSync(legacyPath, 'utf8')).toBe(legacy);
+    expect(
+      JSON.parse(readFileSync(join(options.dataDir, directNavigationEvidenceFile), 'utf8')),
+    ).toMatchObject({ dispatch: 'open', targetId: id });
   });
   it('never asks for confirmation after dispatch failure', async () => {
     const options = setup();

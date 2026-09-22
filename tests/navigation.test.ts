@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import {
+  directNavigationEvidenceFile,
   inspectNavigationEvidence,
   navigationEvidenceSchema,
 } from '../apps/server/src/adapters/navigation-verification';
@@ -44,7 +45,7 @@ describe('local navigation evidence', () => {
   it('starts without evidence and reads synthetic evidence without opening or altering it', () => {
     const dir = directory();
     expect(inspectNavigationEvidence(dir, 'darwin').state).toBe('missing');
-    const path = join(dir, 'navigation-verification.json'),
+    const path = join(dir, directNavigationEvidenceFile),
       content = JSON.stringify(evidence());
     writeFileSync(path, content);
     expect(inspectNavigationEvidence(dir, 'darwin')).toMatchObject({
@@ -65,7 +66,7 @@ describe('local navigation evidence', () => {
     JSON.stringify({ ...evidence(), targetMatched: false }),
   ])('does not activate or overwrite damaged/insufficient evidence', (existing) => {
     const dir = directory(),
-      path = join(dir, 'navigation-verification.json');
+      path = join(dir, directNavigationEvidenceFile);
     writeFileSync(path, existing);
     expect(inspectNavigationEvidence(dir, 'darwin')).toMatchObject({
       precision: 'unsupported',
@@ -74,21 +75,21 @@ describe('local navigation evidence', () => {
     expect(readFileSync(path, 'utf8')).toBe(existing);
     expect(spawn).not.toHaveBeenCalled();
   });
-  it('requires a new confirmation when evidence used the retired RTK launch method', () => {
+  it('keeps retired RTK evidence unchanged and requires direct-open verification', () => {
     const dir = directory();
-    writeFileSync(
-      join(dir, 'navigation-verification.json'),
-      JSON.stringify({ ...evidence(), dispatch: 'rtk proxy open' }),
-    );
+    const path = join(dir, 'navigation-verification.json');
+    const legacy = JSON.stringify({ ...evidence(), dispatch: 'rtk proxy open' });
+    writeFileSync(path, legacy);
     expect(inspectNavigationEvidence(dir, 'darwin')).toMatchObject({
       precision: 'unsupported',
       state: 'invalid',
-      detail: expect.stringMatching(/earlier launch method/),
+      detail: expect.stringMatching(/Run navigation verification again/),
     });
+    expect(readFileSync(path, 'utf8')).toBe(legacy);
   });
   it('keeps environments outside macOS unsupported even with otherwise valid evidence', () => {
     const dir = directory();
-    writeFileSync(join(dir, 'navigation-verification.json'), JSON.stringify(evidence()));
+    writeFileSync(join(dir, directNavigationEvidenceFile), JSON.stringify(evidence()));
     expect(inspectNavigationEvidence(dir, 'linux').state).toBe('unsupported-environment');
   });
 });

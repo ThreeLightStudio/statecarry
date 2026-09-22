@@ -2,7 +2,11 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { inspectNavigationEvidence, navigationEvidenceSchema } from './navigation-verification';
+import {
+  directNavigationEvidenceFile,
+  inspectNavigationEvidence,
+  navigationEvidenceSchema,
+} from './navigation-verification';
 
 /** An OS dispatch is only a request. A person must independently inspect the destination. */
 export async function verifyNavigationArrival(options: {
@@ -17,7 +21,7 @@ export async function verifyNavigationArrival(options: {
 }) {
   const id = z.string().uuid().parse(options.threadId);
   if (options.platform !== 'darwin') throw new Error('Navigation verification requires macOS.');
-  const path = join(options.dataDir, 'navigation-verification.json');
+  const path = join(options.dataDir, directNavigationEvidenceFile);
   try {
     readFileSync(path, 'utf8');
     return {
