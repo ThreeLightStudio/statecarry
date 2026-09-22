@@ -1057,6 +1057,64 @@ describe('WorkMatcher', () => {
     expect(h.core.workMatcher.match(projectId)).toHaveLength(2);
   });
 
+  it('retains distinct current evidence as aliases when explicitly linked to one work', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    work(h, projectId, 'work-a', 'active', 'Durable work');
+    const proposals = [
+      {
+        key: 'analysis:a',
+        source: 'analysis-candidate' as const,
+        title: 'Analysis',
+        state: 'active' as const,
+        currentState: 'A',
+        uncertainty: null,
+        nextAction: null,
+        doneWhen: null,
+        evidenceBasis: 'analysis',
+        evidenceQuotes: [{ revisionId: 'a', quote: 'Analysis evidence.' }],
+      },
+      {
+        key: 'group:b',
+        source: 'working-tree-group' as const,
+        title: 'Tree',
+        state: 'active' as const,
+        currentState: 'B',
+        uncertainty: null,
+        nextAction: null,
+        doneWhen: null,
+        evidenceBasis: 'tree',
+        evidenceQuotes: [{ revisionId: 'b', quote: 'Tree evidence.' }],
+      },
+    ];
+    vi.spyOn(h.core.workMatcher, 'proposals').mockReturnValue(proposals);
+    for (const proposal of proposals)
+      h.repo.put('workDecision', {
+        id: `link:${proposal.key}`,
+        projectId,
+        workItemId: 'work-a',
+        kind: workDecisionKinds.linkWorkProposal,
+        value: {
+          proposalKey: proposal.key,
+          proposalSource: proposal.source,
+          proposalEvidenceBasis: proposal.evidenceBasis,
+          proposalEvidenceQuotes: proposal.evidenceQuotes,
+        },
+        basis: [proposal.evidenceBasis],
+        state: 'valid',
+        decidedAt: AT,
+      });
+    const [match] = h.core.workMatcher.match(projectId);
+    expect(match).toMatchObject({ workItemId: 'work-a', confidence: 'explicit' });
+    expect([match.proposal, ...(match.aliases ?? [])]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'analysis:a', evidenceQuotes: proposals[0].evidenceQuotes }),
+        expect.objectContaining({ key: 'group:b', evidenceQuotes: proposals[1].evidenceQuotes }),
+      ]),
+    );
+  });
+
   it('creates new work when a reused key has unrelated current evidence', () => {
     const h = harness();
     const changed = vi.spyOn(h.core.events, 'changed');

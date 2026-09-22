@@ -84,6 +84,22 @@ function proposalIdentity(proposal: WorkProposal): ProposalIdentity {
 
 type ProposalMatchState = { proposal: WorkProposal; linkedWorkIds: Set<string> };
 
+function sameExplicitWork(left: ProposalMatchState, right: ProposalMatchState): boolean {
+  return (
+    left.linkedWorkIds.size === 1 &&
+    right.linkedWorkIds.size === 1 &&
+    [...left.linkedWorkIds][0] === [...right.linkedWorkIds][0]
+  );
+}
+
+function connectedProposals(left: ProposalMatchState, right: ProposalMatchState): boolean {
+  return (
+    sameExplicitWork(left, right) ||
+    (left.proposal.source !== right.proposal.source &&
+      sharesRevisionEvidence(left.proposal, right.proposal))
+  );
+}
+
 export class WorkMatcher {
   constructor(private core: StateCarry) {}
 
@@ -277,11 +293,7 @@ export class WorkMatcher {
     while (pending.length) {
       const current = pending.pop()!;
       for (const other of states) {
-        if (
-          !connected.has(other) &&
-          current.proposal.source !== other.proposal.source &&
-          sharesRevisionEvidence(current.proposal, other.proposal)
-        ) {
+        if (!connected.has(other) && connectedProposals(current, other)) {
           connected.add(other);
           pending.push(other);
         }
@@ -317,10 +329,7 @@ export class WorkMatcher {
       while (pending.length) {
         const current = pending.pop()!;
         for (const other of unseen) {
-          if (
-            current.proposal.source !== other.proposal.source &&
-            sharesRevisionEvidence(current.proposal, other.proposal)
-          ) {
+          if (connectedProposals(current, other)) {
             unseen.delete(other);
             component.add(other);
             pending.push(other);
