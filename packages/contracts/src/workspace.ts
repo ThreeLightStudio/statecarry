@@ -38,6 +38,10 @@ export const workspaceChangedFileSchema = z
   .strict();
 export type WorkspaceChangedFile = z.infer<typeof workspaceChangedFileSchema>;
 
+const workingTreeSourceSchema = z
+  .object({ revisionId: z.string().min(1).max(240), quote: z.string().min(1).max(1200) })
+  .strict();
+
 export const workingTreeWorkGroupSchema = z
   .object({
     id: z.string().min(1).max(160).optional(),
@@ -54,16 +58,7 @@ export const workingTreeWorkGroupSchema = z
               'agent-interpretation',
             ]),
             text: z.string().min(1).max(700),
-            sources: z
-              .array(
-                z
-                  .object({
-                    revisionId: z.string().min(1).max(240),
-                    quote: z.string().min(1).max(1200),
-                  })
-                  .strict(),
-              )
-              .max(20),
+            sources: z.array(workingTreeSourceSchema).max(20),
           })
           .strict(),
       )
@@ -84,10 +79,44 @@ export type WorkingTreeWorkGroup = z.infer<typeof workingTreeWorkGroupSchema>;
 export const workingTreeAnalysisSchema = z
   .object({
     summary: z.string().min(1).max(900),
-    groups: z.array(workingTreeWorkGroupSchema).min(1).max(5),
+    groups: z.array(workingTreeWorkGroupSchema).max(5),
   })
   .strict();
 export type WorkingTreeAnalysis = z.infer<typeof workingTreeAnalysisSchema>;
+
+/** Read cached analyses written before source citations included exact quotes. */
+export function normalizeWorkingTreeAnalysis(value: unknown): WorkingTreeAnalysis | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  if (!Array.isArray(raw.groups)) return null;
+  const groups = raw.groups.flatMap((value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+    const group = value as Record<string, unknown>;
+    const normalized = { ...group };
+    if (Array.isArray(group.context)) {
+      const context = group.context.flatMap((value) => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+        const item = value as Record<string, unknown>;
+        if (!Array.isArray(item.sources)) return [];
+        const sources = item.sources.filter(
+          (source) => workingTreeSourceSchema.safeParse(source).success,
+        );
+        // Legacy revision-ID lists contain no quote to verify. Keep them out of
+        // current continuity evidence while leaving the surrounding work intact.
+        return sources.length ? [{ ...item, sources }] : [];
+      });
+      if (context.length) normalized.context = context;
+      else delete normalized.context;
+    } else if (group.context !== undefined) {
+      delete normalized.context;
+    }
+    const parsed = workingTreeWorkGroupSchema.safeParse(normalized);
+    return parsed.success ? [parsed.data] : [];
+  });
+  if (groups.length !== raw.groups.length) return null;
+  const parsed = workingTreeAnalysisSchema.safeParse({ ...raw, groups });
+  return parsed.success ? parsed.data : null;
+}
 
 /** Bounded clues from connected records used to choose project files for inspection. */
 export const workspaceInspectionHintsSchema = z

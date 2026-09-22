@@ -172,7 +172,7 @@ describe('project observation reuse', () => {
       files: [
         {
           ...observedSnapshot(inventory).files![0],
-          preview: 'Reply language configurable. Diagnostic errors details.',
+          preview: 'Reply language configurable. Diagnostic errors need investigation.',
         },
       ],
     }));
@@ -196,13 +196,15 @@ describe('project observation reuse', () => {
           {
             ...analysis().groups[0],
             title: 'Investigate diagnostic errors',
-            currentState: 'Diagnostic errors need review.',
+            currentState: 'Diagnostic errors need investigation.',
             context: [
               {
                 kind: 'unknown',
                 nature: 'file-observation',
-                text: 'Diagnostic errors are present.',
-                sources: [{ revisionId: record.revisionId, quote: 'Diagnostic errors details.' }],
+                text: 'Diagnostic errors need investigation.',
+                sources: [
+                  { revisionId: record.revisionId, quote: 'Diagnostic errors need investigation.' },
+                ],
               },
             ],
           },
@@ -226,12 +228,12 @@ describe('project observation reuse', () => {
           {
             ...projectCandidate({
               id: record.revisionId,
-              text: 'Diagnostic errors details.',
+              text: 'Diagnostic errors need investigation.',
               threadId: record.threadId,
             } as any),
             key: 'diagnostic-errors',
             goal: 'Investigate diagnostic errors',
-            currentState: 'Diagnostic errors are in the current file change.',
+            currentState: 'Diagnostic errors need investigation in the current file change.',
           },
         ],
       };
@@ -374,6 +376,354 @@ describe('project observation reuse', () => {
       repo.close();
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  it('keeps selected work through refresh, clean retirement, cached return, and a new basis', async () => {
+    const repo = new MemoryRepository();
+    const dirtySnapshot = (diffPreview = 'initial implementation diff'): WorkspaceSnapshot => ({
+      ...observedSnapshot(),
+      diffPreview,
+      files: [{ ...observedSnapshot().files![0], preview: 'Return flow stays intact.' }],
+    });
+    let state = dirtySnapshot();
+    let fingerprint = 'dirty-a';
+    const inspector: ProjectInspector = {
+      probe: (cwd) => ({
+        cwd,
+        root: cwd,
+        branch: 'main',
+        commit: 'abcdef',
+        statusFingerprint: fingerprint,
+        status: 'checked',
+        checkedAt: AT,
+        limitations: [],
+      }),
+      inspect: () => state,
+    };
+    const analyzeWorkingTree = vi.fn(async (input: any) => {
+      const record = input.records.find((item: any) => item.kind === 'fileObservation');
+      return {
+        ...analysis(),
+        groups: [
+          {
+            ...analysis().groups[0],
+            title: 'Preserve the return flow',
+            currentState:
+              state.diffPreview === 'updated implementation diff'
+                ? 'The updated implementation keeps the return flow intact.'
+                : 'The implementation keeps the return flow intact.',
+            context: [
+              {
+                kind: 'progress',
+                nature: 'file-observation',
+                text: 'The return flow remains intact.',
+                sources: [{ revisionId: record.revisionId, quote: 'Return flow stays intact.' }],
+              },
+            ],
+          },
+        ],
+      };
+    });
+    const { core, h } = coreWithObservation(repo, inspector, analyzeWorkingTree);
+    h.summary.generateAnalysis = vi.fn(async (input: any) => {
+      const record = input.records.find((item: any) => item.kind === 'fileObservation');
+      const candidate = projectCandidate({
+        id: record.revisionId,
+        threadId: record.threadId,
+        text: 'Return flow stays intact.',
+      } as any);
+      candidate.key = 'return-flow-candidate';
+      candidate.goal = 'Preserve the return flow';
+      candidate.evidence = [{ revisionId: record.revisionId, quote: 'Return flow stays intact.' }];
+      return { candidates: [candidate] };
+    });
+    const projectId = register(core);
+
+    await core.analyses.refresh(projectId, 'en');
+    await core.projects.observe(projectId, 'en');
+    const initialMatch = core.workMatcher
+      .match(projectId)
+      .find(
+        (match) =>
+          match.proposal.title === 'Preserve the return flow' ||
+          match.aliases?.some((alias) => alias.title === 'Preserve the return flow'),
+      )!;
+    expect(initialMatch.confidence).toBe('possible');
+    core.projectModel.selectProposal(projectId, initialMatch.proposal.key);
+    const workId = core.now.resolve(projectId).currentWorkId!;
+    const savedWork = core.projectModel.view(projectId).workItems;
+    const savedDecisions = core.projectModel
+      .view(projectId)
+      .decisions.filter((decision) => decision.state === 'valid');
+
+    state = {
+      ...state,
+      dirty: false,
+      changedPaths: [],
+      changedFiles: [],
+      changedFileCount: 0,
+      additions: 0,
+      deletions: 0,
+      diffPreview: '',
+      files: [],
+    };
+    fingerprint = 'clean-b';
+    await core.projects.observe(projectId, 'en');
+    expect(
+      core.workMatcher.proposals(projectId).filter((item) => item.source === 'working-tree-group'),
+    ).toEqual([]);
+    expect(core.now.resolve(projectId).currentWorkId).toBe(workId);
+
+    state = dirtySnapshot();
+    fingerprint = 'dirty-cached';
+    await core.projects.observe(projectId, 'en');
+    expect(analyzeWorkingTree).toHaveBeenCalledTimes(1);
+    expect(core.now.resolve(projectId).currentWorkId).toBe(workId);
+
+    state = dirtySnapshot('updated implementation diff');
+    fingerprint = 'dirty-new-basis';
+    await core.projects.observe(projectId, 'en');
+    expect(analyzeWorkingTree).toHaveBeenCalledTimes(2);
+    const currentObservation = core.projects.latestObservation(projectId)!;
+    const treeProposals = core.workMatcher
+      .proposals(projectId)
+      .filter((item) => item.source === 'working-tree-group');
+    expect(treeProposals).toHaveLength(1);
+    expect(treeProposals[0]).toMatchObject({
+      evidenceBasis: currentObservation.semanticKey,
+      currentState: 'The updated implementation keeps the return flow intact.',
+    });
+    const continued = core.workMatcher
+      .match(projectId)
+      .find(
+        (match) =>
+          match.proposal.title === 'Preserve the return flow' ||
+          match.aliases?.some((alias) => alias.title === 'Preserve the return flow'),
+      )!;
+    expect(continued).toMatchObject({ workItemId: workId, confidence: 'explicit' });
+    expect(core.now.resolve(projectId).currentWorkId).toBe(workId);
+    expect(core.projectModel.view(projectId).workItems).toEqual(savedWork);
+    expect(
+      core.projectModel.view(projectId).decisions.filter((decision) => decision.state === 'valid'),
+    ).toEqual(savedDecisions);
+  });
+
+  it('reads legacy cached source IDs and reanalyzes malformed cache without losing selected work', async () => {
+    const repo = new MemoryRepository();
+    const observed = inspectorFixture();
+    const analyzeWorkingTree = vi.fn(async (input: any) => {
+      const record = input.records.find((item: any) => item.kind === 'fileObservation');
+      return {
+        ...analysis(),
+        groups: [
+          {
+            ...analysis().groups[0],
+            title: 'Stable work',
+            context: [
+              {
+                kind: 'progress',
+                nature: 'file-observation',
+                text: 'The file supports this work.',
+                sources: [{ revisionId: record.revisionId, quote: 'return point' }],
+              },
+            ],
+          },
+        ],
+      };
+    });
+    const { core } = coreWithObservation(repo, observed.inspector, analyzeWorkingTree);
+    const projectId = register(core);
+    await core.projects.observe(projectId, 'en');
+    const proposal = core.workMatcher.proposals(projectId)[0];
+    core.projectModel.selectProposal(projectId, proposal.key);
+    const workId = core.now.resolve(projectId).currentWorkId!;
+    const savedWork = core.projectModel.view(projectId).workItems;
+    const savedDecisions = core.projectModel.view(projectId).decisions;
+    const record = repo.list('workingTreeAnalysis')[0];
+    const legacy = structuredClone(record) as any;
+    const revisionId = legacy.result.groups[0].context[0].sources[0].revisionId;
+    legacy.result.groups[0].context[0].sources = [revisionId];
+    repo.put('workingTreeAnalysis', legacy);
+
+    const readable = await core.projects.workspace(projectId);
+    expect(readable.workingTreeAnalysis?.summary).toBe(analysis().summary);
+    expect(readable.workingTreeAnalysis?.groups[0].context).toBeUndefined();
+    await core.projects.observe(projectId, 'en');
+    expect(analyzeWorkingTree).toHaveBeenCalledTimes(1);
+    expect(core.now.resolve(projectId).currentWorkId).toBe(workId);
+
+    const malformed = structuredClone(legacy);
+    malformed.result.groups[0].title = '';
+    repo.put('workingTreeAnalysis', malformed);
+    expect((await core.projects.workspace(projectId)).workingTreeAnalysis).toBeUndefined();
+    expect(core.now.resolve(projectId).currentWorkId).toBe(workId);
+    await core.projects.observe(projectId, 'en');
+    expect(analyzeWorkingTree).toHaveBeenCalledTimes(2);
+    expect(core.now.resolve(projectId).currentWorkId).toBe(workId);
+    expect(core.projectModel.view(projectId).workItems).toEqual(savedWork);
+    expect(core.projectModel.view(projectId).decisions).toEqual(savedDecisions);
+    expect(core.workMatcher.match(projectId)).toEqual([
+      expect.objectContaining({ workItemId: null, confidence: 'unmatched' }),
+    ]);
+  });
+
+  it('does not reuse a selected group ID when same-basis cache repair changes the work', async () => {
+    const repo = new MemoryRepository();
+    const observed = inspectorFixture((inventory) => ({
+      ...observedSnapshot(inventory),
+      files: [
+        {
+          ...observedSnapshot(inventory).files![0],
+          preview: 'Language preference is configurable. Diagnostic logging needs review.',
+        },
+      ],
+    }));
+    let generated = 0;
+    const analyzeWorkingTree = vi.fn(async (input: any) => {
+      const record = input.records.find((item: any) => item.kind === 'fileObservation');
+      generated++;
+      const languageWork = generated === 1;
+      return {
+        ...analysis(),
+        groups: [
+          {
+            ...analysis().groups[0],
+            title: languageWork ? 'Configure reply language' : 'Investigate diagnostic logging',
+            currentState: languageWork
+              ? 'The reply language setting is available.'
+              : 'Diagnostic logging needs investigation.',
+            context: [
+              {
+                kind: 'progress',
+                nature: 'file-observation',
+                text: languageWork
+                  ? 'The reply language setting is available.'
+                  : 'Diagnostic logging needs investigation.',
+                sources: [
+                  {
+                    revisionId: record.revisionId,
+                    quote: languageWork
+                      ? 'Language preference is configurable.'
+                      : 'Diagnostic logging needs review.',
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      };
+    });
+    const { core, h } = coreWithObservation(repo, observed.inspector, analyzeWorkingTree);
+    h.summary.generateAnalysis = vi.fn(async () => ({ candidates: [] }));
+    const projectId = register(core);
+
+    await core.analyses.refresh(projectId, 'en');
+    await core.projects.observe(projectId, 'en');
+    const selectedProposal = core.workMatcher.proposals(projectId)[0];
+    const selectedKey = selectedProposal.key;
+    core.projectModel.selectProposal(projectId, selectedKey);
+    const selectedWorkId = core.now.resolve(projectId).currentWorkId!;
+    const selectedLink = core.projectModel
+      .view(projectId)
+      .decisions.find((decision) => decision.kind === 'link-work-proposal')!;
+
+    const cached = repo.list('workingTreeAnalysis')[0];
+    const corrupted = structuredClone(cached) as any;
+    corrupted.result.groups[0].title = '';
+    repo.put('workingTreeAnalysis', corrupted);
+    await core.projects.observe(projectId, 'en');
+
+    const matches = core.workMatcher.match(projectId);
+    expect(analyzeWorkingTree).toHaveBeenCalledTimes(2);
+    expect(core.workMatcher.proposals(projectId)).toHaveLength(1);
+    expect(core.workMatcher.proposals(projectId)[0].key).not.toBe(selectedKey);
+    expect(matches).toEqual([
+      expect.objectContaining({ workItemId: null, confidence: 'unmatched' }),
+    ]);
+    expect(core.now.resolve(projectId).currentWorkId).toBe(selectedWorkId);
+    expect(core.projectModel.view(projectId).workItems).toHaveLength(1);
+    expect(core.projectModel.view(projectId).decisions).toContainEqual(selectedLink);
+
+    const replacement = core.workMatcher.proposals(projectId)[0];
+    core.projectModel.selectProposal(projectId, replacement.key);
+    const replacementWorkId = core.now.resolve(projectId).currentWorkId;
+    expect(replacementWorkId).not.toBe(selectedWorkId);
+    core.projectModel.selectProposal(projectId, replacement.key);
+    expect(core.projectModel.view(projectId).workItems).toHaveLength(2);
+    expect(
+      core.projectModel
+        .view(projectId)
+        .decisions.filter(
+          (decision) =>
+            decision.kind === 'link-work-proposal' &&
+            decision.value.proposalKey === replacement.key &&
+            decision.state === 'valid',
+        ),
+    ).toHaveLength(1);
+  });
+
+  it('does not join unrelated refreshed and working-tree proposals through a common quote', async () => {
+    const repo = new MemoryRepository();
+    const observed = inspectorFixture((inventory) => ({
+      ...observedSnapshot(inventory),
+      files: [{ ...observedSnapshot(inventory).files![0], preview: 'No errors detected.' }],
+    }));
+    const analyzeWorkingTree = vi.fn(async (input: any) => {
+      const record = input.records.find((item: any) => item.kind === 'fileObservation');
+      return {
+        ...analysis(),
+        groups: [
+          {
+            ...analysis().groups[0],
+            title: 'Update locale preferences',
+            currentState: 'Locale preferences are ready for review.',
+            context: [
+              {
+                kind: 'progress',
+                nature: 'file-observation',
+                text: 'The locale settings are ready.',
+                sources: [{ revisionId: record.revisionId, quote: 'No errors detected.' }],
+              },
+            ],
+          },
+        ],
+      };
+    });
+    const { core, h } = coreWithObservation(repo, observed.inspector, analyzeWorkingTree);
+    h.summary.generateAnalysis = vi.fn(async (input: any) => {
+      const record = input.records.find((item: any) => item.kind === 'fileObservation');
+      const candidate = projectCandidate({
+        id: record.revisionId,
+        threadId: record.threadId,
+        text: 'No errors detected.',
+      } as any);
+      candidate.key = 'database-latency';
+      candidate.goal = 'Investigate database latency';
+      candidate.currentState = 'Database latency needs investigation.';
+      candidate.evidence = [{ revisionId: record.revisionId, quote: 'No errors detected.' }];
+      return { candidates: [candidate] };
+    });
+    const projectId = register(core);
+
+    await core.analyses.refresh(projectId, 'en');
+    await core.projects.observe(projectId, 'en');
+
+    expect(analyzeWorkingTree).toHaveBeenCalledTimes(1);
+    expect(core.workMatcher.match(projectId)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          proposal: expect.objectContaining({ title: 'Investigate database latency' }),
+          workItemId: null,
+          confidence: 'unmatched',
+        }),
+        expect.objectContaining({
+          proposal: expect.objectContaining({ title: 'Update locale preferences' }),
+          workItemId: null,
+          confidence: 'unmatched',
+        }),
+      ]),
+    );
+    expect(core.workMatcher.match(projectId)).toHaveLength(2);
   });
 
   it('removes clean working-tree proposals and restores them from a matching cached observation', async () => {

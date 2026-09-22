@@ -6,6 +6,7 @@ import {
   projectDeletionSchema,
   workspaceSnapshotSchema,
   workingTreeGroupKey,
+  normalizeWorkingTreeAnalysis,
   type Command,
   type Connection,
   type ProjectObservation,
@@ -18,11 +19,13 @@ import {
   type ProjectRecord,
   type WorkingTreeAnalysis,
   type WorkingTreeAnalysisRecord,
+  type WorkingTreeWorkGroup,
   type WorkspaceInspectionHints,
   type WorkspaceProbe,
   type WorkspaceSnapshot,
 } from '@statecarry/contracts';
 import type { StateCarry } from './service';
+import { proposalsShareRevisionEvidence } from './work-matching';
 import { projectDeletionPlan } from './project-deletion';
 import { normalizeProjectFolder } from './project-folder';
 
@@ -251,7 +254,8 @@ export class Projects {
           'workingTreeAnalysis',
           this.analysisRecordId(projectId, this.semanticKey(work, observation, language)),
         );
-        return saved ? [saved] : [];
+        const result = saved ? normalizeWorkingTreeAnalysis(saved.result) : null;
+        return saved && result ? [{ ...saved, result }] : [];
       })
       .sort((a, b) => b.generatedAt.localeCompare(a.generatedAt))[0];
     return record ? { ...snapshot, workingTreeAnalysis: record.result } : snapshot;
@@ -303,6 +307,17 @@ export class Projects {
     );
   }
 
+  private workingTreeEvidenceContext(group: WorkingTreeWorkGroup) {
+    return {
+      title: group.title,
+      currentState: group.currentState,
+      uncertainty: group.openItems[0] ?? null,
+      nextAction: group.suggestedNextStep,
+      doneWhen: group.doneWhen,
+      evidenceQuotes: (group.context ?? []).flatMap((item) => item.sources),
+    };
+  }
+
   private async analyzeObservation(
     work: ProjectRecord,
     observation: ProjectObservation,
@@ -320,12 +335,13 @@ export class Projects {
     }
     const semanticKey = this.semanticKey(work, observation, outputLanguage);
     const recordId = this.analysisRecordId(work.id, semanticKey);
-    const stored = this.core.repo.get('workingTreeAnalysis', recordId);
+    const storedRecord = this.core.repo.get('workingTreeAnalysis', recordId);
+    const stored = storedRecord ? normalizeWorkingTreeAnalysis(storedRecord.result) : null;
     if (stored) {
       if (!this.isLatestObservation(observation)) return this.latestSnapshot(work.id);
-      if (this.publishWorkingTreeProposals(work, observation, stored.result, outputLanguage))
+      if (this.publishWorkingTreeProposals(work, observation, stored, outputLanguage))
         this.core.events.changed(work.id, 'working-tree-analysis');
-      return { ...snapshot, workingTreeAnalysis: stored.result };
+      return { ...snapshot, workingTreeAnalysis: stored };
     }
     const pending = this.workingTreeAnalysisPending.get(recordId);
     if (pending) return pending.promise;
@@ -340,22 +356,35 @@ export class Projects {
           executionResults: this.executionResults(work, observation),
           records,
         });
+        const parsedResult = normalizeWorkingTreeAnalysis(rawResult);
+        if (!parsedResult)
+          throw new DomainError(
+            'SUMMARY_UNAVAILABLE',
+            'Working-tree analysis did not match the supported evidence format.',
+          );
         // Never let an older inspection restore proposals after a newer check.
         if (!this.isLatestObservation(observation)) return this.latestSnapshot(work.id);
         const previous = this.core.repo
           .list('workingTreeAnalysis')
           .filter((item) => item.projectId === work.id)
           .sort((a, b) => b.generatedAt.localeCompare(a.generatedAt))[0];
+        const previousGroups = previous
+          ? (normalizeWorkingTreeAnalysis(previous.result)?.groups ?? [])
+          : [];
         const pathKey = (files: string[]) => JSON.stringify([...files].sort());
         const result = {
-          ...rawResult,
-          groups: rawResult.groups.map((group) => {
-            const matches =
-              previous?.result.groups.filter(
-                (old) => pathKey(old.files) === pathKey(group.files),
-              ) ?? [];
+          ...parsedResult,
+          groups: parsedResult.groups.map((group) => {
+            const matches = previousGroups.filter(
+              (old) =>
+                pathKey(old.files) === pathKey(group.files) &&
+                proposalsShareRevisionEvidence(
+                  this.workingTreeEvidenceContext(old),
+                  this.workingTreeEvidenceContext(group),
+                ),
+            );
             const unique =
-              rawResult.groups.filter((other) => pathKey(other.files) === pathKey(group.files))
+              parsedResult.groups.filter((other) => pathKey(other.files) === pathKey(group.files))
                 .length === 1;
             return {
               ...group,

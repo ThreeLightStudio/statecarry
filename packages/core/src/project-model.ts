@@ -220,6 +220,13 @@ export class ProjectModel {
             proposalEvidenceBasis: proposal.evidenceBasis,
             proposalEvidence: proposal.evidence ?? [],
             proposalEvidenceQuotes: proposal.evidenceQuotes ?? [],
+            proposalEvidenceContext: {
+              title: proposal.title,
+              currentState: proposal.currentState,
+              uncertainty: proposal.uncertainty,
+              nextAction: proposal.nextAction,
+              doneWhen: proposal.doneWhen,
+            },
           },
           basis: proposal.evidenceBasis ? [proposal.evidenceBasis] : [],
           state: 'valid',

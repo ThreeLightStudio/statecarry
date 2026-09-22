@@ -700,9 +700,9 @@ describe('WorkMatcher', () => {
         {
           key: 'group:stable',
           source: 'working-tree-group',
-          title: 'Original wording',
+          title: 'Return flow maintenance',
           state: 'active',
-          currentState: 'Original state.',
+          currentState: 'The return flow remains active.',
           uncertainty: null,
           nextAction: null,
           doneWhen: null,
@@ -724,9 +724,9 @@ describe('WorkMatcher', () => {
         {
           key: 'group:stable',
           source: 'working-tree-group',
-          title: 'Reworded interpretation',
+          title: 'Return flow update',
           state: 'active',
-          currentState: 'Same evidence, newer wording.',
+          currentState: 'The return flow remains active with newer wording.',
           uncertainty: null,
           nextAction: null,
           doneWhen: null,
@@ -751,8 +751,8 @@ describe('WorkMatcher', () => {
         source: 'working-tree-group',
         evidenceBasis: 'basis-a',
         proposal: expect.objectContaining({
-          title: 'Original wording',
-          currentState: 'Original state.',
+          title: 'Return flow maintenance',
+          currentState: 'The return flow remains active.',
           evidence: ['revision:return-flow'],
         }),
       }),
@@ -907,6 +907,80 @@ describe('WorkMatcher', () => {
     expect((h.repo as import('./helpers').MemoryRepository).data).toEqual(before);
   });
 
+  it('rejects selecting a conflicting connected alias without changing saved data', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    work(h, projectId, 'work-a', 'active', 'First work');
+    work(h, projectId, 'work-b', 'active', 'Second work');
+    observe(h, projectId, 'tree-basis', true);
+    const sharedQuote = [{ revisionId: 'source-shared', quote: 'The return point is preserved.' }];
+    const proposals = [
+      {
+        key: 'analysis:shared',
+        source: 'analysis-candidate' as const,
+        title: 'Return point analysis',
+        state: 'active' as const,
+        currentState: 'The return point is preserved in the analysis.',
+        uncertainty: null,
+        nextAction: 'Review the return point.',
+        doneWhen: 'The return point is reviewed.',
+        evidenceBasis: 'analysis-basis',
+        evidenceQuotes: sharedQuote,
+      },
+      {
+        key: 'tree:shared',
+        source: 'working-tree-group' as const,
+        title: 'Working-tree return point',
+        state: 'active' as const,
+        currentState: 'The return point is preserved in the changed files.',
+        uncertainty: null,
+        nextAction: 'Review the return point.',
+        doneWhen: 'The return point is reviewed.',
+        evidenceBasis: 'tree-basis',
+        evidenceQuotes: sharedQuote,
+      },
+    ];
+    vi.spyOn(h.core.workMatcher, 'proposals').mockReturnValue(proposals);
+    for (const [index, proposal] of proposals.entries()) {
+      const workItemId = index === 0 ? 'work-a' : 'work-b';
+      h.repo.put('workDecision', {
+        id: `alias-conflict:${workItemId}`,
+        projectId,
+        workItemId,
+        kind: workDecisionKinds.linkWorkProposal,
+        value: {
+          proposalKey: proposal.key,
+          proposalSource: proposal.source,
+          proposalEvidenceBasis: proposal.evidenceBasis,
+          proposalEvidenceQuotes: proposal.evidenceQuotes,
+          proposalEvidenceContext: {
+            title: proposal.title,
+            currentState: proposal.currentState,
+            uncertainty: proposal.uncertainty,
+            nextAction: proposal.nextAction,
+            doneWhen: proposal.doneWhen,
+          },
+        },
+        basis: [proposal.evidenceBasis!],
+        state: 'valid',
+        decidedAt: AT,
+      });
+    }
+
+    expect(h.core.workMatcher.match(projectId)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ workItemId: null, confidence: 'unmatched' }),
+        expect.objectContaining({ workItemId: null, confidence: 'unmatched' }),
+      ]),
+    );
+    const before = structuredClone((h.repo as import('./helpers').MemoryRepository).data);
+    expect(() => h.core.projectModel.selectProposal(projectId, 'tree:shared')).toThrow(
+      'linked to conflicting work',
+    );
+    expect((h.repo as import('./helpers').MemoryRepository).data).toEqual(before);
+  });
+
   it('preserves every transitive source expression and rejects continuity links to different work', () => {
     const h = harness();
     const { receipt } = registerProject(h, { goal: 'Improve project return.' });
@@ -918,9 +992,9 @@ describe('WorkMatcher', () => {
       {
         key: 'analysis:a',
         source: 'analysis-candidate' as const,
-        title: 'Analysis expression',
+        title: 'First work analysis',
         state: 'active' as const,
-        currentState: 'Analysis evidence is current.',
+        currentState: 'The first work is active.',
         uncertainty: null,
         nextAction: 'Review the analysis.',
         doneWhen: 'The analysis is reviewed.',
@@ -931,9 +1005,9 @@ describe('WorkMatcher', () => {
       {
         key: 'group:b',
         source: 'working-tree-group' as const,
-        title: 'Working-tree bridge',
+        title: 'Bridge from the first work to the second work',
         state: 'active' as const,
-        currentState: 'The bridge has both source revisions.',
+        currentState: 'The first work and the second work are active.',
         uncertainty: null,
         nextAction: 'Review the bridge.',
         doneWhen: 'The bridge is reviewed.',
@@ -947,9 +1021,9 @@ describe('WorkMatcher', () => {
       {
         key: 'analysis:c',
         source: 'analysis-candidate' as const,
-        title: 'Later analysis expression',
+        title: 'Second work analysis',
         state: 'active' as const,
-        currentState: 'Later evidence is current.',
+        currentState: 'The second work is active.',
         uncertainty: null,
         nextAction: 'Review the later analysis.',
         doneWhen: 'The later analysis is reviewed.',
@@ -964,8 +1038,8 @@ describe('WorkMatcher', () => {
       expect.objectContaining({
         proposal: expect.objectContaining({ key: 'group:b', evidence: proposals[1].evidence }),
         aliases: expect.arrayContaining([
-          expect.objectContaining({ key: 'analysis:a', title: 'Analysis expression' }),
-          expect.objectContaining({ key: 'analysis:c', title: 'Later analysis expression' }),
+          expect.objectContaining({ key: 'analysis:a', title: 'First work analysis' }),
+          expect.objectContaining({ key: 'analysis:c', title: 'Second work analysis' }),
         ]),
         workItemId: null,
         confidence: 'possible',
@@ -1113,6 +1187,76 @@ describe('WorkMatcher', () => {
         expect.objectContaining({ key: 'group:b', evidenceQuotes: proposals[1].evidenceQuotes }),
       ]),
     );
+  });
+
+  it('does not carry a saved Work through a generic quote for a reused key', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    const quote = [{ revisionId: 'shared-record', quote: 'No errors detected.' }];
+    observe(h, projectId, 'basis-a', true);
+    h.core.workMatcher.replaceProposals(
+      projectId,
+      'working-tree-group',
+      [
+        {
+          key: 'group:reused',
+          source: 'working-tree-group',
+          title: 'Investigate database latency',
+          state: 'active',
+          currentState: 'Database latency remains under investigation.',
+          uncertainty: null,
+          nextAction: null,
+          doneWhen: null,
+          evidenceBasis: 'basis-a',
+          evidenceQuotes: quote,
+        },
+      ],
+      'en',
+    );
+    h.core.projectModel.selectProposal(projectId, 'group:reused');
+    const oldWorkId = h.core.now.resolve(projectId).currentWorkId!;
+
+    observe(h, projectId, 'basis-b', true);
+    h.core.workMatcher.replaceProposals(
+      projectId,
+      'working-tree-group',
+      [
+        {
+          key: 'group:reused',
+          source: 'working-tree-group',
+          title: 'Update locale preferences',
+          state: 'active',
+          currentState: 'Locale preferences need review.',
+          uncertainty: null,
+          nextAction: null,
+          doneWhen: null,
+          evidenceBasis: 'basis-b',
+          evidenceQuotes: quote,
+        },
+      ],
+      'en',
+    );
+
+    expect(h.core.workMatcher.match(projectId)).toEqual([
+      expect.objectContaining({ workItemId: null, confidence: 'unmatched' }),
+    ]);
+    h.core.projectModel.selectProposal(projectId, 'group:reused');
+    const newWorkId = h.core.now.resolve(projectId).currentWorkId!;
+    expect(newWorkId).not.toBe(oldWorkId);
+    h.core.projectModel.selectProposal(projectId, 'group:reused');
+    expect(h.repo.list('workItem')).toHaveLength(2);
+    expect(
+      h.repo
+        .list('workDecision')
+        .filter(
+          (decision) =>
+            decision.kind === workDecisionKinds.linkWorkProposal &&
+            decision.workItemId === newWorkId &&
+            decision.value.proposalEvidenceBasis === 'basis-b' &&
+            decision.state === 'valid',
+        ),
+    ).toHaveLength(1);
   });
 
   it('creates new work when a reused key has unrelated current evidence', () => {

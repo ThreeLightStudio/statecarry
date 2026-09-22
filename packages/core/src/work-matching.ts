@@ -36,15 +36,122 @@ function sameHistoryEntry(
   );
 }
 
-function sharesRevisionEvidence(left: WorkProposal, right: WorkProposal): boolean {
+const genericEvidenceTerms = new Set([
+  'a',
+  'an',
+  'and',
+  'are',
+  'as',
+  'at',
+  'be',
+  'been',
+  'by',
+  'change',
+  'changes',
+  'check',
+  'code',
+  'complete',
+  'completed',
+  'current',
+  'detected',
+  'detail',
+  'details',
+  'done',
+  'error',
+  'errors',
+  'failed',
+  'failure',
+  'file',
+  'files',
+  'for',
+  'from',
+  'had',
+  'has',
+  'have',
+  'here',
+  'in',
+  'implementation',
+  'is',
+  'issue',
+  'issues',
+  'it',
+  'need',
+  'needs',
+  'no',
+  'of',
+  'on',
+  'open',
+  'or',
+  'project',
+  'progress',
+  'record',
+  'result',
+  'state',
+  'status',
+  'stays',
+  'success',
+  'task',
+  'test',
+  'tests',
+  'the',
+  'there',
+  'this',
+  'to',
+  'updated',
+  'was',
+  'were',
+  'with',
+  'work',
+]);
+
+function evidenceTerms(value: string): Set<string> {
+  const tokens =
+    value
+      .normalize('NFKC')
+      .toLowerCase()
+      .match(/[\p{L}\p{N}]{2,}/gu) ?? [];
+  return new Set(
+    tokens
+      .map((token) => {
+        if (/^configur/.test(token)) return 'configur';
+        if (/^(preference|preferences|setting|settings)$/.test(token)) return 'setting';
+        return token;
+      })
+      .filter((token) => !genericEvidenceTerms.has(token)),
+  );
+}
+
+type ProposalEvidenceContext = Pick<
+  WorkProposal,
+  'title' | 'currentState' | 'uncertainty' | 'nextAction' | 'doneWhen' | 'evidenceQuotes'
+>;
+
+function quoteSupportsProposal(proposal: ProposalEvidenceContext, quote: string): boolean {
+  const quoteTerms = evidenceTerms(quote);
+  if (quoteTerms.size < 2) return false;
+  const proposalTerms = evidenceTerms(
+    [proposal.title, proposal.currentState, proposal.uncertainty ?? ''].join(' '),
+  );
+  const sharedTerms = [...quoteTerms].filter((term) => proposalTerms.has(term)).length;
+  return sharedTerms >= 2 && sharedTerms / quoteTerms.size >= 0.6;
+}
+
+export function proposalsShareRevisionEvidence(
+  left: ProposalEvidenceContext,
+  right: ProposalEvidenceContext,
+): boolean {
   const leftQuotes = left.evidenceQuotes ?? [];
   const rightQuotes = right.evidenceQuotes ?? [];
-  // Current producers retain an exact quote. A shared revision alone can
-  // contain unrelated settings, diagnostics, or adjacent work.
+  // A shared record can contain unrelated work, and a generic shared sentence
+  // can be cited for different conclusions. Require the exact quote to name
+  // enough of each proposal's subject before treating it as continuity.
   return leftQuotes.some((leftQuote) =>
     rightQuotes.some(
       (rightQuote) =>
-        leftQuote.revisionId === rightQuote.revisionId && leftQuote.quote === rightQuote.quote,
+        leftQuote.revisionId === rightQuote.revisionId &&
+        leftQuote.quote === rightQuote.quote &&
+        quoteSupportsProposal(left, leftQuote.quote) &&
+        quoteSupportsProposal(right, rightQuote.quote),
     ),
   );
 }
@@ -69,13 +176,19 @@ function sharesLinkedEvidence(
   decision: { value: Record<string, unknown> },
 ): boolean {
   const quotes = linkedEvidenceQuotes(decision);
-  return (proposal.evidenceQuotes ?? []).some((proposalQuote) =>
-    quotes.some(
-      (decisionQuote) =>
-        proposalQuote.revisionId === decisionQuote.revisionId &&
-        proposalQuote.quote === decisionQuote.quote,
-    ),
-  );
+  const saved = decision.value.proposalEvidenceContext;
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return false;
+  const context = saved as Record<string, unknown>;
+  if (typeof context.title !== 'string' || typeof context.currentState !== 'string') return false;
+  const savedProposal: ProposalEvidenceContext = {
+    title: context.title,
+    currentState: context.currentState,
+    uncertainty: typeof context.uncertainty === 'string' ? context.uncertainty : null,
+    nextAction: typeof context.nextAction === 'string' ? context.nextAction : null,
+    doneWhen: typeof context.doneWhen === 'string' ? context.doneWhen : null,
+    evidenceQuotes: quotes,
+  };
+  return proposalsShareRevisionEvidence(proposal, savedProposal);
 }
 
 function proposalIdentity(proposal: WorkProposal): ProposalIdentity {
@@ -96,7 +209,7 @@ function connectedProposals(left: ProposalMatchState, right: ProposalMatchState)
   return (
     sameExplicitWork(left, right) ||
     (left.proposal.source !== right.proposal.source &&
-      sharesRevisionEvidence(left.proposal, right.proposal))
+      proposalsShareRevisionEvidence(left.proposal, right.proposal))
   );
 }
 
