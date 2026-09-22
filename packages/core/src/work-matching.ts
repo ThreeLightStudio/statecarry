@@ -48,9 +48,7 @@ export class WorkMatcher {
     const next = [...proposals]
       .map((proposal) => {
         const previousForProposal = previous.filter(
-          (record) =>
-            proposal.evidenceBasis !== null &&
-            record.proposal.evidenceBasis === proposal.evidenceBasis,
+          (record) => record.proposal.key === proposal.key,
         );
         const history = previousForProposal.flatMap((record) => [
           ...(record.history ?? []),

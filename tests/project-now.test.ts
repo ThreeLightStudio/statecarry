@@ -686,7 +686,7 @@ describe('ProjectNow resolver', () => {
 });
 
 describe('WorkMatcher', () => {
-  it('keeps an explicit connection when the proposal is reworded on the same evidence', () => {
+  it('keeps an explicit connection when a stable proposal key receives a newer basis', () => {
     const h = harness();
     const { receipt } = registerProject(h, { goal: 'Improve project return.' });
     const projectId = receipt.projectId;
@@ -698,7 +698,7 @@ describe('WorkMatcher', () => {
       'working-tree-group',
       [
         {
-          key: 'group:before',
+          key: 'group:stable',
           source: 'working-tree-group',
           title: 'Original wording',
           state: 'active',
@@ -711,15 +711,16 @@ describe('WorkMatcher', () => {
       ],
       'en',
     );
-    h.core.projectModel.selectProposal(projectId, 'group:before');
+    h.core.projectModel.selectProposal(projectId, 'group:stable');
     const linkedWorkId = h.core.now.resolve(projectId).currentWorkId;
 
+    observe(h, projectId, 'basis-b', true);
     h.core.workMatcher.replaceProposals(
       projectId,
       'working-tree-group',
       [
         {
-          key: 'group:after',
+          key: 'group:stable',
           source: 'working-tree-group',
           title: 'Reworded interpretation',
           state: 'active',
@@ -727,7 +728,7 @@ describe('WorkMatcher', () => {
           uncertainty: null,
           nextAction: null,
           doneWhen: null,
-          evidenceBasis: 'basis-a',
+          evidenceBasis: 'basis-b',
         },
       ],
       'en',
@@ -735,17 +736,79 @@ describe('WorkMatcher', () => {
 
     expect(h.core.workMatcher.match(projectId)).toEqual([
       expect.objectContaining({
-        proposal: expect.objectContaining({ key: 'group:after' }),
+        proposal: expect.objectContaining({ key: 'group:stable', evidenceBasis: 'basis-b' }),
         workItemId: linkedWorkId,
         confidence: 'explicit',
       }),
     ]);
     expect(h.repo.list('workProposal')[0].history).toEqual([
-      { key: 'group:before', source: 'working-tree-group', evidenceBasis: 'basis-a' },
+      { key: 'group:stable', source: 'working-tree-group', evidenceBasis: 'basis-a' },
     ]);
-    h.core.projectModel.selectProposal(projectId, 'group:after');
+    h.core.projectModel.selectProposal(projectId, 'group:stable');
     expect(h.core.now.resolve(projectId).currentWorkId).toBe(linkedWorkId);
     expect(h.core.projectModel.view(projectId).workItems).toHaveLength(2);
+  });
+
+  it('does not inherit one candidate connection into another candidate with the same basis', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    h.core.projectModel.view(projectId);
+    observe(h, projectId, 'basis-a', true);
+    const proposals = [
+      {
+        key: 'group:implementation',
+        source: 'working-tree-group' as const,
+        title: 'Implement return flow',
+        state: 'active' as const,
+        currentState: 'Implementation is in progress.',
+        uncertainty: null,
+        nextAction: null,
+        doneWhen: null,
+        evidenceBasis: 'basis-a',
+      },
+      {
+        key: 'group:diagnostic',
+        source: 'working-tree-group' as const,
+        title: 'Investigate an error',
+        state: 'active' as const,
+        currentState: 'The error still needs investigation.',
+        uncertainty: null,
+        nextAction: null,
+        doneWhen: null,
+        evidenceBasis: 'basis-a',
+      },
+    ];
+    h.core.workMatcher.replaceProposals(projectId, 'working-tree-group', proposals, 'en');
+    h.core.projectModel.selectProposal(projectId, 'group:implementation');
+    const linkedWorkId = h.core.now.resolve(projectId).currentWorkId;
+
+    h.core.workMatcher.replaceProposals(
+      projectId,
+      'working-tree-group',
+      proposals.map((proposal) => ({
+        ...proposal,
+        currentState: `${proposal.currentState} Updated.`,
+      })),
+      'en',
+    );
+
+    const matches = h.core.workMatcher.match(projectId);
+    expect(matches).toHaveLength(2);
+    expect(matches).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          proposal: expect.objectContaining({ key: 'group:implementation' }),
+          workItemId: linkedWorkId,
+          confidence: 'explicit',
+        }),
+        expect.objectContaining({
+          proposal: expect.objectContaining({ key: 'group:diagnostic' }),
+          workItemId: null,
+          confidence: 'unmatched',
+        }),
+      ]),
+    );
   });
 
   it('does not connect work from a title match or a one-item fallback', () => {
