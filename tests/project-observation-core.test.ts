@@ -183,25 +183,32 @@ describe('project observation reuse', () => {
         groups: [
           {
             ...analysis().groups[0],
-            title: 'Configure reply language',
+            title: '응답 언어 설정',
+            relatedProposalKeys: input.analysisProposals
+              .filter((proposal: any) => proposal.title === '응답 언어 설정')
+              .map((proposal: any) => proposal.key),
+            currentState: '응답 언어를 설정할 수 있습니다.',
             context: [
               {
                 kind: 'progress',
                 nature: 'file-observation',
-                text: 'Reply language is configurable.',
+                text: '응답 언어를 설정할 수 있습니다.',
                 sources: [{ revisionId: record.revisionId, quote: 'Reply language configurable.' }],
               },
             ],
           },
           {
             ...analysis().groups[0],
-            title: 'Investigate diagnostic errors',
-            currentState: 'Diagnostic errors need investigation.',
+            title: '진단 오류 조사',
+            currentState: '진단 오류를 조사해야 합니다.',
+            relatedProposalKeys: input.analysisProposals
+              .filter((proposal: any) => proposal.title === '진단 오류 조사')
+              .map((proposal: any) => proposal.key),
             context: [
               {
                 kind: 'unknown',
                 nature: 'file-observation',
-                text: 'Diagnostic errors need investigation.',
+                text: '진단 오류를 조사해야 합니다.',
                 sources: [
                   { revisionId: record.revisionId, quote: 'Diagnostic errors need investigation.' },
                 ],
@@ -222,8 +229,8 @@ describe('project observation reuse', () => {
               text: 'Reply language configurable.',
               threadId: record.threadId,
             } as any),
-            goal: 'Make reply language configurable',
-            currentState: 'The reply language setting is in the current file change.',
+            goal: '응답 언어 설정',
+            currentState: '응답 언어를 설정할 수 있습니다.',
           },
           {
             ...projectCandidate({
@@ -232,22 +239,22 @@ describe('project observation reuse', () => {
               threadId: record.threadId,
             } as any),
             key: 'diagnostic-errors',
-            goal: 'Investigate diagnostic errors',
-            currentState: 'Diagnostic errors need investigation in the current file change.',
+            goal: '진단 오류 조사',
+            currentState: '진단 오류를 조사해야 합니다.',
           },
         ],
       };
     });
     const projectId = register(core);
-    await core.analyses.refresh(projectId, 'en');
-    await core.projects.observe(projectId, 'en');
+    await core.analyses.refresh(projectId, 'ko');
+    await core.projects.observe(projectId, 'ko');
     const matches = core.workMatcher.match(projectId);
     expect(core.workMatcher.proposals(projectId)).toHaveLength(4);
     expect(matches).toHaveLength(2);
     const language = matches.find(
       (match) =>
-        match.proposal.title === 'Configure reply language' ||
-        match.aliases?.some((alias) => alias.title === 'Configure reply language'),
+        match.proposal.title === '응답 언어 설정' ||
+        match.aliases?.some((alias) => alias.title === '응답 언어 설정'),
     )!;
     expect(language).toMatchObject({ confidence: 'possible' });
     expect([language.proposal, ...(language.aliases ?? [])]).toEqual(
@@ -264,8 +271,8 @@ describe('project observation reuse', () => {
     );
     const diagnostic = matches.find(
       (match) =>
-        match.proposal.title === 'Investigate diagnostic errors' ||
-        match.aliases?.some((alias) => alias.title === 'Investigate diagnostic errors'),
+        match.proposal.title === '진단 오류 조사' ||
+        match.aliases?.some((alias) => alias.title === '진단 오류 조사'),
     )!;
     expect([diagnostic.proposal, ...(diagnostic.aliases ?? [])]).toHaveLength(2);
     core.projectModel.selectProposal(projectId, language.proposal.key);
@@ -402,21 +409,25 @@ describe('project observation reuse', () => {
     };
     const analyzeWorkingTree = vi.fn(async (input: any) => {
       const record = input.records.find((item: any) => item.kind === 'fileObservation');
+      const korean = input.outputLanguage === 'ko';
       return {
         ...analysis(),
         groups: [
           {
             ...analysis().groups[0],
-            title: 'Preserve the return flow',
-            currentState:
-              state.diffPreview === 'updated implementation diff'
+            title: korean ? '반환 흐름 유지' : 'Preserve the return flow',
+            currentState: korean
+              ? '반환 흐름이 계속 유지됩니다.'
+              : state.diffPreview === 'updated implementation diff'
                 ? 'The updated implementation keeps the return flow intact.'
                 : 'The implementation keeps the return flow intact.',
+            relatedProposalKeys: input.analysisProposals.map((proposal: any) => proposal.key),
+            continuesGroupId: input.previousGroups[0]?.id,
             context: [
               {
                 kind: 'progress',
                 nature: 'file-observation',
-                text: 'The return flow remains intact.',
+                text: korean ? '반환 흐름이 계속 유지됩니다.' : 'The return flow remains intact.',
                 sources: [{ revisionId: record.revisionId, quote: 'Return flow stays intact.' }],
               },
             ],
@@ -427,27 +438,25 @@ describe('project observation reuse', () => {
     const { core, h } = coreWithObservation(repo, inspector, analyzeWorkingTree);
     h.summary.generateAnalysis = vi.fn(async (input: any) => {
       const record = input.records.find((item: any) => item.kind === 'fileObservation');
+      const korean = input.outputLanguage === 'ko';
       const candidate = projectCandidate({
         id: record.revisionId,
         threadId: record.threadId,
         text: 'Return flow stays intact.',
       } as any);
       candidate.key = 'return-flow-candidate';
-      candidate.goal = 'Preserve the return flow';
+      candidate.goal = korean ? '반환 흐름 유지' : 'Preserve the return flow';
+      candidate.currentState = korean
+        ? '반환 흐름이 계속 유지됩니다.'
+        : 'Return flow stays intact.';
       candidate.evidence = [{ revisionId: record.revisionId, quote: 'Return flow stays intact.' }];
       return { candidates: [candidate] };
     });
     const projectId = register(core);
 
-    await core.analyses.refresh(projectId, 'en');
-    await core.projects.observe(projectId, 'en');
-    const initialMatch = core.workMatcher
-      .match(projectId)
-      .find(
-        (match) =>
-          match.proposal.title === 'Preserve the return flow' ||
-          match.aliases?.some((alias) => alias.title === 'Preserve the return flow'),
-      )!;
+    await core.analyses.refresh(projectId, 'ko');
+    await core.projects.observe(projectId, 'ko');
+    const initialMatch = core.workMatcher.match(projectId)[0]!;
     expect(initialMatch.confidence).toBe('possible');
     core.projectModel.selectProposal(projectId, initialMatch.proposal.key);
     const workId = core.now.resolve(projectId).currentWorkId!;
@@ -468,7 +477,7 @@ describe('project observation reuse', () => {
       files: [],
     };
     fingerprint = 'clean-b';
-    await core.projects.observe(projectId, 'en');
+    await core.projects.observe(projectId, 'ko');
     expect(
       core.workMatcher.proposals(projectId).filter((item) => item.source === 'working-tree-group'),
     ).toEqual([]);
@@ -476,12 +485,13 @@ describe('project observation reuse', () => {
 
     state = dirtySnapshot();
     fingerprint = 'dirty-cached';
-    await core.projects.observe(projectId, 'en');
+    await core.projects.observe(projectId, 'ko');
     expect(analyzeWorkingTree).toHaveBeenCalledTimes(1);
     expect(core.now.resolve(projectId).currentWorkId).toBe(workId);
 
     state = dirtySnapshot('updated implementation diff');
     fingerprint = 'dirty-new-basis';
+    await core.analyses.refresh(projectId, 'en');
     await core.projects.observe(projectId, 'en');
     expect(analyzeWorkingTree).toHaveBeenCalledTimes(2);
     const currentObservation = core.projects.latestObservation(projectId)!;
@@ -493,13 +503,7 @@ describe('project observation reuse', () => {
       evidenceBasis: currentObservation.semanticKey,
       currentState: 'The updated implementation keeps the return flow intact.',
     });
-    const continued = core.workMatcher
-      .match(projectId)
-      .find(
-        (match) =>
-          match.proposal.title === 'Preserve the return flow' ||
-          match.aliases?.some((alias) => alias.title === 'Preserve the return flow'),
-      )!;
+    const continued = core.workMatcher.match(projectId)[0]!;
     expect(continued).toMatchObject({ workItemId: workId, confidence: 'explicit' });
     expect(core.now.resolve(projectId).currentWorkId).toBe(workId);
     expect(core.projectModel.view(projectId).workItems).toEqual(savedWork);

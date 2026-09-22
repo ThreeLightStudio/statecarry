@@ -74,11 +74,21 @@ function executionResult(overrides: Record<string, unknown> = {}) {
 function input(
   records = [record('inspection-a', 'File observation: Inspection quote is present.')],
   executionResults: Record<string, unknown>[] = [],
+  extras: Record<string, unknown> = {},
 ) {
-  return { projectTitle: 'Working tree project', snapshot: snapshot(), records, executionResults };
+  return {
+    projectTitle: 'Working tree project',
+    snapshot: snapshot(),
+    records,
+    executionResults,
+    ...extras,
+  };
 }
 
-function providerWithModelOutput(contextItems: unknown[] = []) {
+function providerWithModelOutput(
+  contextItems: unknown[] = [],
+  groupFields: Record<string, unknown> = {},
+) {
   const summary = new CodexSummary('/tmp/statecarry-working-tree-test');
   let prompt = '';
   let instructions = '';
@@ -92,7 +102,12 @@ function providerWithModelOutput(contextItems: unknown[] = []) {
   ) => {
     prompt = value;
     instructions = valueInstructions;
-    return { value: { summary: 'One changed file needs review.', groups: [group(contextItems)] } };
+    return {
+      value: {
+        summary: 'One changed file needs review.',
+        groups: [{ ...group(contextItems), ...groupFields }],
+      },
+    };
   };
   return { summary, prompt: () => prompt, instructions: () => instructions };
 }
@@ -151,6 +166,58 @@ it('checks context IDs and quotes against their own inspection or execution reco
   expect(provider.instructions()).toContain('{revisionId,quote}');
   expect(provider.instructions()).toContain('requestId and a substring of the report');
   expect(provider.instructions()).toContain('accepted=true');
+  expect(provider.instructions()).toContain(
+    'a common quote, file, topic, or status alone is insufficient',
+  );
+});
+
+it('keeps only model-declared links backed by a shared verified quote and prior group', async () => {
+  const quote = 'Reply language is configurable.';
+  const source = context(
+    'file-observation',
+    '응답 언어를 설정할 수 있습니다.',
+    'inspection-a',
+    quote,
+  );
+  const previous = { ...group([source]), id: 'previous-group' };
+  const provider = providerWithModelOutput([source], {
+    relatedProposalKeys: ['analysis:reply-language', 'analysis:unrelated', 'unknown'],
+    continuesGroupId: 'previous-group',
+  });
+  const result = await provider.summary.analyzeWorkingTree(
+    input([record('inspection-a', `File observation: ${quote}`)], [], {
+      outputLanguage: 'ko',
+      previousOutputLanguage: 'en',
+      analysisProposals: [
+        {
+          key: 'analysis:reply-language',
+          title: '응답 언어 설정',
+          currentState: '응답 언어를 설정할 수 있습니다.',
+          uncertainty: null,
+          evidenceQuotes: [{ revisionId: 'inspection-a', quote }],
+        },
+        {
+          key: 'analysis:unrelated',
+          title: '데이터베이스 지연 조사',
+          currentState: '데이터베이스 지연을 조사해야 합니다.',
+          uncertainty: null,
+          evidenceQuotes: [{ revisionId: 'inspection-a', quote: 'No errors detected.' }],
+        },
+      ],
+      previousGroups: [previous],
+    }),
+  );
+
+  expect(result.groups[0].relatedProposalKeys).toEqual(['analysis:reply-language']);
+  expect(result.groups[0].continuesGroupId).toBe('previous-group');
+  const prompted = JSON.parse(provider.prompt());
+  expect(prompted.previousOutputLanguage).toBe('en');
+  expect(prompted.analysisProposals).toEqual(
+    expect.arrayContaining([expect.objectContaining({ key: 'analysis:reply-language' })]),
+  );
+  expect(prompted.previousGroups).toEqual(
+    expect.arrayContaining([expect.objectContaining({ id: 'previous-group' })]),
+  );
 });
 
 it('accepts exactly 12,000 inspection characters and rejects content beyond that budget', async () => {

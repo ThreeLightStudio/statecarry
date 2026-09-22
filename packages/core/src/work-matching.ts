@@ -36,122 +36,41 @@ function sameHistoryEntry(
   );
 }
 
-const genericEvidenceTerms = new Set([
-  'a',
-  'an',
-  'and',
-  'are',
-  'as',
-  'at',
-  'be',
-  'been',
-  'by',
-  'change',
-  'changes',
-  'check',
-  'code',
-  'complete',
-  'completed',
-  'current',
-  'detected',
-  'detail',
-  'details',
-  'done',
-  'error',
-  'errors',
-  'failed',
-  'failure',
-  'file',
-  'files',
-  'for',
-  'from',
-  'had',
-  'has',
-  'have',
-  'here',
-  'in',
-  'implementation',
-  'is',
-  'issue',
-  'issues',
-  'it',
-  'need',
-  'needs',
-  'no',
-  'of',
-  'on',
-  'open',
-  'or',
-  'project',
-  'progress',
-  'record',
-  'result',
-  'state',
-  'status',
-  'stays',
-  'success',
-  'task',
-  'test',
-  'tests',
-  'the',
-  'there',
-  'this',
-  'to',
-  'updated',
-  'was',
-  'were',
-  'with',
-  'work',
-]);
-
-function evidenceTerms(value: string): Set<string> {
-  const tokens =
-    value
-      .normalize('NFKC')
-      .toLowerCase()
-      .match(/[\p{L}\p{N}]{2,}/gu) ?? [];
-  return new Set(
-    tokens
-      .map((token) => {
-        if (/^configur/.test(token)) return 'configur';
-        if (/^(preference|preferences|setting|settings)$/.test(token)) return 'setting';
-        return token;
-      })
-      .filter((token) => !genericEvidenceTerms.has(token)),
-  );
-}
-
 type ProposalEvidenceContext = Pick<
   WorkProposal,
   'title' | 'currentState' | 'uncertainty' | 'nextAction' | 'doneWhen' | 'evidenceQuotes'
 >;
 
-function quoteSupportsProposal(proposal: ProposalEvidenceContext, quote: string): boolean {
-  const quoteTerms = evidenceTerms(quote);
-  if (quoteTerms.size < 2) return false;
-  const proposalTerms = evidenceTerms(
-    [proposal.title, proposal.currentState, proposal.uncertainty ?? ''].join(' '),
-  );
-  const sharedTerms = [...quoteTerms].filter((term) => proposalTerms.has(term)).length;
-  return sharedTerms >= 2 && sharedTerms / quoteTerms.size >= 0.6;
+function normalizedClaim(value: string): string {
+  return value
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[.!?。！？]+$/u, '')
+    .replace(/\s+/gu, ' ')
+    .trim();
 }
 
-export function proposalsShareRevisionEvidence(
+function proposalClaims(proposal: ProposalEvidenceContext): string[] {
+  return [proposal.title, proposal.currentState, proposal.uncertainty ?? '']
+    .map(normalizedClaim)
+    .filter(Boolean);
+}
+
+function proposalsShareExactClaim(left: ProposalEvidenceContext, right: ProposalEvidenceContext) {
+  const rightClaims = new Set(proposalClaims(right));
+  return proposalClaims(left).some((claim) => rightClaims.has(claim));
+}
+
+export function proposalsShareVerifiedQuote(
   left: ProposalEvidenceContext,
   right: ProposalEvidenceContext,
 ): boolean {
   const leftQuotes = left.evidenceQuotes ?? [];
   const rightQuotes = right.evidenceQuotes ?? [];
-  // A shared record can contain unrelated work, and a generic shared sentence
-  // can be cited for different conclusions. Require the exact quote to name
-  // enough of each proposal's subject before treating it as continuity.
   return leftQuotes.some((leftQuote) =>
     rightQuotes.some(
       (rightQuote) =>
-        leftQuote.revisionId === rightQuote.revisionId &&
-        leftQuote.quote === rightQuote.quote &&
-        quoteSupportsProposal(left, leftQuote.quote) &&
-        quoteSupportsProposal(right, rightQuote.quote),
+        leftQuote.revisionId === rightQuote.revisionId && leftQuote.quote === rightQuote.quote,
     ),
   );
 }
@@ -174,6 +93,7 @@ function linkedEvidenceQuotes(decision: {
 function sharesLinkedEvidence(
   proposal: WorkProposal,
   decision: { value: Record<string, unknown> },
+  outputLanguage: 'en' | 'ko' | null,
 ): boolean {
   const quotes = linkedEvidenceQuotes(decision);
   const saved = decision.value.proposalEvidenceContext;
@@ -188,7 +108,15 @@ function sharesLinkedEvidence(
     doneWhen: typeof context.doneWhen === 'string' ? context.doneWhen : null,
     evidenceQuotes: quotes,
   };
-  return proposalsShareRevisionEvidence(proposal, savedProposal);
+  if (!proposalsShareVerifiedQuote(proposal, savedProposal)) return false;
+  const savedLanguage = decision.value.proposalOutputLanguage;
+  if (
+    (savedLanguage === 'en' || savedLanguage === 'ko') &&
+    outputLanguage &&
+    savedLanguage !== outputLanguage
+  )
+    return true;
+  return proposalsShareExactClaim(proposal, savedProposal);
 }
 
 function proposalIdentity(proposal: WorkProposal): ProposalIdentity {
@@ -209,7 +137,9 @@ function connectedProposals(left: ProposalMatchState, right: ProposalMatchState)
   return (
     sameExplicitWork(left, right) ||
     (left.proposal.source !== right.proposal.source &&
-      proposalsShareRevisionEvidence(left.proposal, right.proposal))
+      (left.proposal.relatedProposalKeys?.includes(right.proposal.key) === true ||
+        right.proposal.relatedProposalKeys?.includes(left.proposal.key) === true) &&
+      proposalsShareVerifiedQuote(left.proposal, right.proposal))
   );
 }
 
@@ -230,6 +160,18 @@ export class WorkMatcher {
       // A failed or unavailable brief must not become a current work proposal.
       return null;
     }
+  }
+
+  proposalOutputLanguage(projectId: string, proposal: WorkProposal): 'en' | 'ko' | null {
+    return (
+      this.core.repo
+        .list('workProposal')
+        .find(
+          (record) =>
+            record.projectId === projectId &&
+            sameIdentity(record.proposal, proposalIdentity(proposal)),
+        )?.outputLanguage ?? null
+    );
   }
 
   replaceProposals(
@@ -355,6 +297,7 @@ export class WorkMatcher {
    * are deliberately not identity evidence.
    */
   private linkedWorkIds(
+    projectId: string,
     proposal: WorkProposal,
     links: ReturnType<StateCarry['projectModel']['view']>['decisions'],
   ): Set<string> {
@@ -378,7 +321,11 @@ export class WorkMatcher {
         const continuous =
           linkedIdentity.key === proposal.key &&
           linkedIdentity.source === proposal.source &&
-          sharesLinkedEvidence(proposal, decision);
+          sharesLinkedEvidence(
+            proposal,
+            decision,
+            this.proposalOutputLanguage(projectId, proposal),
+          );
         return exact || continuous ? [decision.workItemId!] : [];
       }),
     );
@@ -397,7 +344,7 @@ export class WorkMatcher {
     );
     const states = this.proposals(projectId).map((candidate) => ({
       proposal: candidate,
-      linkedWorkIds: this.linkedWorkIds(candidate, links),
+      linkedWorkIds: this.linkedWorkIds(projectId, candidate, links),
     }));
     const start = states.find((state) => sameIdentity(state.proposal, proposalIdentity(proposal)));
     if (!start) return new Set();
@@ -428,7 +375,7 @@ export class WorkMatcher {
     );
     const states: ProposalMatchState[] = proposals.map((proposal) => ({
       proposal,
-      linkedWorkIds: this.linkedWorkIds(proposal, links),
+      linkedWorkIds: this.linkedWorkIds(projectId, proposal, links),
     }));
     const unseen = new Set(states);
     const result: WorkProposalMatch[] = [];
@@ -437,8 +384,8 @@ export class WorkMatcher {
       const component = new Set<ProposalMatchState>([first]);
       const pending = [first];
       unseen.delete(first);
-      // Preserve transitive A–B–C provenance. Edges require a shared source
-      // revision across independent producers, never a title or file overlap.
+      // Preserve transitive provenance only when a producer declared the
+      // cross-source relation and both proposals cite the same exact source.
       while (pending.length) {
         const current = pending.pop()!;
         for (const other of unseen) {

@@ -221,6 +221,10 @@ export type WorkProposal = {
   evidence?: string[];
   /** Exact source excerpts retained for conservative cross-producer continuity. */
   evidenceQuotes?: Array<{ revisionId: string; quote: string }>;
+  /** Analysis proposals explicitly identified as the same work by the tree analyzer. */
+  relatedProposalKeys?: string[];
+  /** Claims retained in their output language for same-language continuity checks. */
+  evidenceClaims?: string[];
 };
 
 export type WorkProposalMatch = {

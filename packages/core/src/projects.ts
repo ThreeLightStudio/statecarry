@@ -25,7 +25,7 @@ import {
   type WorkspaceSnapshot,
 } from '@statecarry/contracts';
 import type { StateCarry } from './service';
-import { proposalsShareRevisionEvidence } from './work-matching';
+import { proposalsShareVerifiedQuote } from './work-matching';
 import { projectDeletionPlan } from './project-deletion';
 import { normalizeProjectFolder } from './project-folder';
 
@@ -282,27 +282,43 @@ export class Projects {
     analysis: WorkingTreeAnalysis | null,
     outputLanguage: 'en' | 'ko',
   ): boolean {
+    const analysisProposals = this.core.workMatcher
+      .proposals(work.id)
+      .filter((proposal) => proposal.source === 'analysis-candidate');
     return this.core.workMatcher.replaceProposals(
       work.id,
       'working-tree-group',
-      (analysis?.groups ?? []).map((group) => ({
-        key: workingTreeGroupKey(group),
-        source: 'working-tree-group',
-        title: group.title,
-        state: 'active',
-        currentState: group.currentState,
-        uncertainty: group.openItems[0] ?? null,
-        nextAction: group.suggestedNextStep,
-        doneWhen: group.doneWhen,
-        evidenceBasis: observation.semanticKey,
-        evidence: [
-          ...group.files.map((file) => `file:${file}`),
-          ...(group.context ?? []).flatMap((item) =>
-            item.sources.map((source) => `revision:${source.revisionId}`),
-          ),
-        ],
-        evidenceQuotes: (group.context ?? []).flatMap((item) => item.sources),
-      })),
+      (analysis?.groups ?? []).map((group) => {
+        const evidenceQuotes = (group.context ?? []).flatMap((item) => item.sources);
+        const context = {
+          title: group.title,
+          currentState: group.currentState,
+          uncertainty: group.openItems[0] ?? null,
+          nextAction: group.suggestedNextStep,
+          doneWhen: group.doneWhen,
+          evidenceQuotes,
+        };
+        return {
+          key: workingTreeGroupKey(group),
+          source: 'working-tree-group',
+          title: group.title,
+          state: 'active',
+          currentState: group.currentState,
+          uncertainty: group.openItems[0] ?? null,
+          nextAction: group.suggestedNextStep,
+          doneWhen: group.doneWhen,
+          evidenceBasis: observation.semanticKey,
+          evidence: [
+            ...group.files.map((file) => `file:${file}`),
+            ...evidenceQuotes.map((source) => `revision:${source.revisionId}`),
+          ],
+          evidenceQuotes,
+          relatedProposalKeys: (group.relatedProposalKeys ?? []).filter((key) => {
+            const proposal = analysisProposals.find((candidate) => candidate.key === key);
+            return proposal ? proposalsShareVerifiedQuote(proposal, context) : false;
+          }),
+        };
+      }),
       outputLanguage,
     );
   }
@@ -349,12 +365,32 @@ export class Projects {
     promise = (async () => {
       try {
         const records = this.core.analyses.workspaceRecords(snapshot);
+        const previous = this.core.repo
+          .list('workingTreeAnalysis')
+          .filter((item) => item.projectId === work.id)
+          .sort((a, b) => b.generatedAt.localeCompare(a.generatedAt))[0];
+        const previousGroups = previous
+          ? (normalizeWorkingTreeAnalysis(previous.result)?.groups ?? [])
+          : [];
+        const analysisProposals = this.core.workMatcher
+          .proposals(work.id)
+          .filter((proposal) => proposal.source === 'analysis-candidate')
+          .map((proposal) => ({
+            key: proposal.key,
+            title: proposal.title,
+            currentState: proposal.currentState,
+            uncertainty: proposal.uncertainty,
+            evidenceQuotes: proposal.evidenceQuotes ?? [],
+          }));
         const rawResult = await this.core.summary.analyzeWorkingTree!({
           projectTitle: this.profile(work).title,
           outputLanguage,
           snapshot,
           executionResults: this.executionResults(work, observation),
           records,
+          analysisProposals,
+          previousGroups,
+          previousOutputLanguage: previous?.outputLanguage ?? null,
         });
         const parsedResult = normalizeWorkingTreeAnalysis(rawResult);
         if (!parsedResult)
@@ -364,21 +400,15 @@ export class Projects {
           );
         // Never let an older inspection restore proposals after a newer check.
         if (!this.isLatestObservation(observation)) return this.latestSnapshot(work.id);
-        const previous = this.core.repo
-          .list('workingTreeAnalysis')
-          .filter((item) => item.projectId === work.id)
-          .sort((a, b) => b.generatedAt.localeCompare(a.generatedAt))[0];
-        const previousGroups = previous
-          ? (normalizeWorkingTreeAnalysis(previous.result)?.groups ?? [])
-          : [];
         const pathKey = (files: string[]) => JSON.stringify([...files].sort());
         const result = {
           ...parsedResult,
           groups: parsedResult.groups.map((group) => {
             const matches = previousGroups.filter(
               (old) =>
+                old.id === group.continuesGroupId &&
                 pathKey(old.files) === pathKey(group.files) &&
-                proposalsShareRevisionEvidence(
+                proposalsShareVerifiedQuote(
                   this.workingTreeEvidenceContext(old),
                   this.workingTreeEvidenceContext(group),
                 ),
@@ -386,8 +416,9 @@ export class Projects {
             const unique =
               parsedResult.groups.filter((other) => pathKey(other.files) === pathKey(group.files))
                 .length === 1;
+            const { continuesGroupId: _continuesGroupId, ...persistedGroup } = group;
             return {
-              ...group,
+              ...persistedGroup,
               id:
                 unique && matches.length === 1 && matches[0].id
                   ? matches[0].id

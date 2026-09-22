@@ -45,6 +45,8 @@ const workingTreeSourceSchema = z
 export const workingTreeWorkGroupSchema = z
   .object({
     id: z.string().min(1).max(160).optional(),
+    continuesGroupId: z.string().min(1).max(160).nullable().optional(),
+    relatedProposalKeys: z.array(z.string().min(1).max(240)).max(5).optional(),
     context: z
       .array(
         z

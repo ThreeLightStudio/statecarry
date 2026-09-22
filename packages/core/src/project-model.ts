@@ -220,6 +220,10 @@ export class ProjectModel {
             proposalEvidenceBasis: proposal.evidenceBasis,
             proposalEvidence: proposal.evidence ?? [],
             proposalEvidenceQuotes: proposal.evidenceQuotes ?? [],
+            proposalOutputLanguage: this.core.workMatcher.proposalOutputLanguage(
+              projectId,
+              proposal,
+            ),
             proposalEvidenceContext: {
               title: proposal.title,
               currentState: proposal.currentState,

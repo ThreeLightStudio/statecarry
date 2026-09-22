@@ -700,18 +700,18 @@ describe('WorkMatcher', () => {
         {
           key: 'group:stable',
           source: 'working-tree-group',
-          title: 'Return flow maintenance',
+          title: '응답 언어 설정',
           state: 'active',
-          currentState: 'The return flow remains active.',
+          currentState: '응답 언어를 설정할 수 있습니다.',
           uncertainty: null,
           nextAction: null,
           doneWhen: null,
           evidenceBasis: 'basis-a',
           evidence: ['revision:return-flow'],
-          evidenceQuotes: [{ revisionId: 'return-flow', quote: 'Continue the return flow.' }],
+          evidenceQuotes: [{ revisionId: 'return-flow', quote: 'Reply language is configurable.' }],
         },
       ],
-      'en',
+      'ko',
     );
     h.core.projectModel.selectProposal(projectId, 'group:stable');
     const linkedWorkId = h.core.now.resolve(projectId).currentWorkId;
@@ -724,15 +724,15 @@ describe('WorkMatcher', () => {
         {
           key: 'group:stable',
           source: 'working-tree-group',
-          title: 'Return flow update',
+          title: 'Configure reply language',
           state: 'active',
-          currentState: 'The return flow remains active with newer wording.',
+          currentState: 'Reply language is configurable.',
           uncertainty: null,
           nextAction: null,
           doneWhen: null,
           evidenceBasis: 'basis-b',
           evidence: ['revision:return-flow'],
-          evidenceQuotes: [{ revisionId: 'return-flow', quote: 'Continue the return flow.' }],
+          evidenceQuotes: [{ revisionId: 'return-flow', quote: 'Reply language is configurable.' }],
         },
       ],
       'en',
@@ -751,8 +751,8 @@ describe('WorkMatcher', () => {
         source: 'working-tree-group',
         evidenceBasis: 'basis-a',
         proposal: expect.objectContaining({
-          title: 'Return flow maintenance',
-          currentState: 'The return flow remains active.',
+          title: '응답 언어 설정',
+          currentState: '응답 언어를 설정할 수 있습니다.',
           evidence: ['revision:return-flow'],
         }),
       }),
@@ -939,6 +939,7 @@ describe('WorkMatcher', () => {
         doneWhen: 'The return point is reviewed.',
         evidenceBasis: 'tree-basis',
         evidenceQuotes: sharedQuote,
+        relatedProposalKeys: ['analysis:shared'],
       },
     ];
     vi.spyOn(h.core.workMatcher, 'proposals').mockReturnValue(proposals);
@@ -1017,6 +1018,7 @@ describe('WorkMatcher', () => {
           { revisionId: 'source-a', quote: 'The first work is active.' },
           { revisionId: 'source-c', quote: 'The second work is active.' },
         ],
+        relatedProposalKeys: ['analysis:a', 'analysis:c'],
       },
       {
         key: 'analysis:c',
