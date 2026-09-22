@@ -35,10 +35,6 @@ export class ProjectAnalyses {
   currentProposalBasis(id: string): string | null {
     const record = this.core.analysisRecord(id);
     if (!record) return null;
-    // Early migration records did not have a comparable scope fingerprint.
-    // Keep them available for explicit confirmation; their proposal never
-    // becomes durable work unless the person selects it.
-    if (!/^[a-f0-9]{64}$/i.test(record.result.scope)) return record.result.scope;
     const view = this.view(id);
     return view.state === 'ready' && !view.stale && !view.updatesAvailable
       ? record.result.scope

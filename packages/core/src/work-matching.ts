@@ -101,6 +101,25 @@ export class WorkMatcher {
       .map((record) => record.proposal);
   }
 
+  /** Migration proposals may be explicitly confirmed, but never auto-selected
+   * or presented as current without a validated analysis basis. */
+  proposalForSelection(projectId: string, key: string): WorkProposal | null {
+    const current = this.proposals(projectId).find((proposal) => proposal.key === key);
+    if (current) return current;
+    const analysis = this.core.analysisRecord(projectId);
+    if (!analysis || /^[a-f0-9]{64}$/i.test(analysis.result.scope)) return null;
+    const record = this.core.repo
+      .list('workProposal')
+      .find(
+        (item) =>
+          item.projectId === projectId &&
+          item.proposal.key === key &&
+          item.proposal.source === 'analysis-candidate' &&
+          item.proposal.evidenceBasis === analysis.result.scope,
+      );
+    return record ? record.proposal : null;
+  }
+
   hasStaleProposals(projectId: string): boolean {
     this.core.project(projectId);
     const workingTreeBasis = this.currentWorkingTreeBasis(projectId);

@@ -113,9 +113,7 @@ export class ProjectModel {
 
   selectProposal(projectId: string, proposalKey: string): ProjectModelView {
     this.project(projectId);
-    const proposal = this.core.workMatcher
-      .proposals(projectId)
-      .find((item) => item.key === proposalKey);
+    const proposal = this.core.workMatcher.proposalForSelection(projectId, proposalKey);
     if (!proposal)
       throw new DomainError('NOT_FOUND', 'The selected proposal is no longer available.', 404);
     const linked = this.core.repo

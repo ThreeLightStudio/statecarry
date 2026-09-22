@@ -5,7 +5,7 @@ import {
   type WorkItem,
   type WorkRelation,
 } from '@statecarry/contracts';
-import { AT, harness } from './helpers';
+import { AT, harness, source } from './helpers';
 import { projectCandidate, registerProject } from './project-fixtures';
 
 const LATER = '2026-09-08T13:36:01.780Z';
@@ -456,7 +456,7 @@ describe('ProjectNow resolver', () => {
     });
   });
 
-  it('surfaces unmatched legacy analysis as a work choice without creating durable work', () => {
+  it('keeps unmatched legacy analysis out of the current-work resolver', () => {
     const h = harness();
     const { receipt } = registerProject(h, { goal: 'Improve project return.' });
     const projectId = receipt.projectId;
@@ -475,17 +475,10 @@ describe('ProjectNow resolver', () => {
 
     expect(h.core.now.resolve(projectId)).toMatchObject({
       currentWorkId: null,
-      state: 'choose-work',
-      currentState:
-        'StateCarry found unfinished work, but it has not been confirmed as the current work.',
-      next: { kind: 'choose-current-work' },
-      otherWorkCount: 1,
-      proposalMatches: [
-        expect.objectContaining({
-          confidence: 'unmatched',
-          proposal: expect.objectContaining({ key: 'analysis:export-check' }),
-        }),
-      ],
+      state: 'complete',
+      next: { kind: 'choose-next-work' },
+      otherWorkCount: 0,
+      proposalMatches: [],
     });
     expect(h.repo.list('workItem')).toEqual([]);
   });
@@ -515,6 +508,64 @@ describe('ProjectNow resolver', () => {
       freshness: 'changed',
       proposalMatches: [],
     });
+  });
+
+  it('uses a generated analysis only for its current scope and restores it after refresh', async () => {
+    const h = harness();
+    const record = source('Validate the export before shipping it.');
+    const { receipt } = registerProject(h, {
+      goal: 'Complete the export flow.',
+      threadIds: ['thread-a'],
+    });
+    const projectId = receipt.projectId;
+    h.records([record]);
+    h.summary.generateAnalysis = async () => ({ candidates: [projectCandidate(record)] });
+    work(h, projectId, 'selected-work', 'active', 'Durable selected work');
+    select(h, projectId, 'selected-work');
+
+    await h.core.analyses.refresh(projectId);
+    expect(h.core.workMatcher.proposals(projectId)).toHaveLength(1);
+    h.repo.put('projectObservation', {
+      id: projectId,
+      projectId,
+      checkedAt: AT,
+      probeKey: 'unknown-probe',
+      inspectionKey: 'unknown-inspection',
+      semanticKey: 'unknown-observation',
+      snapshot: {
+        cwd: '/tmp/example',
+        branch: null,
+        commit: null,
+        dirty: null,
+        status: 'unknown',
+        checkedAt: AT,
+        limitations: ['Repository observation is temporarily unavailable.'],
+      },
+    });
+    // This analysis is grounded in connected records, so an unrelated
+    // repository observation cannot revoke its validated basis.
+    expect(h.core.workMatcher.proposals(projectId)).toHaveLength(1);
+    observe(h, projectId);
+    h.repo.put('project', { ...h.core.project(projectId), focused: true });
+    expect(h.core.workMatcher.proposals(projectId)).toHaveLength(1);
+
+    h.core.projectModel.setDirection(projectId, 'Ship the export flow safely.');
+    expect(h.core.workMatcher.proposals(projectId)).toEqual([]);
+    expect(h.core.now.resolve(projectId)).toMatchObject({
+      currentWorkId: 'selected-work',
+      freshness: 'changed',
+    });
+
+    h.summary.generateAnalysis = async () => {
+      throw new Error('temporary analysis failure');
+    };
+    await h.core.analyses.refresh(projectId);
+    expect(h.core.workMatcher.proposals(projectId)).toEqual([]);
+    expect(h.core.now.resolve(projectId).currentWorkId).toBe('selected-work');
+
+    h.summary.generateAnalysis = async () => ({ candidates: [projectCandidate(record)] });
+    await h.core.analyses.refresh(projectId);
+    expect(h.core.workMatcher.proposals(projectId)).toHaveLength(1);
   });
 
   it('does not restore a sole unselected work item as current work', () => {
@@ -630,7 +681,7 @@ describe('ProjectNow resolver', () => {
 });
 
 describe('WorkMatcher', () => {
-  it('keeps generated analysis as a proposal and preserves an explicit link across a title rewrite', () => {
+  it('does not auto-match an unverified legacy analysis proposal', () => {
     const h = harness();
     const { receipt } = registerProject(h, { goal: 'Improve project return.' });
     const projectId = receipt.projectId;
@@ -651,13 +702,7 @@ describe('WorkMatcher', () => {
     });
 
     const possible = h.core.workMatcher.match(projectId);
-    expect(possible).toEqual([
-      expect.objectContaining({
-        workItemId: 'work-a',
-        confidence: 'possible',
-        proposal: expect.objectContaining({ key: 'analysis:export-check' }),
-      }),
-    ]);
+    expect(possible).toEqual([]);
     expect(h.repo.list('workItem')).toHaveLength(1);
 
     h.repo.put('workDecision', {
@@ -686,13 +731,7 @@ describe('WorkMatcher', () => {
         ],
       },
     });
-    expect(h.core.workMatcher.match(projectId)).toEqual([
-      expect.objectContaining({
-        workItemId: 'work-a',
-        confidence: 'explicit',
-        proposal: expect.objectContaining({ title: 'A newly worded return-flow analysis' }),
-      }),
-    ]);
+    expect(h.core.workMatcher.match(projectId)).toEqual([]);
     expect(h.repo.list('workItem')).toHaveLength(1);
   });
 });
