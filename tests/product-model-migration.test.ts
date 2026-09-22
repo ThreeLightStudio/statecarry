@@ -102,7 +102,7 @@ describe('product model migration boundary', () => {
     expect(h.repo.list('direction').every((item) => !item.confirmed)).toBe(true);
   });
 
-  it('promotes only an explicitly selected legacy proposal and keeps the migration idempotent', () => {
+  it('keeps a selected legacy completion proposal active and migration idempotent', () => {
     const h = harness();
     const changed = vi.spyOn(h.core.events, 'changed');
     const { receipt } = registerProject(h, { goal: 'Improve project return.' });
@@ -115,7 +115,7 @@ describe('product model migration boundary', () => {
         scope: 'legacy-scope',
         version: 'legacy-version',
         generatedAt: AT,
-        candidates: [projectCandidate()],
+        candidates: [{ ...projectCandidate(), status: 'done' }],
       },
     });
     changed.mockClear();

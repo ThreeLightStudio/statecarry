@@ -1,5 +1,6 @@
 import {
-  isUnfinishedWorkProposal,
+  classifyWorkProposalMatches,
+  isUnlinkedWorkProposalMatch,
   isOpenWork,
   selectedCurrentWorkId,
   workDecisionKinds,
@@ -136,6 +137,7 @@ export class ProjectNowResolver {
     items: WorkItem[],
     relations: WorkRelation[],
     projectId: string,
+    reviewWorkIds: ReadonlySet<string>,
   ): WorkItem | null {
     const returnPoints = this.core.repo
       .list('returnPoint')
@@ -144,6 +146,7 @@ export class ProjectNowResolver {
       (item) =>
         item.id !== current.id &&
         !['completed', 'stopped', 'waiting'].includes(item.state) &&
+        !reviewWorkIds.has(item.id) &&
         !this.isBlocked(item, items, relations),
     );
     const restartScore = (item: WorkItem) => {
@@ -185,16 +188,19 @@ export class ProjectNowResolver {
       model.directions.find((direction) => direction.state === 'active' && direction.confirmed);
     const selection = this.currentSelection(projectId, model.workItems);
     const current = selection.item;
-    const unmatchedProposals = matches.filter(
-      (match) =>
-        match.confidence === 'unmatched' &&
-        !match.workItemId &&
-        isUnfinishedWorkProposal(match.proposal),
+    const proposalChoices = matches.filter(isUnlinkedWorkProposalMatch);
+    const reviewWorkIds = new Set(
+      matches
+        .filter(
+          (match) =>
+            match.workItemId !== null && classifyWorkProposalMatches([match]) !== 'progress',
+        )
+        .map((match) => match.workItemId!),
     );
     const otherWorkCount =
       model.workItems.filter(
         (item) => item.id !== current?.id && item.state !== 'completed' && item.state !== 'stopped',
-      ).length + unmatchedProposals.length;
+      ).length + proposalChoices.length;
     const observation = model.latestObservation;
     const freshness = input.checking
       ? ('checking' as const)
@@ -297,7 +303,7 @@ export class ProjectNowResolver {
 
     if (!current) {
       const open = model.workItems.filter(isOpenWork);
-      if (open.length === 0 && unmatchedProposals.length > 0)
+      if (open.length === 0 && proposalChoices.length > 0)
         return {
           projectId,
           primaryDirectionId: primaryDirection?.id ?? null,
@@ -305,17 +311,14 @@ export class ProjectNowResolver {
           currentWorkSelection: null,
           state: 'choose-work',
           currentState:
-            unmatchedProposals.length === 1
-              ? 'StateCarry found unfinished work, but it has not been confirmed as the current work.'
-              : `StateCarry found ${unmatchedProposals.length} pieces of unfinished work, but none is confirmed as current.`,
+            proposalChoices.length === 1
+              ? 'There is work to choose from, but none is selected as current.'
+              : 'Several pieces of work are available, but none is selected as current.',
           uncertainty: null,
           next: {
             kind: 'choose-current-work',
-            text:
-              unmatchedProposals.length === 1
-                ? 'Confirm whether this is the work you want to continue.'
-                : 'Choose which work is current before continuing.',
-            confidence: unmatchedProposals.length === 1 ? 'medium' : 'low',
+            text: 'Choose which work is current before continuing.',
+            confidence: proposalChoices.length === 1 ? 'medium' : 'low',
           },
           secondaryActions: [],
           notice,
@@ -415,6 +418,9 @@ export class ProjectNowResolver {
     }
 
     const match = this.core.workMatcher.bestForWork(projectId, current);
+    const currentMatches = matches.filter((candidate) => candidate.workItemId === current.id);
+    const matchDisposition =
+      currentMatches.length > 0 ? classifyWorkProposalMatches(currentMatches) : null;
     const returnPoint = model.returnPoints
       .filter((point) => point.workItemId === current.id)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
@@ -445,9 +451,12 @@ export class ProjectNowResolver {
             : current.state === 'completed'
               ? 'This work is complete.'
               : 'This work is ready to continue.');
-    let uncertainty = possibleMatch
-      ? 'The current project interpretation has not been explicitly linked to this work.'
-      : (match?.proposal.uncertainty ?? returnPoint?.remaining ?? null);
+    let uncertainty =
+      matchDisposition === 'evidence-conflict'
+        ? 'Current project sources disagree about whether this work is still in progress or complete.'
+        : possibleMatch
+          ? 'The current project interpretation has not been explicitly linked to this work.'
+          : (match?.proposal.uncertainty ?? returnPoint?.remaining ?? null);
     if (freshness === 'unknown')
       uncertainty =
         observation?.snapshot.limitations[0] ??
@@ -497,6 +506,7 @@ export class ProjectNowResolver {
         model.workItems,
         model.relations,
         projectId,
+        reviewWorkIds,
       );
       if (alternative)
         next = {
@@ -530,12 +540,19 @@ export class ProjectNowResolver {
         workItemId: current.id,
         text: `Stop ${current.title}.`,
       });
-    } else if (match?.proposal.state === 'done') {
+    } else if (matchDisposition === 'completion-review') {
       state = 'review';
       next = {
         kind: 'review-completion',
         workItemId: current.id,
         text: `Review whether ${current.title} is complete.`,
+      };
+    } else if (matchDisposition === 'evidence-conflict') {
+      state = 'review';
+      next = {
+        kind: 'review-work',
+        workItemId: current.id,
+        text: `Review the project state for ${current.title}.`,
       };
     } else if (returnPointStale && match?.confidence !== 'explicit') {
       next = {

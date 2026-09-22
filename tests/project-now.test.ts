@@ -166,6 +166,7 @@ describe('ProjectNow resolver', () => {
     work(h, projectId, 'c', 'active', 'Dependent work');
     work(h, projectId, 'd', 'paused', 'Small independent cleanup');
     work(h, projectId, 'e', 'active', 'Large independent work');
+    work(h, projectId, 'f', 'active', 'Another independent work');
     select(h, projectId, 'a');
     observe(h, projectId);
     relation(h, {
@@ -189,14 +190,40 @@ describe('ProjectNow resolver', () => {
       next: 'Run the small check.',
       createdAt: AT,
     });
+    const proposal = (key: string, state: WorkProposal['state']): WorkProposal => ({
+      key,
+      source: 'analysis-candidate',
+      title: key,
+      state,
+      currentState: `${key} is ${state}.`,
+      uncertainty: null,
+      nextAction: null,
+      doneWhen: null,
+      evidenceBasis: 'basis-a',
+    });
+    vi.spyOn(h.core.workMatcher, 'match').mockReturnValue([
+      {
+        proposal: proposal('completion-only', 'done'),
+        workItemId: 'd',
+        confidence: 'explicit',
+        reason: 'Linked completion evidence.',
+      },
+      {
+        proposal: proposal('conflicting-active', 'active'),
+        aliases: [proposal('conflicting-done', 'done')],
+        workItemId: 'e',
+        confidence: 'explicit',
+        reason: 'Linked sources disagree.',
+      },
+    ]);
 
     expect(h.core.now.resolve(projectId)).toMatchObject({
       currentWorkId: 'a',
       state: 'waiting',
       next: {
         kind: 'start-work',
-        workItemId: 'd',
-        text: 'Work on Small independent cleanup while this is waiting.',
+        workItemId: 'f',
+        text: 'Work on Another independent work while this is waiting.',
       },
     });
   });
@@ -518,9 +545,9 @@ describe('ProjectNow resolver', () => {
     ]);
 
     expect(h.core.now.resolve(projectId)).toMatchObject({
-      state: 'choose-next-work',
-      next: { kind: 'choose-next-work' },
-      otherWorkCount: 0,
+      state: 'choose-work',
+      next: { kind: 'choose-current-work' },
+      otherWorkCount: 1,
       proposalMatches: [expect.objectContaining({ proposal })],
     });
 
@@ -534,6 +561,14 @@ describe('ProjectNow resolver', () => {
       next: { kind: 'review-completion', workItemId: 'work-a' },
     });
     expect(h.repo.get('workItem', 'work-a')?.state).toBe('active');
+
+    h.core.projectModel.pauseWork(projectId, 'work-a');
+    expect(h.core.now.resolve(projectId)).toMatchObject({
+      currentWorkId: 'work-a',
+      state: 'paused',
+      currentState: 'This work is paused.',
+      next: { kind: 'resume-work', workItemId: 'work-a' },
+    });
 
     h.core.projectModel.completeWork(projectId, 'work-a');
     expect(h.core.now.resolve(projectId)).toMatchObject({

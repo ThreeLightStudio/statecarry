@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { StateCarry, type ProjectInspector, type StateRepository } from '@statecarry/core';
-import type { WorkspaceSnapshot } from '@statecarry/contracts';
+import { classifyWorkProposalMatches, type WorkspaceSnapshot } from '@statecarry/contracts';
+import { presentProjectNow } from '@statecarry/presentation';
 import { SQLiteRepository } from '../apps/server/src/adapters/sqlite';
 import { identity } from '../apps/server/src/adapters/identity';
 import { harness, MemoryRepository } from './helpers';
@@ -248,15 +249,10 @@ describe('project observation reuse', () => {
       };
     });
     const projectId = register(core);
+    core.projectModel.setDirection(projectId, 'Measure the observed project changes.');
     await core.projects.observe(projectId, 'ko');
     expect(analyzeWorkingTree).toHaveBeenCalledTimes(1);
     expect(core.workMatcher.proposals(projectId)).toHaveLength(2);
-    const initialLanguage = core.workMatcher
-      .match(projectId)
-      .find((match) => match.proposal.title === '응답 언어 설정')!;
-    core.projectModel.selectProposal(projectId, initialLanguage.proposal.key);
-    const selectedWorkId = core.now.resolve(projectId).currentWorkId;
-
     await core.analyses.refresh(projectId, 'ko');
     expect(analyzeWorkingTree).toHaveBeenCalledTimes(1);
     await core.projects.observe(projectId, 'ko');
@@ -264,12 +260,22 @@ describe('project observation reuse', () => {
     expect(analyzeWorkingTree).toHaveBeenCalledTimes(2);
     expect(core.workMatcher.proposals(projectId)).toHaveLength(4);
     expect(matches).toHaveLength(2);
+    const unresolved = core.now.resolve(projectId);
+    const unresolvedView = presentProjectNow(core.projectModel.view(projectId), unresolved);
+    expect(unresolved).toMatchObject({
+      currentWorkId: null,
+      state: 'choose-work',
+      otherWorkCount: 2,
+    });
+    expect(unresolvedView.otherWork).toHaveLength(2);
+    expect(unresolvedView.otherWorkCount).toBe(2);
     const language = matches.find(
       (match) =>
         match.proposal.title === '응답 언어 설정' ||
         match.aliases?.some((alias) => alias.title === '응답 언어 설정'),
     )!;
-    expect(language).toMatchObject({ confidence: 'explicit' });
+    expect(language).toMatchObject({ confidence: 'possible', workItemId: null });
+    expect(language.aliases).toHaveLength(1);
     expect([language.proposal, ...(language.aliases ?? [])]).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -287,21 +293,89 @@ describe('project observation reuse', () => {
         match.proposal.title === '진단 오류 조사' ||
         match.aliases?.some((alias) => alias.title === '진단 오류 조사'),
     )!;
+    expect(diagnostic).toMatchObject({ confidence: 'possible', workItemId: null });
     expect([diagnostic.proposal, ...(diagnostic.aliases ?? [])]).toHaveLength(2);
+    expect(unresolvedView.otherWork.map((item) => item.id)).toEqual(
+      expect.arrayContaining([language.proposal.key, diagnostic.proposal.key]),
+    );
+    expect(unresolvedView.otherWork.map((item) => item.disposition)).toEqual([
+      'progress',
+      'progress',
+    ]);
     core.projectModel.selectProposal(projectId, language.proposal.key);
-    const workId = core.now.resolve(projectId).currentWorkId;
+    const workId = core.now.resolve(projectId).currentWorkId!;
+    expect(workId).not.toBeNull();
     const alias = language.aliases![0];
     core.projectModel.selectProposal(projectId, alias.key);
-    expect(workId).toBe(selectedWorkId);
-    expect(core.now.resolve(projectId).currentWorkId).toBe(selectedWorkId);
+    expect(core.now.resolve(projectId).currentWorkId).toBe(workId);
     core.projectModel.selectProposal(projectId, diagnostic.proposal.key);
-    const diagnosticWorkId = core.now.resolve(projectId).currentWorkId;
+    const diagnosticWorkId = core.now.resolve(projectId).currentWorkId!;
     core.projectModel.selectProposal(projectId, diagnostic.aliases![0].key);
     expect(diagnosticWorkId).not.toBe(workId);
     expect(core.now.resolve(projectId).currentWorkId).toBe(diagnosticWorkId);
     expect(core.projectModel.view(projectId).workItems).toHaveLength(2);
-    await core.projects.observe(projectId, 'ko');
+
+    await core.analyses.refresh(projectId, 'ko');
+    core.workMatcher.replaceProposals(
+      projectId,
+      'analysis-candidate',
+      core.workMatcher
+        .proposals(projectId)
+        .filter((proposal) => proposal.source === 'analysis-candidate')
+        .map((proposal) => ({ ...proposal, state: 'done' as const })),
+      'ko',
+    );
+    core.workMatcher.replaceProposals(
+      projectId,
+      'working-tree-group',
+      core.workMatcher
+        .proposals(projectId)
+        .filter(
+          (proposal) =>
+            proposal.source === 'working-tree-group' && proposal.title === '응답 언어 설정',
+        ),
+      'ko',
+    );
     expect(analyzeWorkingTree).toHaveBeenCalledTimes(2);
+
+    const reconciledMatches = core.workMatcher.match(projectId);
+    const languageConflict = reconciledMatches.find((match) => match.workItemId === workId)!;
+    expect(languageConflict.proposal.source).toBe('working-tree-group');
+    expect(languageConflict.aliases).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'analysis-candidate', state: 'done' }),
+      ]),
+    );
+    expect(classifyWorkProposalMatches([languageConflict])).toBe('evidence-conflict');
+    core.projectModel.selectCurrentWork(projectId, workId);
+    expect(core.now.resolve(projectId)).toMatchObject({
+      currentWorkId: workId,
+      currentWorkSelection: 'user',
+      state: 'review',
+      next: { kind: 'review-work', workItemId: workId },
+    });
+    expect(
+      core.projectModel.view(projectId).workItems.find((item) => item.id === workId)?.state,
+    ).toBe('active');
+
+    const diagnosticCompletion = reconciledMatches.find(
+      (match) => match.workItemId === diagnosticWorkId,
+    )!;
+    expect(diagnosticCompletion.proposal).toMatchObject({
+      source: 'analysis-candidate',
+      state: 'done',
+    });
+    expect(classifyWorkProposalMatches([diagnosticCompletion])).toBe('completion-review');
+    const reconciledView = presentProjectNow(
+      core.projectModel.view(projectId),
+      core.now.resolve(projectId),
+    );
+    expect(reconciledView.otherWorkCount).toBe(1);
+    expect(reconciledView.otherWork.find((item) => item.id === diagnosticWorkId)).toMatchObject({
+      source: 'work-item',
+      disposition: 'completion-review',
+      statusLabel: 'Completion needs review',
+    });
   });
   it('keeps reads passive and reenters an unchanged project with probe only', async () => {
     const repo = new MemoryRepository();

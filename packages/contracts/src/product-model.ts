@@ -227,11 +227,6 @@ export type WorkProposal = {
   evidenceClaims?: string[];
 };
 
-/** A completion suggestion is reviewed against selected work, not offered as unfinished work. */
-export function isUnfinishedWorkProposal(proposal: Pick<WorkProposal, 'state'>): boolean {
-  return proposal.state !== 'done';
-}
-
 export type WorkProposalMatch = {
   proposal: WorkProposal;
   /** Equivalent current source expressions retained with the displayed proposal. */
@@ -240,6 +235,27 @@ export type WorkProposalMatch = {
   confidence: 'explicit' | 'possible' | 'unmatched';
   reason: string;
 };
+
+export type WorkProposalDisposition = 'progress' | 'completion-review' | 'evidence-conflict';
+
+/** Classify all current source expressions as one work group, without trusting its representative. */
+export function classifyWorkProposalMatches(
+  matches: readonly WorkProposalMatch[],
+): WorkProposalDisposition {
+  const proposals = matches.flatMap((match) => [match.proposal, ...(match.aliases ?? [])]);
+  const hasDoneEvidence = proposals.some((proposal) => proposal.state === 'done');
+  const hasProgressEvidence = proposals.some((proposal) =>
+    ['active', 'waiting', 'paused'].includes(proposal.state),
+  );
+  if (hasDoneEvidence && hasProgressEvidence) return 'evidence-conflict';
+  if (hasDoneEvidence) return 'completion-review';
+  return 'progress';
+}
+
+/** Unlinked possible matches are one grouped choice, with aliases kept on that match. */
+export function isUnlinkedWorkProposalMatch(match: WorkProposalMatch): boolean {
+  return match.workItemId === null && match.confidence !== 'explicit';
+}
 
 export type ProjectNowAction = {
   kind:

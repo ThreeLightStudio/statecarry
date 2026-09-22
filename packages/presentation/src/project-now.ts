@@ -1,10 +1,12 @@
 import {
-  isUnfinishedWorkProposal,
+  classifyWorkProposalMatches,
+  isUnlinkedWorkProposalMatch,
   type ProjectModelView,
   type ProjectNow,
   type ProjectNowAction,
   type ProjectNowNotice,
   type WorkItem,
+  type WorkProposalDisposition,
 } from '@statecarry/contracts';
 
 export type PresentedProjectAction = {
@@ -56,6 +58,7 @@ export type ProjectNowView = {
     state: WorkItem['state'] | 'proposal';
     statusLabel: string;
     source: 'work-item' | 'proposal';
+    disposition: WorkProposalDisposition;
     currentState?: string;
     uncertainty?: string | null;
     nextAction?: string | null;
@@ -200,6 +203,18 @@ function workStatusLabel(state: WorkItem['state']) {
   }
 }
 
+function proposalStatusLabel(
+  disposition: WorkProposalDisposition,
+  state: 'active' | 'waiting' | 'paused' | 'unclear' | 'done',
+) {
+  if (disposition === 'completion-review') return 'Completion needs review';
+  if (disposition === 'evidence-conflict') return 'Project state needs review';
+  if (state === 'waiting') return 'Waiting';
+  if (state === 'paused') return 'Paused';
+  if (state === 'unclear') return 'Needs review';
+  return 'Found from project state';
+}
+
 /**
  * Presentation owns wording density and action labels only. Core has already
  * selected current ProjectRecord, notice priority and the next action.
@@ -208,6 +223,14 @@ export function presentProjectNow(model: ProjectModelView, now: ProjectNow): Pro
   if (model.project.id !== now.projectId) throw new Error('ProjectNow belongs to another project.');
   const work = currentWork(model, now);
   const direction = currentDirection(model, now);
+  const workDispositions = new Map<string, WorkProposalDisposition>();
+  for (const match of now.proposalMatches) {
+    if (!match.workItemId || workDispositions.has(match.workItemId)) continue;
+    const linkedMatches = now.proposalMatches.filter(
+      (candidate) => candidate.workItemId === match.workItemId,
+    );
+    workDispositions.set(match.workItemId, classifyWorkProposalMatches(linkedMatches));
+  }
   return {
     project: {
       id: model.project.id,
@@ -245,26 +268,26 @@ export function presentProjectNow(model: ProjectModelView, now: ProjectNow): Pro
           id: item.id,
           title: compactWhitespace(item.title),
           state: item.state,
-          statusLabel: workStatusLabel(item.state),
+          statusLabel:
+            workDispositions.get(item.id) === 'completion-review'
+              ? 'Completion needs review'
+              : workDispositions.get(item.id) === 'evidence-conflict'
+                ? 'Project state needs review'
+                : workStatusLabel(item.state),
           source: 'work-item' as const,
+          disposition: workDispositions.get(item.id) ?? 'progress',
         })),
       ...now.proposalMatches
-        .filter(
-          (match) =>
-            match.confidence === 'unmatched' &&
-            !match.workItemId &&
-            isUnfinishedWorkProposal(match.proposal),
-        )
+        .filter(isUnlinkedWorkProposalMatch)
         .map((match) => ({
+          disposition: classifyWorkProposalMatches([match]),
           id: match.proposal.key,
           title: compactWhitespace(match.proposal.title),
           state: 'proposal' as const,
-          statusLabel:
-            match.proposal.state === 'waiting'
-              ? 'Waiting'
-              : match.proposal.state === 'paused'
-                ? 'Paused'
-                : 'Found from project state',
+          statusLabel: proposalStatusLabel(
+            classifyWorkProposalMatches([match]),
+            match.proposal.state,
+          ),
           source: 'proposal' as const,
           currentState: match.proposal.currentState,
           uncertainty: match.proposal.uncertainty,

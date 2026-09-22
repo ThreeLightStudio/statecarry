@@ -229,7 +229,7 @@ export class ProjectModel {
         title: proposal.title,
         state:
           proposal.state === 'done'
-            ? 'completed'
+            ? 'active'
             : proposal.state === 'unclear'
               ? 'review'
               : proposal.state,

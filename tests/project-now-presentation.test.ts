@@ -70,7 +70,7 @@ function observe(h: ReturnType<typeof harness>, projectId: string, basis = 'basi
 }
 
 describe('ProjectNow presentation', () => {
-  it('keeps completion suggestions out of unfinished work and uses a next-work status', () => {
+  it('shows completion suggestions as review choices instead of unfinished progress', () => {
     const { h, projectId } = setup('Improve project return.');
     observe(h, projectId);
     const proposal: WorkProposal = {
@@ -99,14 +99,21 @@ describe('ProjectNow presentation', () => {
     const compact = presentProjectCompact(model, now);
 
     expect(now).toMatchObject({
-      state: 'choose-next-work',
-      next: { kind: 'choose-next-work' },
-      otherWorkCount: 0,
+      state: 'choose-work',
+      next: { kind: 'choose-current-work' },
+      otherWorkCount: 1,
     });
-    expect(view.otherWork).toEqual([]);
-    expect(view.otherWorkCount).toBe(0);
-    expect(view.otherWork.some((item) => item.statusLabel === 'Looks complete')).toBe(false);
-    expect(compact).toMatchObject({ current: 'Decide the next work', status: 'Choose next work' });
+    expect(view.otherWork).toHaveLength(1);
+    expect(view.otherWork[0]).toMatchObject({
+      source: 'proposal',
+      disposition: 'completion-review',
+      statusLabel: 'Completion needs review',
+    });
+    expect(view.otherWorkCount).toBe(1);
+    expect(compact).toMatchObject({
+      current: 'Choose current work',
+      status: 'Choose current work',
+    });
   });
 
   it('projects ordinary return into state, still-to-check, Next and one primary action', () => {
