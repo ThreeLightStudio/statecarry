@@ -1,9 +1,10 @@
-import type {
-  ProjectModelView,
-  ProjectNow,
-  ProjectNowAction,
-  ProjectNowNotice,
-  WorkItem,
+import {
+  isUnfinishedWorkProposal,
+  type ProjectModelView,
+  type ProjectNow,
+  type ProjectNowAction,
+  type ProjectNowNotice,
+  type WorkItem,
 } from '@statecarry/contracts';
 
 export type PresentedProjectAction = {
@@ -248,7 +249,12 @@ export function presentProjectNow(model: ProjectModelView, now: ProjectNow): Pro
           source: 'work-item' as const,
         })),
       ...now.proposalMatches
-        .filter((match) => match.confidence === 'unmatched' && !match.workItemId)
+        .filter(
+          (match) =>
+            match.confidence === 'unmatched' &&
+            !match.workItemId &&
+            isUnfinishedWorkProposal(match.proposal),
+        )
         .map((match) => ({
           id: match.proposal.key,
           title: compactWhitespace(match.proposal.title),
@@ -258,9 +264,7 @@ export function presentProjectNow(model: ProjectModelView, now: ProjectNow): Pro
               ? 'Waiting'
               : match.proposal.state === 'paused'
                 ? 'Paused'
-                : match.proposal.state === 'done'
-                  ? 'Looks complete'
-                  : 'Found from project state',
+                : 'Found from project state',
           source: 'proposal' as const,
           currentState: match.proposal.currentState,
           uncertainty: match.proposal.uncertainty,
@@ -274,6 +278,9 @@ export function presentProjectNow(model: ProjectModelView, now: ProjectNow): Pro
 
 function compactStatus(now: ProjectNow) {
   if (now.notice?.kind === 'result-ready') return 'Result to review';
+  if (now.notice?.kind === 'delivery-problem') return 'Delivery needs attention';
+  if (now.notice?.kind === 'release-confirmation') return 'Release completion';
+  if (now.notice?.kind === 'release-ready') return 'Release ready';
   switch (now.state) {
     case 'disconnected':
       return 'Disconnected';
@@ -281,6 +288,8 @@ function compactStatus(now: ProjectNow) {
       return 'Direction needed';
     case 'choose-work':
       return 'Choose current work';
+    case 'choose-next-work':
+      return 'Choose next work';
     case 'waiting':
       return 'Waiting';
     case 'review':
@@ -317,7 +326,10 @@ export function presentProjectCompact(
   if (model.project.id !== now.projectId) throw new Error('ProjectNow belongs to another project.');
   const reason = now.notice
     ? now.notice.reason
-    : now.state === 'waiting' || now.state === 'needs-direction' || now.state === 'choose-work'
+    : now.state === 'waiting' ||
+        now.state === 'needs-direction' ||
+        now.state === 'choose-work' ||
+        now.state === 'choose-next-work'
       ? now.currentState
       : null;
   return {

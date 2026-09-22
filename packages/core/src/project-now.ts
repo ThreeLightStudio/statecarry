@@ -1,4 +1,5 @@
 import {
+  isUnfinishedWorkProposal,
   isOpenWork,
   selectedCurrentWorkId,
   workDecisionKinds,
@@ -185,7 +186,10 @@ export class ProjectNowResolver {
     const selection = this.currentSelection(projectId, model.workItems);
     const current = selection.item;
     const unmatchedProposals = matches.filter(
-      (match) => match.confidence === 'unmatched' && !match.workItemId,
+      (match) =>
+        match.confidence === 'unmatched' &&
+        !match.workItemId &&
+        isUnfinishedWorkProposal(match.proposal),
     );
     const otherWorkCount =
       model.workItems.filter(
@@ -392,7 +396,7 @@ export class ProjectNowResolver {
         primaryDirectionId: primaryDirection.id,
         currentWorkId: null,
         currentWorkSelection: null,
-        state: 'complete',
+        state: releaseAttention ? 'complete' : 'choose-next-work',
         currentState: 'The current direction is active, but no work is selected to continue it.',
         uncertainty: null,
         next: releaseAttention
@@ -420,7 +424,16 @@ export class ProjectNowResolver {
       observation.snapshot.status === 'checked' &&
       returnPoint.basis !== observation.semanticKey;
     const possibleMatch = match?.confidence === 'possible';
+    const recordedState =
+      current.state === 'completed'
+        ? 'This work is complete.'
+        : current.state === 'stopped'
+          ? 'This work was stopped.'
+          : current.state === 'paused'
+            ? 'This work is paused.'
+            : null;
     const currentState =
+      recordedState ??
       match?.proposal.currentState ??
       returnPoint?.current ??
       (current.state === 'waiting'
@@ -518,6 +531,7 @@ export class ProjectNowResolver {
         text: `Stop ${current.title}.`,
       });
     } else if (match?.proposal.state === 'done') {
+      state = 'review';
       next = {
         kind: 'review-completion',
         workItemId: current.id,

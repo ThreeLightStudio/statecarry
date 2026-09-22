@@ -481,12 +481,80 @@ describe('ProjectNow resolver', () => {
 
     expect(h.core.now.resolve(projectId)).toMatchObject({
       currentWorkId: null,
-      state: 'complete',
+      state: 'choose-next-work',
       next: { kind: 'choose-next-work' },
       otherWorkCount: 0,
       proposalMatches: [],
     });
     expect(h.repo.list('workItem')).toEqual([]);
+  });
+
+  it('keeps inferred completion separate from unfinished work and explicit completion', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Validate the export flow.' });
+    const projectId = receipt.projectId;
+    h.core.projectModel.view(projectId);
+    observe(h, projectId);
+
+    const proposal: WorkProposal = {
+      key: 'analysis:export-validation',
+      source: 'analysis-candidate',
+      title: 'Validate export behavior',
+      state: 'done',
+      currentState: 'The export behavior appears complete.',
+      uncertainty: null,
+      nextAction: null,
+      doneWhen: 'An export opens with the expected contents.',
+      evidenceBasis: 'analysis-basis',
+    };
+    let linkedWorkItemId: string | null = null;
+    vi.spyOn(h.core.workMatcher, 'match').mockImplementation(() => [
+      {
+        proposal,
+        workItemId: linkedWorkItemId,
+        confidence: linkedWorkItemId ? 'explicit' : 'unmatched',
+        reason: 'Current evidence is linked to this work.',
+      },
+    ]);
+
+    expect(h.core.now.resolve(projectId)).toMatchObject({
+      state: 'choose-next-work',
+      next: { kind: 'choose-next-work' },
+      otherWorkCount: 0,
+      proposalMatches: [expect.objectContaining({ proposal })],
+    });
+
+    work(h, projectId, 'work-a', 'active', 'Validate export behavior');
+    select(h, projectId, 'work-a');
+    linkedWorkItemId = 'work-a';
+    expect(h.core.now.resolve(projectId)).toMatchObject({
+      currentWorkId: 'work-a',
+      currentWorkSelection: 'user',
+      state: 'review',
+      next: { kind: 'review-completion', workItemId: 'work-a' },
+    });
+    expect(h.repo.get('workItem', 'work-a')?.state).toBe('active');
+
+    h.core.projectModel.completeWork(projectId, 'work-a');
+    expect(h.core.now.resolve(projectId)).toMatchObject({
+      currentWorkId: 'work-a',
+      state: 'complete',
+      currentState: 'This work is complete.',
+      next: { kind: 'choose-next-work' },
+      otherWorkCount: 0,
+    });
+    expect(h.repo.get('workItem', 'work-a')?.state).toBe('completed');
+
+    work(h, projectId, 'work-b', 'active', 'Update project summary');
+    h.core.projectModel.selectCurrentWork(projectId, 'work-b');
+    linkedWorkItemId = 'work-b';
+    h.core.projectModel.stopWork(projectId, 'work-b');
+    expect(h.core.now.resolve(projectId)).toMatchObject({
+      currentWorkId: 'work-b',
+      state: 'stopped',
+      currentState: 'This work was stopped.',
+      next: { kind: 'choose-next-work' },
+    });
   });
 
   it('does not present a stale scoped analysis as current work', () => {

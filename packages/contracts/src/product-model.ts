@@ -227,6 +227,11 @@ export type WorkProposal = {
   evidenceClaims?: string[];
 };
 
+/** A completion suggestion is reviewed against selected work, not offered as unfinished work. */
+export function isUnfinishedWorkProposal(proposal: Pick<WorkProposal, 'state'>): boolean {
+  return proposal.state !== 'done';
+}
+
 export type WorkProposalMatch = {
   proposal: WorkProposal;
   /** Equivalent current source expressions retained with the displayed proposal. */
@@ -287,6 +292,7 @@ export type ProjectNow = {
     | 'disconnected'
     | 'needs-direction'
     | 'choose-work'
+    | 'choose-next-work'
     | 'active'
     | 'waiting'
     | 'review'

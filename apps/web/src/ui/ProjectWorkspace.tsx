@@ -1434,10 +1434,13 @@ function ProjectPage(props: ProjectProps & { dirtyWorkPreview: DirtyWorkPreviewS
 
 function projectNowHeading(view: ProjectNowView): string {
   if (view.work) return view.work.title;
+  if (view.primaryAction?.kind === 'review-release') return 'Review release and delivery';
+  if (view.primaryAction?.kind === 'choose-next-work') return 'Choose what comes next';
   if (view.state === 'idle') return 'Nothing to do right now';
   if (view.state === 'disconnected') return 'Project disconnected';
   if (view.state === 'needs-direction') return 'Decide the current direction';
   if (view.state === 'choose-work') return 'Choose current work';
+  if (view.state === 'choose-next-work') return 'Choose what comes next';
   if (view.state === 'complete') return 'Choose what comes next';
   return 'Current project state';
 }

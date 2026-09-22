@@ -1,10 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   presentProjectCompact,
   presentProjectCompacts,
   presentProjectNow,
 } from '@statecarry/presentation';
-import { workDecisionKinds, type WorkItem } from '@statecarry/contracts';
+import { workDecisionKinds, type WorkItem, type WorkProposal } from '@statecarry/contracts';
 import { AT, harness } from './helpers';
 import { registerProject } from './project-fixtures';
 
@@ -70,6 +70,45 @@ function observe(h: ReturnType<typeof harness>, projectId: string, basis = 'basi
 }
 
 describe('ProjectNow presentation', () => {
+  it('keeps completion suggestions out of unfinished work and uses a next-work status', () => {
+    const { h, projectId } = setup('Improve project return.');
+    observe(h, projectId);
+    const proposal: WorkProposal = {
+      key: 'analysis:finished-work',
+      source: 'analysis-candidate',
+      title: 'Refresh the return screen',
+      state: 'done',
+      currentState: 'The return screen appears complete.',
+      uncertainty: null,
+      nextAction: null,
+      doneWhen: 'The return screen restores the last project state.',
+      evidenceBasis: 'analysis-basis',
+    };
+    vi.spyOn(h.core.workMatcher, 'match').mockReturnValue([
+      {
+        proposal,
+        workItemId: null,
+        confidence: 'unmatched',
+        reason: 'The evidence is not linked to explicit work.',
+      },
+    ]);
+
+    const model = h.core.projectModel.view(projectId);
+    const now = h.core.now.resolve(projectId);
+    const view = presentProjectNow(model, now);
+    const compact = presentProjectCompact(model, now);
+
+    expect(now).toMatchObject({
+      state: 'choose-next-work',
+      next: { kind: 'choose-next-work' },
+      otherWorkCount: 0,
+    });
+    expect(view.otherWork).toEqual([]);
+    expect(view.otherWorkCount).toBe(0);
+    expect(view.otherWork.some((item) => item.statusLabel === 'Looks complete')).toBe(false);
+    expect(compact).toMatchObject({ current: 'Decide the next work', status: 'Choose next work' });
+  });
+
   it('projects ordinary return into state, still-to-check, Next and one primary action', () => {
     const { h, projectId } = setup();
     addWork(h, projectId, 'work-a', 'Improve the return screen');
