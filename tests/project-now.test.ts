@@ -490,6 +490,49 @@ describe('ProjectNow resolver', () => {
     expect(h.repo.list('workItem')).toEqual([]);
   });
 
+  it('does not restore a sole unselected work item as current work', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    h.core.projectModel.view(projectId);
+    work(h, projectId, 'work-a', 'active', 'Unselected implementation work');
+    observe(h, projectId);
+
+    expect(h.core.now.resolve(projectId)).toMatchObject({
+      currentWorkId: null,
+      currentWorkSelection: null,
+      state: 'choose-work',
+      next: { kind: 'choose-current-work' },
+    });
+  });
+
+  it('ignores a current-work decision whose payload names another work item', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    h.core.projectModel.view(projectId);
+    work(h, projectId, 'work-a', 'active', 'First work');
+    work(h, projectId, 'work-b', 'active', 'Second work');
+    observe(h, projectId);
+    h.repo.put('workDecision', {
+      id: 'invalid-selection',
+      projectId,
+      workItemId: 'work-a',
+      kind: workDecisionKinds.selectCurrentWork,
+      value: { workItemId: 'work-b' },
+      basis: [],
+      state: 'valid',
+      decidedAt: AT,
+    });
+
+    expect(h.core.now.resolve(projectId)).toMatchObject({
+      currentWorkId: null,
+      currentWorkSelection: null,
+      state: 'choose-work',
+      next: { kind: 'choose-current-work' },
+    });
+  });
+
   it('keeps current implementation work selected while completed work waits for release', () => {
     const h = harness();
     const { receipt } = registerProject(h, { goal: 'Keep building while ready work ships.' });

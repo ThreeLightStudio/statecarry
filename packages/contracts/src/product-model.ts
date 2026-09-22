@@ -64,6 +64,13 @@ export const workItemSchema = z
   .strict();
 export type WorkItem = z.infer<typeof workItemSchema>;
 
+/** Work states that may be shown as unfinished-work candidates. */
+export const openWorkStates = ['active', 'waiting', 'review', 'paused'] as const;
+
+export function isOpenWork(item: Pick<WorkItem, 'state'>): boolean {
+  return openWorkStates.includes(item.state as (typeof openWorkStates)[number]);
+}
+
 export const workItemCreateSchema = z
   .object({
     title: z.string().trim().min(1).max(160),
@@ -188,6 +195,18 @@ export const workDecisionKinds = {
   stopWork: 'stop-work',
 } as const;
 
+/**
+ * A current-work decision is usable only when its durable record and payload
+ * identify the same work item. Stale or malformed records cannot redirect a
+ * return view.
+ */
+export function selectedCurrentWorkId(decision: WorkDecision): string | null {
+  if (decision.kind !== workDecisionKinds.selectCurrentWork || decision.state !== 'valid')
+    return null;
+  const value = decision.value.workItemId;
+  return typeof value === 'string' && value === decision.workItemId ? value : null;
+}
+
 export type WorkProposal = {
   key: string;
   source: 'analysis-candidate' | 'working-tree-group';
@@ -252,7 +271,8 @@ export type ProjectNow = {
   projectId: string;
   primaryDirectionId: string | null;
   currentWorkId: string | null;
-  currentWorkSelection: 'user' | 'suggested' | null;
+  /** Only a valid explicit user decision can set the current work. */
+  currentWorkSelection: 'user' | null;
   state:
     | 'disconnected'
     | 'needs-direction'

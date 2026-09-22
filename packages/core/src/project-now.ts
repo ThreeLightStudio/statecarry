@@ -1,4 +1,6 @@
 import {
+  isOpenWork,
+  selectedCurrentWorkId,
   workDecisionKinds,
   type Continuation,
   type ProjectNow,
@@ -45,31 +47,9 @@ export class ProjectNowResolver {
             decision.kind === workDecisionKinds.selectCurrentWork,
         ),
     );
-    const selectedId = decisionString(selected, 'workItemId') ?? selected?.workItemId ?? null;
+    const selectedId = selected ? selectedCurrentWorkId(selected) : null;
     const explicit = items.find((item) => item.id === selectedId) ?? null;
     if (explicit) return { item: explicit, selection: 'user' as const };
-
-    const open = items.filter((item) => item.state !== 'completed' && item.state !== 'stopped');
-    if (open.length === 1) return { item: open[0], selection: 'suggested' as const };
-
-    const completed = new Set(
-      items.filter((item) => item.state === 'completed').map((item) => item.id),
-    );
-    const queued = this.core.repo
-      .list('workRelation')
-      .filter(
-        (relation) =>
-          relation.projectId === projectId &&
-          relation.kind === 'next-after' &&
-          relation.state === 'active' &&
-          completed.has(relation.fromWorkId),
-      )
-      .map((relation) => items.find((item) => item.id === relation.toWorkId))
-      .filter(
-        (item): item is WorkItem =>
-          !!item && item.state !== 'completed' && item.state !== 'stopped',
-      );
-    if (queued.length === 1) return { item: queued[0], selection: 'suggested' as const };
     return { item: null, selection: null };
   }
 
@@ -310,9 +290,7 @@ export class ProjectNowResolver {
       };
 
     if (!current) {
-      const open = model.workItems.filter(
-        (item) => item.state !== 'completed' && item.state !== 'stopped',
-      );
+      const open = model.workItems.filter(isOpenWork);
       if (open.length === 0 && unmatchedProposals.length > 0)
         return {
           projectId,
@@ -339,14 +317,17 @@ export class ProjectNowResolver {
           freshness,
           proposalMatches: matches,
         };
-      if (open.length > 1)
+      if (open.length > 0)
         return {
           projectId,
           primaryDirectionId: primaryDirection?.id ?? null,
           currentWorkId: null,
           currentWorkSelection: null,
           state: 'choose-work',
-          currentState: 'Several pieces of work are available, but none is selected as current.',
+          currentState:
+            open.length === 1
+              ? 'There is unfinished work, but none is selected as current.'
+              : 'Several pieces of work are available, but none is selected as current.',
           uncertainty: null,
           next: {
             kind: 'choose-current-work',

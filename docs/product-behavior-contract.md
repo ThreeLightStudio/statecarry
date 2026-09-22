@@ -89,6 +89,11 @@ Work is one meaningful piece of ongoing effort.
 Work should survive minor changes in wording, analysis output and implementation detail. An analysis
 result is evidence about Work; it is not Work identity.
 
+An unfinished-work candidate is a provisional interpretation, identified by its source-specific
+proposal key and evidence basis. Its title, recency or a one-item list cannot identify durable Work
+or make it current. A valid current-work decision names the same Work in its record and payload;
+otherwise StateCarry ignores it and asks the user to choose.
+
 The default assumption is continuity: if new changes plausibly extend the current work, keep them in
 the same Work. Do not split work merely because a related idea or implementation detail appeared while
 working. Commit boundaries may still separate changes later.

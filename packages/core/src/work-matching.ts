@@ -1,5 +1,5 @@
 import {
-  workingTreeGroupKey,
+  selectedCurrentWorkId,
   workDecisionKinds,
   type WorkItem,
   type WorkProposal,
@@ -22,8 +22,8 @@ function selectedWorkId(core: StateCarry, projectId: string): string | null {
     )
     .sort((a, b) => b.decidedAt.localeCompare(a.decidedAt));
   for (const decision of decisions) {
-    const value = decision.value.workItemId;
-    if (typeof value === 'string') return value;
+    const workItemId = selectedCurrentWorkId(decision);
+    if (workItemId) return workItemId;
   }
   return null;
 }
