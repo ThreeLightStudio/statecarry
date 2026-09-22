@@ -8,6 +8,9 @@ import {
   type ProjectNow,
   type ProjectNowAction,
   type ProjectNowNotice,
+  type ProjectNowOtherWorkCounts,
+  type ProjectNowWorkCandidate,
+  type WorkProposalDisposition,
   type WorkDecision,
   type WorkItem,
   type WorkRelation,
@@ -33,6 +36,25 @@ function decisionString(decision: WorkDecision | null, key: string): string | nu
 function nowState(item: WorkItem): ProjectNow['state'] {
   if (item.state === 'completed') return 'complete';
   return item.state;
+}
+
+function evidenceReviewAction(
+  item: WorkItem,
+  disposition: WorkProposalDisposition | undefined | null,
+): ProjectNowAction | null {
+  if (disposition === 'completion-review')
+    return {
+      kind: 'review-completion',
+      workItemId: item.id,
+      text: `Review whether ${item.title} is complete.`,
+    };
+  if (disposition === 'evidence-conflict')
+    return {
+      kind: 'review-work',
+      workItemId: item.id,
+      text: `Review the project state for ${item.title}.`,
+    };
+  return null;
 }
 
 export class ProjectNowResolver {
@@ -188,19 +210,60 @@ export class ProjectNowResolver {
       model.directions.find((direction) => direction.state === 'active' && direction.confirmed);
     const selection = this.currentSelection(projectId, model.workItems);
     const current = selection.item;
-    const proposalChoices = matches.filter(isUnlinkedWorkProposalMatch);
-    const reviewWorkIds = new Set(
-      matches
-        .filter(
-          (match) =>
-            match.workItemId !== null && classifyWorkProposalMatches([match]) !== 'progress',
-        )
-        .map((match) => match.workItemId!),
+    const matchesByWorkItem = new Map(
+      model.workItems.map((item) => [
+        item.id,
+        matches.filter((match) => match.workItemId === item.id),
+      ]),
     );
-    const otherWorkCount =
-      model.workItems.filter(
-        (item) => item.id !== current?.id && item.state !== 'completed' && item.state !== 'stopped',
-      ).length + proposalChoices.length;
+    const workDispositions = new Map(
+      [...matchesByWorkItem]
+        .filter(([, workMatches]) => workMatches.length > 0)
+        .map(([workItemId, workMatches]) => [workItemId, classifyWorkProposalMatches(workMatches)]),
+    );
+    const proposalChoices = matches.filter(isUnlinkedWorkProposalMatch);
+    const otherWorkCandidates: ProjectNowWorkCandidate[] = [
+      ...model.workItems
+        .filter(
+          (item) =>
+            item.id !== current?.id && item.state !== 'completed' && item.state !== 'stopped',
+        )
+        .map((item) => ({
+          id: item.id,
+          title: item.title,
+          state: item.state,
+          source: 'work-item' as const,
+          disposition: workDispositions.get(item.id) ?? 'progress',
+        })),
+      ...proposalChoices.map((match) => ({
+        id: match.proposal.key,
+        title: match.proposal.title,
+        state: 'proposal' as const,
+        source: 'proposal' as const,
+        disposition: classifyWorkProposalMatches([match]),
+        proposalState: match.proposal.state,
+        currentState: match.proposal.currentState,
+        uncertainty: match.proposal.uncertainty,
+        nextAction: match.proposal.nextAction,
+      })),
+    ];
+    const otherWorkCounts: ProjectNowOtherWorkCounts = {
+      total: otherWorkCandidates.length,
+      progress: otherWorkCandidates.filter((candidate) => candidate.disposition === 'progress')
+        .length,
+      completionReview: otherWorkCandidates.filter(
+        (candidate) => candidate.disposition === 'completion-review',
+      ).length,
+      evidenceConflict: otherWorkCandidates.filter(
+        (candidate) => candidate.disposition === 'evidence-conflict',
+      ).length,
+    };
+    const otherWorkCount = otherWorkCounts.total;
+    const reviewWorkIds = new Set(
+      [...workDispositions]
+        .filter(([, disposition]) => disposition !== 'progress')
+        .map(([workItemId]) => workItemId),
+    );
     const observation = model.latestObservation;
     const freshness = input.checking
       ? ('checking' as const)
@@ -223,6 +286,8 @@ export class ProjectNowResolver {
         secondaryActions: [],
         notice: null,
         otherWorkCount,
+        otherWorkCounts,
+        otherWorkCandidates,
         freshness: 'unknown',
         proposalMatches: matches,
       };
@@ -297,6 +362,8 @@ export class ProjectNowResolver {
           : [],
         notice,
         otherWorkCount,
+        otherWorkCounts,
+        otherWorkCandidates,
         freshness,
         proposalMatches: matches,
       };
@@ -323,6 +390,8 @@ export class ProjectNowResolver {
           secondaryActions: [],
           notice,
           otherWorkCount,
+          otherWorkCounts,
+          otherWorkCandidates,
           freshness,
           proposalMatches: matches,
         };
@@ -346,6 +415,8 @@ export class ProjectNowResolver {
           secondaryActions: [],
           notice,
           otherWorkCount,
+          otherWorkCounts,
+          otherWorkCandidates,
           freshness,
           proposalMatches: matches,
         };
@@ -373,7 +444,9 @@ export class ProjectNowResolver {
               : null,
             secondaryActions: [],
             notice,
-            otherWorkCount: 0,
+            otherWorkCount,
+            otherWorkCounts,
+            otherWorkCandidates,
             freshness,
             proposalMatches: matches,
           };
@@ -389,6 +462,8 @@ export class ProjectNowResolver {
           secondaryActions: [],
           notice,
           otherWorkCount,
+          otherWorkCounts,
+          otherWorkCandidates,
           freshness,
           proposalMatches: matches,
         };
@@ -412,6 +487,8 @@ export class ProjectNowResolver {
         secondaryActions: [],
         notice,
         otherWorkCount,
+        otherWorkCounts,
+        otherWorkCandidates,
         freshness,
         proposalMatches: matches,
       };
@@ -421,6 +498,7 @@ export class ProjectNowResolver {
     const currentMatches = matches.filter((candidate) => candidate.workItemId === current.id);
     const matchDisposition =
       currentMatches.length > 0 ? classifyWorkProposalMatches(currentMatches) : null;
+    const matchReviewAction = evidenceReviewAction(current, matchDisposition);
     const returnPoint = model.returnPoints
       .filter((point) => point.workItemId === current.id)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
@@ -485,8 +563,16 @@ export class ProjectNowResolver {
     } else if (current.state === 'completed') {
       const queued = this.queuedNext(current, model.workItems, model.relations);
       if (queued?.item) {
-        next =
-          queued.relation.state === 'needs-review'
+        const queuedReviewAction = evidenceReviewAction(
+          queued.item,
+          workDispositions.get(queued.item.id),
+        );
+        next = queuedReviewAction
+          ? {
+              kind: 'choose-next-work',
+              text: `Review ${queued.item.title} before deciding whether to continue.`,
+            }
+          : queued.relation.state === 'needs-review'
             ? {
                 kind: 'review-work-plan',
                 workItemId: queued.item.id,
@@ -501,27 +587,32 @@ export class ProjectNowResolver {
         next = { kind: 'choose-next-work', text: 'Decide the next work for this direction.' };
       }
     } else if (current.state === 'waiting') {
-      const alternative = this.waitingAlternative(
-        current,
-        model.workItems,
-        model.relations,
-        projectId,
-        reviewWorkIds,
-      );
-      if (alternative)
-        next = {
-          kind: 'start-work',
-          workItemId: alternative.id,
-          text: `Work on ${alternative.title} while this is waiting.`,
-          reason:
-            'It is independent and has relatively low restart cost from the available saved state.',
-          confidence: 'medium',
-        };
-      secondaryActions.push({
-        kind: 'stop-work',
-        workItemId: current.id,
-        text: `Stop ${current.title}.`,
-      });
+      if (matchReviewAction) {
+        state = 'review';
+        next = matchReviewAction;
+      } else {
+        const alternative = this.waitingAlternative(
+          current,
+          model.workItems,
+          model.relations,
+          projectId,
+          reviewWorkIds,
+        );
+        if (alternative)
+          next = {
+            kind: 'start-work',
+            workItemId: alternative.id,
+            text: `Work on ${alternative.title} while this is waiting.`,
+            reason:
+              'It is independent and has relatively low restart cost from the available saved state.',
+            confidence: 'medium',
+          };
+        secondaryActions.push({
+          kind: 'stop-work',
+          workItemId: current.id,
+          text: `Stop ${current.title}.`,
+        });
+      }
     } else if (current.state === 'paused') {
       next = { kind: 'resume-work', workItemId: current.id, text: `Resume ${current.title}.` };
       secondaryActions.push({
@@ -540,20 +631,9 @@ export class ProjectNowResolver {
         workItemId: current.id,
         text: `Stop ${current.title}.`,
       });
-    } else if (matchDisposition === 'completion-review') {
+    } else if (matchReviewAction) {
       state = 'review';
-      next = {
-        kind: 'review-completion',
-        workItemId: current.id,
-        text: `Review whether ${current.title} is complete.`,
-      };
-    } else if (matchDisposition === 'evidence-conflict') {
-      state = 'review';
-      next = {
-        kind: 'review-work',
-        workItemId: current.id,
-        text: `Review the project state for ${current.title}.`,
-      };
+      next = matchReviewAction;
     } else if (returnPointStale && match?.confidence !== 'explicit') {
       next = {
         kind: 'review-work-plan',
@@ -610,6 +690,8 @@ export class ProjectNowResolver {
       secondaryActions,
       notice,
       otherWorkCount,
+      otherWorkCounts,
+      otherWorkCandidates,
       freshness: finalFreshness,
       proposalMatches: matches,
     };

@@ -171,6 +171,16 @@ function bundle() {
           ],
     notice: null,
     otherWorkCount: 1,
+    otherWorkCounts: { total: 1, progress: 1, completionReview: 0, evidenceConflict: 0 },
+    otherWorkCandidates: model.workItems
+      .filter((item) => item.id !== workItemId)
+      .map((item) => ({
+        id: item.id,
+        title: item.title,
+        state: item.state,
+        source: 'work-item' as const,
+        disposition: 'progress' as const,
+      })),
     freshness: 'current',
     proposalMatches: [],
   });
@@ -1239,6 +1249,8 @@ it('keeps unmatched legacy analysis as a proposal until the user chooses it', as
           uncertainty: proposal.uncertainty,
           next: { kind: 'continue-work' as const, workItemId: 'work-a', text: proposal.nextAction },
           otherWorkCount: 0,
+          otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
+          otherWorkCandidates: [],
           proposalMatches: [
             {
               proposal,
@@ -1264,6 +1276,20 @@ it('keeps unmatched legacy analysis as a proposal until the user chooses it', as
           secondaryActions: [],
           notice: null,
           otherWorkCount: 1,
+          otherWorkCounts: { total: 1, progress: 1, completionReview: 0, evidenceConflict: 0 },
+          otherWorkCandidates: [
+            {
+              id: proposal.key,
+              title: proposal.title,
+              state: 'proposal' as const,
+              source: 'proposal' as const,
+              disposition: 'progress' as const,
+              proposalState: proposal.state,
+              currentState: proposal.currentState,
+              uncertainty: proposal.uncertainty,
+              nextAction: proposal.nextAction,
+            },
+          ],
           freshness: 'current' as const,
           proposalMatches: [
             {
@@ -1340,6 +1366,8 @@ it('defines the next durable ProjectRecord directly instead of reopening the gen
             text: 'Continue Validate the new return flow.',
           },
           otherWorkCount: 0,
+          otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
+          otherWorkCandidates: [],
         }
       : {
           projectId: 'alpha',
@@ -1356,6 +1384,8 @@ it('defines the next durable ProjectRecord directly instead of reopening the gen
           secondaryActions: [],
           notice: null,
           otherWorkCount: 0,
+          otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
+          otherWorkCandidates: [],
           freshness: 'current' as const,
           proposalMatches: [],
         },
@@ -1537,6 +1567,8 @@ it('opens Define direction in direction mode even when the legacy decision view 
       secondaryActions: [],
       notice: null,
       otherWorkCount: 0,
+      otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
+      otherWorkCandidates: [],
       freshness: 'current' as const,
       proposalMatches: [],
     },
@@ -1601,6 +1633,8 @@ it('shows saved content while checking and can represent a real nothing-to-do st
       secondaryActions: [],
       notice: null,
       otherWorkCount: 0,
+      otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
+      otherWorkCandidates: [],
       freshness: 'current' as const,
       proposalMatches: [],
     },
@@ -1692,6 +1726,8 @@ it('reviews release delivery independently from completed implementation work', 
       reason: 'A release policy is configured and this work is not delivered.',
     },
     otherWorkCount: 0,
+    otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
+    otherWorkCandidates: [],
     freshness: 'current',
     proposalMatches: [],
   };
@@ -2100,6 +2136,8 @@ it('uses a one-off release policy exception without rewriting the saved policy',
         reason: 'A release policy is configured and this work is not delivered.',
       },
       otherWorkCount: 0,
+      otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
+      otherWorkCandidates: [],
       freshness: 'current' as const,
       proposalMatches: [],
     },

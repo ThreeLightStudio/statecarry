@@ -58,6 +58,20 @@ function work(
   return item;
 }
 
+function proposal(key: string, state: WorkProposal['state']): WorkProposal {
+  return {
+    key,
+    source: 'analysis-candidate',
+    title: key,
+    state,
+    currentState: `${key} is ${state}.`,
+    uncertainty: null,
+    nextAction: null,
+    doneWhen: null,
+    evidenceBasis: 'basis-a',
+  };
+}
+
 function select(h: ReturnType<typeof harness>, projectId: string, workItemId: string) {
   h.repo.put('workDecision', {
     id: `select:${workItemId}`,
@@ -326,6 +340,81 @@ describe('ProjectNow resolver', () => {
       kind: 'review-work-plan',
       workItemId: 'c',
     });
+  });
+
+  it('keeps completed current work and routes queued completion conflicts to work choices', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    h.core.projectModel.view(projectId);
+    work(h, projectId, 'a', 'completed', 'Foundation');
+    work(h, projectId, 'c', 'active', 'Follow-up');
+    select(h, projectId, 'a');
+    observe(h, projectId);
+    relation(h, {
+      id: 'a-then-c',
+      projectId,
+      fromWorkId: 'a',
+      toWorkId: 'c',
+      kind: 'next-after',
+      state: 'active',
+      basis: 'approved-order',
+      confirmedByUser: true,
+      createdAt: AT,
+    });
+    vi.spyOn(h.core.workMatcher, 'match').mockReturnValue([
+      {
+        proposal: proposal('follow-up-progress', 'active'),
+        aliases: [proposal('follow-up-completion', 'done')],
+        workItemId: 'c',
+        confidence: 'explicit',
+        reason: 'The saved sources disagree about this queued work.',
+      },
+    ]);
+
+    const now = h.core.now.resolve(projectId);
+
+    expect(now).toMatchObject({
+      currentWorkId: 'a',
+      state: 'complete',
+      next: { kind: 'choose-next-work' },
+      otherWorkCount: 1,
+      otherWorkCounts: { total: 1, progress: 0, completionReview: 0, evidenceConflict: 1 },
+      otherWorkCandidates: [
+        expect.objectContaining({ id: 'c', source: 'work-item', disposition: 'evidence-conflict' }),
+      ],
+    });
+    expect(now.next?.text).toContain('Follow-up');
+    expect(h.repo.get('workItem', 'a')?.state).toBe('completed');
+    expect(h.repo.get('workItem', 'c')?.state).toBe('active');
+  });
+
+  it('reviews completion evidence on waiting work before recommending another task', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    h.core.projectModel.view(projectId);
+    work(h, projectId, 'a', 'waiting', 'Wait for the export check');
+    work(h, projectId, 'b', 'active', 'Independent cleanup');
+    select(h, projectId, 'a');
+    observe(h, projectId);
+    vi.spyOn(h.core.workMatcher, 'match').mockReturnValue([
+      {
+        proposal: proposal('export-completion', 'done'),
+        workItemId: 'a',
+        confidence: 'explicit',
+        reason: 'Completion evidence is linked to the waiting work.',
+      },
+    ]);
+
+    expect(h.core.now.resolve(projectId)).toMatchObject({
+      currentWorkId: 'a',
+      state: 'review',
+      next: { kind: 'review-completion', workItemId: 'a' },
+      otherWorkCount: 1,
+      otherWorkCounts: { total: 1, progress: 1, completionReview: 0, evidenceConflict: 0 },
+    });
+    expect(h.repo.get('workItem', 'a')?.state).toBe('waiting');
   });
 
   it('stops normal progression for a direction conflict until the unchanged conflict is explicitly overridden', () => {

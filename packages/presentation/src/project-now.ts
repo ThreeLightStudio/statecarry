@@ -1,11 +1,10 @@
 import {
-  classifyWorkProposalMatches,
-  isUnlinkedWorkProposalMatch,
   type ProjectModelView,
   type ProjectNow,
   type ProjectNowAction,
   type ProjectNowNotice,
   type WorkItem,
+  type ProjectNowWorkCandidate,
   type WorkProposalDisposition,
 } from '@statecarry/contracts';
 
@@ -52,17 +51,8 @@ export type ProjectNowView = {
   secondaryActions: PresentedProjectAction[];
   notice: PresentedProjectNotice | null;
   otherWorkCount: number;
-  otherWork: Array<{
-    id: string;
-    title: string;
-    state: WorkItem['state'] | 'proposal';
-    statusLabel: string;
-    source: 'work-item' | 'proposal';
-    disposition: WorkProposalDisposition;
-    currentState?: string;
-    uncertainty?: string | null;
-    nextAction?: string | null;
-  }>;
+  otherWorkCounts: ProjectNow['otherWorkCounts'];
+  otherWork: Array<ProjectNowWorkCandidate & { statusLabel: string }>;
   checking: boolean;
   freshness: ProjectNow['freshness'];
 };
@@ -223,14 +213,6 @@ export function presentProjectNow(model: ProjectModelView, now: ProjectNow): Pro
   if (model.project.id !== now.projectId) throw new Error('ProjectNow belongs to another project.');
   const work = currentWork(model, now);
   const direction = currentDirection(model, now);
-  const workDispositions = new Map<string, WorkProposalDisposition>();
-  for (const match of now.proposalMatches) {
-    if (!match.workItemId || workDispositions.has(match.workItemId)) continue;
-    const linkedMatches = now.proposalMatches.filter(
-      (candidate) => candidate.workItemId === match.workItemId,
-    );
-    workDispositions.set(match.workItemId, classifyWorkProposalMatches(linkedMatches));
-  }
   return {
     project: {
       id: model.project.id,
@@ -258,42 +240,19 @@ export function presentProjectNow(model: ProjectModelView, now: ProjectNow): Pro
       .map((action) => presentAction(action, 'secondary')),
     notice: now.notice ? presentNotice(now.notice) : null,
     otherWorkCount: now.otherWorkCount,
-    otherWork: [
-      ...model.workItems
-        .filter(
-          (item) =>
-            item.id !== now.currentWorkId && item.state !== 'completed' && item.state !== 'stopped',
-        )
-        .map((item) => ({
-          id: item.id,
-          title: compactWhitespace(item.title),
-          state: item.state,
-          statusLabel:
-            workDispositions.get(item.id) === 'completion-review'
-              ? 'Completion needs review'
-              : workDispositions.get(item.id) === 'evidence-conflict'
-                ? 'Project state needs review'
-                : workStatusLabel(item.state),
-          source: 'work-item' as const,
-          disposition: workDispositions.get(item.id) ?? 'progress',
-        })),
-      ...now.proposalMatches
-        .filter(isUnlinkedWorkProposalMatch)
-        .map((match) => ({
-          disposition: classifyWorkProposalMatches([match]),
-          id: match.proposal.key,
-          title: compactWhitespace(match.proposal.title),
-          state: 'proposal' as const,
-          statusLabel: proposalStatusLabel(
-            classifyWorkProposalMatches([match]),
-            match.proposal.state,
-          ),
-          source: 'proposal' as const,
-          currentState: match.proposal.currentState,
-          uncertainty: match.proposal.uncertainty,
-          nextAction: match.proposal.nextAction,
-        })),
-    ],
+    otherWorkCounts: now.otherWorkCounts,
+    otherWork: now.otherWorkCandidates.map((candidate) => ({
+      ...candidate,
+      title: compactWhitespace(candidate.title),
+      statusLabel:
+        candidate.source === 'work-item'
+          ? candidate.disposition === 'completion-review'
+            ? 'Completion needs review'
+            : candidate.disposition === 'evidence-conflict'
+              ? 'Project state needs review'
+              : workStatusLabel(candidate.state)
+          : proposalStatusLabel(candidate.disposition, candidate.proposalState),
+    })),
     checking: now.freshness === 'checking',
     freshness: now.freshness,
   };

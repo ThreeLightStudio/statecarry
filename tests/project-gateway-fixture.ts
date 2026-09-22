@@ -64,6 +64,8 @@ export function projectNowBundle(entry: ProjectWorkspaceEntry): ProjectNowBundle
         secondaryActions: [],
         notice: null,
         otherWorkCount: 0,
+        otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
+        otherWorkCandidates: [],
         freshness: 'unknown',
         proposalMatches: [],
       }
@@ -80,6 +82,8 @@ export function projectNowBundle(entry: ProjectWorkspaceEntry): ProjectNowBundle
           secondaryActions: [],
           notice: null,
           otherWorkCount: 0,
+          otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
+          otherWorkCandidates: [],
           freshness: 'unknown',
           proposalMatches: [],
         }
@@ -95,6 +99,8 @@ export function projectNowBundle(entry: ProjectWorkspaceEntry): ProjectNowBundle
           secondaryActions: [],
           notice: null,
           otherWorkCount: 0,
+          otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
+          otherWorkCandidates: [],
           freshness: 'unknown',
           proposalMatches: [],
         };

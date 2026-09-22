@@ -266,9 +266,12 @@ describe('project observation reuse', () => {
       currentWorkId: null,
       state: 'choose-work',
       otherWorkCount: 2,
+      otherWorkCounts: { total: 2, progress: 2, completionReview: 0, evidenceConflict: 0 },
     });
+    expect(unresolved.otherWorkCandidates).toHaveLength(2);
     expect(unresolvedView.otherWork).toHaveLength(2);
     expect(unresolvedView.otherWorkCount).toBe(2);
+    expect(unresolvedView.otherWorkCounts).toEqual(unresolved.otherWorkCounts);
     const language = matches.find(
       (match) =>
         match.proposal.title === '응답 언어 설정' ||
@@ -371,6 +374,12 @@ describe('project observation reuse', () => {
       core.now.resolve(projectId),
     );
     expect(reconciledView.otherWorkCount).toBe(1);
+    expect(reconciledView.otherWorkCounts).toEqual({
+      total: 1,
+      progress: 0,
+      completionReview: 1,
+      evidenceConflict: 0,
+    });
     expect(reconciledView.otherWork.find((item) => item.id === diagnosticWorkId)).toMatchObject({
       source: 'work-item',
       disposition: 'completion-review',

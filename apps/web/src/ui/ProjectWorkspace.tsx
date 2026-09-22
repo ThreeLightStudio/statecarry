@@ -1760,9 +1760,13 @@ function ProjectNowProjectPage({
                     >
                       <span>{item.title}</span>
                       <span className="pw-small">{item.statusLabel}</span>
-                      {item.currentState && <span>{item.currentState}</span>}
-                      {item.uncertainty && <span className="pw-small">{item.uncertainty}</span>}
-                      {item.nextAction && <span className="pw-small">{item.nextAction}</span>}
+                      {item.source === 'proposal' && <span>{item.currentState}</span>}
+                      {item.source === 'proposal' && item.uncertainty && (
+                        <span className="pw-small">{item.uncertainty}</span>
+                      )}
+                      {item.source === 'proposal' && item.nextAction && (
+                        <span className="pw-small">{item.nextAction}</span>
+                      )}
                     </Button>
                   ))}
                 </div>

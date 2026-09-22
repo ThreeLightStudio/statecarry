@@ -298,6 +298,33 @@ export type ProjectNowNotice = {
   reason: string;
 };
 
+export type ProjectNowWorkCandidate =
+  | {
+      id: string;
+      title: string;
+      state: WorkItem['state'];
+      source: 'work-item';
+      disposition: WorkProposalDisposition;
+    }
+  | {
+      id: string;
+      title: string;
+      state: 'proposal';
+      source: 'proposal';
+      disposition: WorkProposalDisposition;
+      proposalState: WorkProposal['state'];
+      currentState: string;
+      uncertainty: string | null;
+      nextAction: string | null;
+    };
+
+export type ProjectNowOtherWorkCounts = {
+  total: number;
+  progress: number;
+  completionReview: number;
+  evidenceConflict: number;
+};
+
 export type ProjectNow = {
   projectId: string;
   primaryDirectionId: string | null;
@@ -322,6 +349,8 @@ export type ProjectNow = {
   secondaryActions: ProjectNowAction[];
   notice: ProjectNowNotice | null;
   otherWorkCount: number;
+  otherWorkCounts: ProjectNowOtherWorkCounts;
+  otherWorkCandidates: ProjectNowWorkCandidate[];
   freshness: 'current' | 'checking' | 'changed' | 'unknown';
   proposalMatches: WorkProposalMatch[];
 };
