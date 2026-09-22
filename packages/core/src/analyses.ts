@@ -6,6 +6,7 @@ import {
   analysisResultSchema,
   analysisCorrectionSchema,
   workspaceSnapshotSchema,
+  normalizeWorkspaceInspectionHints,
   type AnalysisWork,
   type AnalysisCandidate,
   type WorkspaceSnapshot,
@@ -108,11 +109,11 @@ export class ProjectAnalyses {
         terms.add(word);
       }
     }
-    return {
-      paths: [...paths].slice(0, 120),
-      symbols: [...symbols].slice(0, 120),
-      terms: [...terms].slice(0, 120),
-    };
+    return normalizeWorkspaceInspectionHints({
+      paths: [...paths],
+      symbols: [...symbols],
+      terms: [...terms],
+    });
   }
   /** Convert bounded project inspection into citable tool records for analysis. */
   private workspaceRecords(workspace: WorkspaceSnapshot | null) {

@@ -90,6 +90,17 @@ export const workspaceInspectionHintsSchema = z
   .strict();
 export type WorkspaceInspectionHints = z.infer<typeof workspaceInspectionHintsSchema>;
 
+/** Discard unusable clues rather than truncate them into different paths or symbols. */
+export function normalizeWorkspaceInspectionHints(
+  hints?: Partial<WorkspaceInspectionHints>,
+): WorkspaceInspectionHints {
+  const clean = (key: keyof WorkspaceInspectionHints) =>
+    [...new Set((hints?.[key] ?? []).map((value) => value.trim()))]
+      .filter((value) => workspaceInspectionHintsSchema.shape[key].element.safeParse(value).success)
+      .slice(0, 120);
+  return { paths: clean('paths'), symbols: clean('symbols'), terms: clean('terms') };
+}
+
 /** Records what was selected, omitted, and bounded during project inspection. */
 export const workspaceInspectionSchema = z
   .object({

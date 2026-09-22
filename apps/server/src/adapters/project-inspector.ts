@@ -6,6 +6,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import { resolveExecutable } from './executable-resolver';
 import type { ProjectInspector } from '@statecarry/core';
+import { normalizeWorkspaceInspectionHints } from '@statecarry/contracts';
 import type {
   WorkspaceChangedFile,
   WorkspaceFileObservation,
@@ -148,16 +149,6 @@ function digest(value: string | Buffer): string {
 
 function normalized(value: string): string {
   return value.replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase();
-}
-
-function cleanHints(hints?: WorkspaceInspectionHints): WorkspaceInspectionHints {
-  const unique = (values: string[] | undefined, limit: number) =>
-    [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))].slice(0, limit);
-  return {
-    paths: unique(hints?.paths, 120),
-    symbols: unique(hints?.symbols, 120),
-    terms: unique(hints?.terms, 120),
-  };
 }
 
 function sourceFile(name: string): boolean {
@@ -310,7 +301,7 @@ function sampleFiles(
   inventoryFingerprint: string;
   inspection: NonNullable<WorkspaceSnapshot['inspection']>;
 } {
-  const hints = cleanHints(rawHints);
+  const hints = normalizeWorkspaceInspectionHints(rawHints);
   const discovered = discoverFiles(cwd, root);
   const limitations = [...discovered.limitations];
   const scores = new Map<string, number>();
@@ -460,7 +451,7 @@ async function sampleFilesAsync(
   inventoryFingerprint: string;
   inspection: NonNullable<WorkspaceSnapshot['inspection']>;
 }> {
-  const hints = cleanHints(rawHints);
+  const hints = normalizeWorkspaceInspectionHints(rawHints);
   const discovered = await discoverFilesAsync(cwd, root);
   const limitations = [...discovered.limitations];
   const scores = new Map<string, number>();

@@ -7,6 +7,36 @@ import { workspaceSnapshotSchema } from '@statecarry/contracts';
 import { GitProjectInspector } from '../apps/server/src/adapters/project-inspector';
 
 describe('related project inspection', () => {
+  it('keeps sync and async snapshots valid when supplied hints exceed field limits', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'statecarry-hint-limits-'));
+    try {
+      mkdirSync(join(root, 'src'));
+      writeFileSync(join(root, 'src', 'main.ts'), 'export const importantFunction = () => true;');
+      const hints = {
+        paths: [`${'x'.repeat(2200)}.ts`, 'src/main.ts'],
+        symbols: ['s'.repeat(161), 'importantFunction'],
+        terms: ['t'.repeat(121), 'importantFunction'],
+      };
+      const inspector = new GitProjectInspector();
+      for (const snapshot of [
+        inspector.inspect(root, hints),
+        await inspector.inspectAsync(root, hints),
+      ]) {
+        expect(workspaceSnapshotSchema.safeParse(snapshot).success).toBe(true);
+        expect(snapshot.inspection?.hints).toEqual({
+          paths: ['src/main.ts'],
+          symbols: ['importantFunction'],
+          terms: ['importantFunction'],
+        });
+        expect(snapshot.files?.find((file) => file.path === 'src/main.ts')?.selection).toBe(
+          'related',
+        );
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('captures bounded recent commits and current changed paths', async () => {
     const root = mkdtempSync(join(tmpdir(), 'statecarry-git-inspector-'));
     try {
