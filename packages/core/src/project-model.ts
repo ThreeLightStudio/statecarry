@@ -3,6 +3,7 @@ import {
   directionSchema,
   projectRecordSchema,
   returnPointSchema,
+  selectedCurrentWorkId,
   workDiscussionRecordSchema,
   workDiscussionSyncSchema,
   workDecisionKinds,
@@ -137,7 +138,7 @@ export class ProjectModel {
             decision.projectId === projectId &&
             decision.kind === workDecisionKinds.selectCurrentWork &&
             decision.state === 'valid' &&
-            (decision.workItemId === existing.id || decision.value.workItemId === existing.id),
+            selectedCurrentWorkId(decision) === existing.id,
         );
     const now = this.core.clock.now();
     const item: WorkItem =
@@ -218,7 +219,7 @@ export class ProjectModel {
           decision.projectId === projectId &&
           decision.kind === workDecisionKinds.selectCurrentWork &&
           decision.state === 'valid' &&
-          (decision.workItemId === workItemId || decision.value.workItemId === workItemId),
+          selectedCurrentWorkId(decision) === workItemId,
       );
     if (alreadySelected) return this.view(projectId);
     const previous = this.core.repo
@@ -229,10 +230,9 @@ export class ProjectModel {
           decision.kind === workDecisionKinds.selectCurrentWork &&
           decision.state === 'valid',
       )
+      .filter((decision) => selectedCurrentWorkId(decision) !== null)
       .sort((a, b) => b.decidedAt.localeCompare(a.decidedAt))[0];
-    const previousId =
-      previous?.workItemId ??
-      (typeof previous?.value.workItemId === 'string' ? previous.value.workItemId : null);
+    const previousId = previous ? selectedCurrentWorkId(previous) : null;
     if (previousId && previousId !== workItemId) this.recordReturnPoint(projectId, previousId);
     const now = this.core.clock.now();
     this.core.repo.transaction(() => {
@@ -435,14 +435,13 @@ export class ProjectModel {
           decision.state === 'valid' &&
           decision.kind === workDecisionKinds.selectCurrentWork,
       )
+      .filter((decision) => selectedCurrentWorkId(decision) !== null)
       .sort((a, b) => b.decidedAt.localeCompare(a.decidedAt))[0];
-    const workItemId =
-      current?.workItemId ??
-      (typeof current?.value.workItemId === 'string' ? current.value.workItemId : undefined);
+    const workItemId = current ? selectedCurrentWorkId(current) : null;
     this.core.repo.put('workDecision', {
       id: this.core.ids.hash(['continue-direction-conflict', projectId, conflictKey]),
       projectId,
-      workItemId: workItemId ?? null,
+      workItemId,
       kind: workDecisionKinds.continueDirectionConflict,
       value: { conflictKey },
       basis: [conflictKey],

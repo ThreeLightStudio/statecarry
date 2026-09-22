@@ -101,6 +101,38 @@ working. Commit boundaries may still separate changes later.
 Create a new Work candidate when an independent effort has enough repeated or substantial evidence to
 look like a separate activity. A brief experiment or incidental edit is not enough by itself.
 
+### Candidate and Work identity
+
+`WorkItem.id` identifies durable Work. A proposal's source-specific `key` identifies that proposal in
+its source, while `evidenceBasis` identifies the observation or analysis on which its wording rests.
+Neither is the sole identity of the user’s Work: a later analysis may describe the same Work with a
+new key, and matching titles do not establish identity. A durable link is an explicit
+`link-work-proposal` decision; a title match, a single open Work, or a single proposal is only a C-stage
+connection hypothesis and must not merge records or select current Work.
+
+### Evidence, progress and completion state
+
+Proposal states (`active`, `waiting`, `paused`, `unclear`, `done`) describe the interpretation at its
+recorded basis. They do not change the lifecycle of linked Work. A new or changed basis can make an
+explanation, next step, or completion suggestion need review, but it does not erase Work, a user
+decision, or its earlier evidence.
+
+Keep reported progress, implemented changes and verified checks distinct. A `done` proposal or a
+plausible completion condition may invite review; it never completes Work. Only an explicit completion
+decision changes a Work to completed. Completed and stopped Work remain durable history with their
+decisions and evidence intact; later analysis may propose follow-up Work, but cannot reopen either.
+
+### Candidate-recovery implementation boundaries
+
+| Step                                           | Input and required output                                                                                                                      | Done when / regression boundary                                                                                                               |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| A — state and identity                         | Establish the rules above for proposal basis, durable Work, explicit current-work selection, and lifecycle meaning.                            | A lone candidate, a title match, or malformed selection record cannot become current Work; normal existing selection records remain readable. |
+| B — analysis refresh and stale evidence        | Compare refreshed proposals with their source and basis; retain prior evidence as history and mark only basis-dependent statements for review. | A changed observation cannot be presented as proof of the old proposal, and a refresh cannot delete durable Work or decisions.                |
+| C — same-work connection and duplication       | Consider explicit links, evidence continuity and user correction to propose a connection; preserve separate records when uncertain.            | Same title or one-item fallback never auto-merges Work; a confirmed link stays auditable across wording changes.                              |
+| D — completion judgement and candidate cleanup | Evaluate explicit completion conditions against evidence and retain stopped/completed Work while removing only obsolete proposals.             | An agent report, commit, or `done` proposal alone does not complete or reopen Work.                                                           |
+| E — recommendation decision                    | Rank only valid, current evidence and user decisions, without rewriting current Work.                                                          | A recommendation explains its basis and asks for a switch when it would replace current Work.                                                 |
+| F — screen connection                          | Render the resolved A–E result without creating new identity or priority logic in presentation.                                                | The screen distinguishes a proposal from confirmed Work and preserves the selected Work across return.                                        |
+
 ### Observation
 
 Observation records what StateCarry actually checked in project files, Git and optional external

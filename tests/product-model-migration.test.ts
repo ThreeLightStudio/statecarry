@@ -145,7 +145,46 @@ describe('product model migration boundary', () => {
           (decision) => decision.kind === 'select-current-work' && decision.state === 'valid',
         ),
     ).toHaveLength(1);
+    expect(
+      h.repo
+        .list('workDecision')
+        .filter(
+          (decision) => decision.kind === 'select-current-work' && decision.state === 'valid',
+        )[0],
+    ).toMatchObject({
+      workItemId: h.repo.list('workItem')[0].id,
+      value: { workItemId: h.repo.list('workItem')[0].id },
+    });
     expect(h.core.now.resolve(projectId).currentWorkId).toBe(h.repo.list('workItem')[0].id);
+  });
+
+  it('repairs a malformed historical selection when the user selects the work again', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    const model = h.core.projectModel.createWork(
+      projectId,
+      { title: 'Keep the return state stable', completionCondition: null },
+      'create-stable-work',
+    );
+    const workItemId = model.workItems[0].id;
+    const original = h.repo
+      .list('workDecision')
+      .find((decision) => decision.kind === 'select-current-work')!;
+    h.repo.put('workDecision', { ...original, value: { workItemId: 'different-work' } });
+
+    h.core.projectModel.selectCurrentWork(projectId, workItemId);
+
+    const selections = h.repo
+      .list('workDecision')
+      .filter((decision) => decision.kind === 'select-current-work');
+    expect(selections).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: original.id, state: 'superseded' }),
+        expect.objectContaining({ state: 'valid', workItemId, value: { workItemId } }),
+      ]),
+    );
+    expect(h.core.now.resolve(projectId).currentWorkId).toBe(workItemId);
   });
 
   it('creates user-defined durable work without generated proposal identity', () => {
