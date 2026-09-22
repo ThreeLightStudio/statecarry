@@ -7,6 +7,7 @@ import type { WorkspaceSnapshot } from '@statecarry/contracts';
 import { SQLiteRepository } from '../apps/server/src/adapters/sqlite';
 import { identity } from '../apps/server/src/adapters/identity';
 import { harness, MemoryRepository } from './helpers';
+import { projectCandidate } from './project-fixtures';
 
 const AT = '2026-09-19T00:00:00.000Z';
 
@@ -164,6 +165,71 @@ function waitForRelease() {
 }
 
 describe('project observation reuse', () => {
+  it('joins refreshed and working-tree proposals from one verified file record', async () => {
+    const repo = new MemoryRepository();
+    const observed = inspectorFixture();
+    const analyzeWorkingTree = vi.fn(async (input: any) => {
+      const record = input.records.find((item: any) => item.kind === 'fileObservation');
+      return {
+        ...analysis(),
+        groups: [
+          {
+            ...analysis().groups[0],
+            context: [
+              {
+                kind: 'progress',
+                nature: 'file-observation',
+                text: 'Reply language is configurable.',
+                sources: [{ revisionId: record.revisionId, quote: record.text }],
+              },
+            ],
+          },
+        ],
+      };
+    });
+    const { core, h } = coreWithObservation(repo, observed.inspector, analyzeWorkingTree);
+    h.summary.generateAnalysis = vi.fn(async (input: any) => {
+      const record = input.records.find((item: any) => item.kind === 'fileObservation');
+      return {
+        candidates: [
+          {
+            ...projectCandidate({
+              id: record.revisionId,
+              text: record.text,
+              threadId: record.threadId,
+            } as any),
+            goal: 'Make reply language configurable',
+            currentState: 'The reply language setting is in the current file change.',
+          },
+        ],
+      };
+    });
+    const projectId = register(core);
+    await core.analyses.refresh(projectId, 'en');
+    await core.projects.observe(projectId, 'en');
+    const matches = core.workMatcher.match(projectId);
+    expect(core.workMatcher.proposals(projectId)).toHaveLength(2);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]).toMatchObject({ confidence: 'possible' });
+    expect([matches[0].proposal, ...(matches[0].aliases ?? [])]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: 'analysis-candidate',
+          evidenceQuotes: [expect.any(Object)],
+        }),
+        expect.objectContaining({
+          source: 'working-tree-group',
+          evidenceQuotes: [expect.any(Object)],
+        }),
+      ]),
+    );
+    core.projectModel.selectProposal(projectId, matches[0].proposal.key);
+    const workId = core.now.resolve(projectId).currentWorkId;
+    const alias = matches[0].aliases![0];
+    core.projectModel.selectProposal(projectId, alias.key);
+    expect(core.now.resolve(projectId).currentWorkId).toBe(workId);
+    expect(core.projectModel.view(projectId).workItems).toHaveLength(1);
+  });
   it('keeps reads passive and reenters an unchanged project with probe only', async () => {
     const repo = new MemoryRepository();
     const observed = inspectorFixture();
