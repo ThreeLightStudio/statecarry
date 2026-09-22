@@ -84,7 +84,7 @@ rtk pnpm build
 rtk proxy node dist/server.mjs
 ```
 
-Open [StateCarry](http://127.0.0.1:4310). Keep the terminal running; Ctrl+C stops it. A prepared `dist/` can run without pnpm or the source, but still needs Node, RTK, Codex, and your login. Run it from the folder containing `dist/`.
+Open the local URL printed by the server. Production servers receive an available port automatically. Keep the terminal running; Ctrl+C stops it. A prepared `dist/` can run without pnpm or the source, but still needs Node, RTK, Codex, and your login. Run it from the folder containing `dist/`.
 
 An agent can install dependencies, build, and diagnose startup. Sign in yourself (`rtk proxy codex login` if needed); never share credentials. No separate API key is required. Model access and usage limits belong to your Codex account; there is no automatic model fallback.
 
@@ -128,13 +128,17 @@ Goal and next-step drafts, task selection, explanation-panel choices and reading
 
 StateCarry analyzes connected records, not every record on your device. Related sessions may form one candidate; unrelated goals may produce separate candidates. Analysis includes selected conversation excerpts, bounded observations and previews of project files, and workspace state. The excerpt budget is not a bound on the entire model request. Missing history is not proof of completion. Candidate ranking is a suggestion, not knowledge of your current priority.
 
-The default storage is `~/.statecarry`. It contains private records, analysis output, and corrections; do not include it in a submission or sample. Only one server can write to a data directory. To use a separate local instance:
+Production storage remains `~/.statecarry`; development uses `~/.statecarry-dev`. These contain private records, analysis output, and corrections. Only one server can write to each data directory. Development never opens the production directory, including through a symlink. Production ignores development port and data-directory environment variables.
+
+Run `rtk pnpm dev` for the development web app at `http://127.0.0.1:4311`, or `rtk pnpm desktop:dev` for **StateCarry Dev**. Both use the development API on port 4310; run one development server at a time. They can run alongside the installed product. Development-only overrides are available for isolated source runs:
 
 ```sh
-rtk proxy env STATECARRY_DATA_DIR=/absolute/path/to/private-data STATECARRY_PORT=4397 node dist/server.mjs
+rtk proxy env STATECARRY_DATA_DIR=/absolute/path/to/private-dev-data STATECARRY_PORT=4397 pnpm exec tsx apps/server/src/index.ts
 ```
 
-Open the matching port. The server binds to `127.0.0.1` and rejects unexpected Host/Origin headers. Do not expose it through public hosting or a tunnel. The public desktop release runs the same local service boundary inside the signed Apple Silicon application.
+See [runtime isolation](docs/runtime-isolation.md) for the server, profile, browser-state, and build boundaries.
+
+The server binds to `127.0.0.1` and rejects unexpected Host/Origin headers. Do not expose it through public hosting or a tunnel. The public desktop release runs the same local service boundary inside the signed Apple Silicon application.
 
 The isolated model reader disables execution tools. Original records remain untrusted evidence. Exact quote validation checks source references; it does not guarantee the model's interpretation is correct. Use correction when the suggested work or action is wrong.
 

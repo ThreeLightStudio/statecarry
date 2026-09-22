@@ -14,6 +14,7 @@ await bundle({
   platform: 'node',
   target: 'node24',
   format: 'esm',
+  define: { __STATECARRY_SERVER_ENV__: JSON.stringify('production') },
   banner: {
     js: "import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);",
   },

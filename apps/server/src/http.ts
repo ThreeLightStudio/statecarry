@@ -23,6 +23,11 @@ import { canonicalProjectCommand } from './adapters/project-folder';
 import type { LocalFolderPicker } from './adapters/local-folder-picker';
 import type { ProjectAssetStore } from './adapters/local-project-assets';
 import type { LocalUpdater } from './adapters/local-updater';
+import {
+  browserStateLimit,
+  browserStateSchema,
+  type LocalBrowserState,
+} from './adapters/local-browser-state';
 
 export class ChangeEvents extends EventEmitter {
   constructor(private record?: (event: Observation) => Promise<boolean>) {
@@ -53,14 +58,14 @@ const json = (res: ServerResponse, status: number, value: unknown) => {
   });
   res.end(JSON.stringify(value));
 };
-async function body(req: IncomingMessage) {
+async function body(req: IncomingMessage, limit = 256 * 1024) {
   if (req.headers['content-type']?.split(';')[0] !== 'application/json')
     throw new DomainError('VALIDATION', 'JSON content type required', 415);
   let size = 0;
   const chunks: Buffer[] = [];
   for await (const b of req) {
     size += b.length;
-    if (size > 256 * 1024) throw new DomainError('VALIDATION', 'Request body too large', 413);
+    if (size > limit) throw new DomainError('VALIDATION', 'Request body too large', 413);
     chunks.push(b);
   }
   try {
@@ -78,15 +83,18 @@ export function createHttpServer(
     folderPicker?: LocalFolderPicker;
     projectAssetStore?: ProjectAssetStore;
     updater?: LocalUpdater;
+    developmentOrigin?: string;
+    browserState?: LocalBrowserState;
   } = {},
 ) {
-  const origins = new Set([`http://127.0.0.1:${port}`, 'http://127.0.0.1:4311']);
   return createServer(async (req, res) => {
     try {
-      if (!req.headers.host || ![`127.0.0.1:${port}`, '127.0.0.1:4311'].includes(req.headers.host))
+      const authority = `127.0.0.1:${port === 0 ? req.socket.localPort : port}`;
+      const serverOrigin = `http://${authority}`;
+      if (req.headers.host !== authority)
         throw new DomainError('VALIDATION', 'Unexpected Host', 403);
       const origin = req.headers.origin;
-      if (origin && !origins.has(origin))
+      if (origin && origin !== serverOrigin && origin !== local.developmentOrigin)
         throw new DomainError('VALIDATION', 'Unexpected Origin', 403);
       if (
         !origin &&
@@ -106,8 +114,12 @@ export function createHttpServer(
         res.end();
         return;
       }
-      const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`),
+      const url = new URL(req.url ?? '/', serverOrigin),
         path = url.pathname;
+      if (path === '/api/v1/local/browser-state' && local.browserState && req.method === 'POST') {
+        local.browserState.write(browserStateSchema.parse(await body(req, browserStateLimit)));
+        return json(res, 200, { saved: true });
+      }
       if (process.env.STATECARRY_TRACE_HTTP === '1' && path.startsWith('/api/v1/'))
         console.log(`[http] ${req.method ?? 'GET'} ${path}`);
       if (path === '/api/v1/events') {

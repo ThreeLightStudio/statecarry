@@ -1,5 +1,9 @@
 # Desktop automatic updates
 
+Development and production now use separate runtime profiles and native identities.
+See [runtime isolation](runtime-isolation.md). Only the installed stable production
+identity exposes the updater bridge; development builds have no release source.
+
 Status: implemented and end-to-end verified on macOS Apple Silicon, 2026-09-17 KST.
 
 StateCarry uses Electrobun's stable-channel updater with GitHub Releases as the distribution source. The application checks for a newer release when the project workspace starts, lets the user download it explicitly, and applies the prepared update only after the user chooses to restart.

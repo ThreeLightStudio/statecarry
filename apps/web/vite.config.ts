@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { resolve } from 'node:path';
 import { APP_VERSION } from '../../app-version';
+import { developmentPort, DEVELOPMENT_WEB_PORT } from '../../runtime-config';
 export default defineConfig(({ command }) => ({
   root: resolve(import.meta.dirname),
   plugins: [react(), tailwindcss()],
@@ -13,11 +14,16 @@ export default defineConfig(({ command }) => ({
       command === 'serve' || process.env.STATECARRY_DESKTOP_ENV === 'dev',
     ),
   },
-  server: {
-    host: '127.0.0.1',
-    port: 4311,
-    strictPort: true,
-    proxy: { '/api': 'http://127.0.0.1:4310' },
-  },
+  server:
+    command === 'serve'
+      ? {
+          host: '127.0.0.1',
+          port: DEVELOPMENT_WEB_PORT,
+          strictPort: true,
+          proxy: {
+            '/api': { target: `http://127.0.0.1:${developmentPort()}`, changeOrigin: true },
+          },
+        }
+      : undefined,
   build: { outDir: resolve(import.meta.dirname, '../../dist/web'), emptyOutDir: true },
 }));

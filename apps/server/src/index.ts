@@ -1,6 +1,11 @@
 import { createServerRuntime } from './runtime';
 
+// The standalone production bundle injects this value; source runs are development.
+declare const __STATECARRY_SERVER_ENV__: 'production';
+
 const runtime = createServerRuntime({
+  environment:
+    typeof __STATECARRY_SERVER_ENV__ === 'undefined' ? 'development' : __STATECARRY_SERVER_ENV__,
   onServerError(error) {
     console.error(error);
     process.exitCode = 1;

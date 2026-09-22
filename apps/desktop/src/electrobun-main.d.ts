@@ -32,6 +32,7 @@ declare module 'electrobun/main' {
   };
 
   export const Updater: {
+    getLocalInfo(): Promise<{ channel: string; identifier: string }>;
     updateInfo(): {
       version: string;
       hash: string;
@@ -57,11 +58,13 @@ declare module 'electrobun/main' {
 
   export class BrowserWindow {
     constructor(options: {
+      preload?: string;
       title: string;
       url: string;
       frame?: { width: number; height: number; x?: number; y?: number };
     });
     readonly webview: {
+      executeJavascript(js: string): void;
       on(
         name: 'new-window-open',
         handler: (event: {

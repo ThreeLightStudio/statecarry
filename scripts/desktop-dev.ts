@@ -1,8 +1,9 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { realpathSync } from 'node:fs';
+import { developmentPort } from '../runtime-config';
 
 const projectRoot = realpathSync(process.cwd());
-const serverPort = '4310';
+const serverPort = String(developmentPort());
 
 type ProcessRow = { pid: number; ppid: number; command: string };
 
@@ -100,13 +101,13 @@ async function stopStaleWatchers() {
 const listeners = listeningPids(serverPort);
 if (listeners.length) {
   console.error(
-    'StateCarry dev server is already running on 127.0.0.1:' +
+    'Cannot start StateCarry Dev: port is already in use at 127.0.0.1:' +
       serverPort +
       ' (PID ' +
       listeners.join(', ') +
       ').',
   );
-  process.exit(0);
+  process.exit(1);
 }
 
 await stopStaleWatchers();

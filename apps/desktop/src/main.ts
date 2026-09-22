@@ -1,13 +1,21 @@
 import { join } from 'node:path';
-import Electrobun, { ApplicationMenu, BrowserWindow, PATHS, Utils } from 'electrobun/main';
+import Electrobun, { ApplicationMenu, BrowserWindow, PATHS, Updater, Utils } from 'electrobun/main';
 import { createServerRuntime } from '../../server/src/runtime';
 import { ElectrobunFolderPicker } from './folder-picker';
 import { ElectrobunProjectAssetPicker } from './project-asset-picker';
 import { ElectrobunUpdater } from './updater';
+import { desktopRuntimeEnvironment } from '../build-profile';
+import { browserStatePreload } from './browser-state-preload';
 
-const updater = new ElectrobunUpdater(() => Electrobun.app.quit());
+// Read the packaged channel, never the launching shell's development flags.
+const environment = desktopRuntimeEnvironment(await Updater.getLocalInfo());
+const appName = environment === 'production' ? 'StateCarry' : 'StateCarry Dev';
+const updater =
+  environment === 'production' ? new ElectrobunUpdater(() => Electrobun.app.quit()) : undefined;
 
 const runtime = createServerRuntime({
+  environment,
+  persistBrowserState: true,
   webDir: join(PATHS.VIEWS_FOLDER, 'statecarry'),
   folderPicker: new ElectrobunFolderPicker(Utils.openFileDialog),
   projectAssetPicker: new ElectrobunProjectAssetPicker(Utils.openFileDialog),
@@ -20,7 +28,7 @@ const runtime = createServerRuntime({
 await runtime.start();
 
 ApplicationMenu.setApplicationMenu([
-  { label: 'StateCarry', submenu: [{ role: 'quit', accelerator: 'CommandOrControl+Q' }] },
+  { label: appName, submenu: [{ role: 'quit', accelerator: 'CommandOrControl+Q' }] },
   {
     label: 'Edit',
     submenu: [
@@ -48,15 +56,22 @@ Electrobun.events.on('before-quit', (event) => {
   stopping = true;
   let stopFailed = false;
 
-  void runtime
-    .stop()
+  void Promise.resolve()
+    .then(() =>
+      runtime.browserState?.flushBeforeQuit((token) => {
+        mainWindow?.webview.executeJavascript(
+          `window.dispatchEvent(new CustomEvent('statecarry:flush', { detail: ${JSON.stringify(token)} }));`,
+        );
+      }),
+    )
+    .then(() => runtime.stop())
     .catch((error) => {
       stopFailed = true;
       console.error(error);
     })
     .finally(async () => {
       stopped = true;
-      if (updater.hasRestartRequest() && !stopFailed) {
+      if (updater?.hasRestartRequest() && !stopFailed) {
         try {
           const result = await updater.applyPreparedUpdate();
           if (result.handoffStarted) return;
@@ -65,7 +80,7 @@ Electrobun.events.on('before-quit', (event) => {
           console.error(error);
         }
       }
-      updater.cancelRestart();
+      updater?.cancelRestart();
       Electrobun.app.quit();
     });
 });
@@ -73,8 +88,12 @@ Electrobun.events.on('before-quit', (event) => {
 let mainWindow: BrowserWindow;
 try {
   mainWindow = new BrowserWindow({
-    title: 'StateCarry',
+    title: appName,
     url: `http://${runtime.host}:${runtime.port}/`,
+    preload: browserStatePreload(
+      runtime.browserState?.read() ?? {},
+      `http://${runtime.host}:${runtime.port}`,
+    ),
     frame: { width: 1280, height: 840, x: 120, y: 80 },
   });
   mainWindow.webview.on('new-window-open', (event) => {

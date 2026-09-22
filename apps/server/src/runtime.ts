@@ -1,5 +1,9 @@
-import { homedir } from 'node:os';
 import { resolve } from 'node:path';
+import {
+  DEVELOPMENT_WEB_PORT,
+  runtimeSettings,
+  type RuntimeEnvironment,
+} from '../../../runtime-config';
 import { StateCarry } from '@statecarry/core';
 import { BackgroundLoop } from './background';
 import { CodexReader } from './adapters/codex-reader';
@@ -15,11 +19,12 @@ import { CodexSessionExecutor } from './adapters/session-executor';
 import { settingsFromEnvironment } from './adapters/summary-settings';
 import { SQLiteRepository } from './adapters/sqlite';
 import { ChangeEvents, createHttpServer } from './http';
+import { LocalBrowserState } from './adapters/local-browser-state';
 
-const DEFAULT_PORT = 4310;
 const HOST = '127.0.0.1';
 
 export type ServerRuntimeOptions = {
+  environment?: RuntimeEnvironment;
   env?: NodeJS.ProcessEnv;
   cwd?: string;
   dataDir?: string;
@@ -28,26 +33,21 @@ export type ServerRuntimeOptions = {
   folderPicker?: LocalFolderPicker;
   projectAssetPicker?: LocalProjectAssetPicker;
   updater?: LocalUpdater;
+  persistBrowserState?: boolean;
   reportBackgroundError?: (error: unknown) => void;
   onServerError?: (error: Error) => void;
 };
 
 export type ServerRuntime = ReturnType<typeof createServerRuntime>;
 
-function runtimePort(value: number | string | undefined): number {
-  const port = Number(value ?? DEFAULT_PORT);
-  if (!Number.isInteger(port) || port < 1024 || port > 65535)
-    throw new Error('Invalid STATECARRY_PORT');
-  return port;
-}
-
 export function createServerRuntime(options: ServerRuntimeOptions = {}) {
   const env = options.env ?? process.env;
+  const environment = options.environment ?? 'development';
   const cwd = options.cwd ?? process.cwd();
-  const dataDir = resolve(options.dataDir ?? env.STATECARRY_DATA_DIR ?? `${homedir()}/.statecarry`);
-  const port = runtimePort(options.port ?? env.STATECARRY_PORT);
+  const { dataDir, port } = runtimeSettings({ ...options, environment, env });
   const webDir = resolve(cwd, options.webDir ?? 'dist/web');
   const repo = new SQLiteRepository(dataDir);
+  const browserState = options.persistBrowserState ? new LocalBrowserState(dataDir) : undefined;
   const projectAssetStore = new ProjectAssetStore(dataDir, options.projectAssetPicker);
   const events = new ChangeEvents(observationLog(dataDir));
   const core = new StateCarry(
@@ -65,6 +65,9 @@ export function createServerRuntime(options: ServerRuntimeOptions = {}) {
     folderPicker: options.folderPicker ?? new MacLocalFolderPicker(),
     projectAssetStore,
     updater: options.updater,
+    browserState,
+    developmentOrigin:
+      environment === 'development' ? `http://${HOST}:${DEVELOPMENT_WEB_PORT}` : undefined,
   });
   const background = new BackgroundLoop(
     core,
@@ -170,5 +173,21 @@ export function createServerRuntime(options: ServerRuntimeOptions = {}) {
     return startPromise;
   };
 
-  return { dataDir, host: HOST, port, webDir, repo, events, core, server, start, stop };
+  return {
+    environment,
+    browserState,
+    dataDir,
+    host: HOST,
+    get port() {
+      const address = server.address();
+      return address && typeof address !== 'string' ? address.port : port;
+    },
+    webDir,
+    repo,
+    events,
+    core,
+    server,
+    start,
+    stop,
+  };
 }

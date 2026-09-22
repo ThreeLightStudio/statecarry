@@ -1,18 +1,25 @@
 import type { ElectrobunConfig } from 'electrobun';
 import { APP_VERSION } from './app-version';
+import { desktopBuildProfile } from './apps/desktop/build-profile';
+
+const profile = desktopBuildProfile();
+const stable = profile.identifier === 'com.threelightstudio.statecarry';
+const cacheRoot = stable ? '.cache/electrobun' : '.cache/electrobun/dev';
 
 export default {
-  app: { name: 'StateCarry', identifier: 'com.threelightstudio.statecarry', version: APP_VERSION },
+  app: { ...profile, version: APP_VERSION },
   build: {
     mainProcess: 'cottontail',
     cottontail: { entrypoint: 'apps/desktop/src/main.ts' },
     mac: { codesign: true, notarize: true, createDmg: true },
-    copy: { '.cache/electrobun/web': 'views/statecarry' },
-    buildFolder: '.cache/electrobun/build',
-    artifactFolder: '.cache/electrobun/artifacts',
+    copy: { [`${cacheRoot}/web`]: 'views/statecarry' },
+    buildFolder: `${cacheRoot}/build`,
+    artifactFolder: `${cacheRoot}/artifacts`,
   },
   release: {
-    baseUrl: 'https://github.com/ThreeLightStudio/statecarry/releases/latest/download',
+    baseUrl: stable
+      ? 'https://github.com/ThreeLightStudio/statecarry/releases/latest/download'
+      : '',
     generatePatch: false,
   },
   runtime: { exitOnLastWindowClosed: true },
