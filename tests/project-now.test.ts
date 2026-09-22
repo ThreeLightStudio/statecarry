@@ -6,6 +6,7 @@ import {
   type WorkProposal,
   type WorkRelation,
 } from '@statecarry/contracts';
+import { StateCarry, type ProjectInspector } from '@statecarry/core';
 import { AT, harness, source } from './helpers';
 import { projectCandidate, registerProject } from './project-fixtures';
 
@@ -239,6 +240,254 @@ describe('ProjectNow resolver', () => {
         workItemId: 'f',
         text: 'Work on Another independent work while this is waiting.',
       },
+      recommendation: {
+        status: 'recommended',
+        candidate: { id: 'f', source: 'work-item' },
+        selectionState: 'current-retained',
+      },
+    });
+  });
+
+  it('recommends one evidence-supported candidate and marks a close alternative', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    h.core.projectModel.view(projectId);
+    work(h, projectId, 'a', 'waiting', 'Wait for agent result');
+    work(h, projectId, 'b', 'active', 'Unblock the release checks');
+    work(h, projectId, 'c', 'active', 'Small saved cleanup');
+    work(h, projectId, 'd', 'waiting', 'Follow-up check one');
+    work(h, projectId, 'e', 'waiting', 'Follow-up check two');
+    work(h, projectId, 'f', 'active', 'Another possible task');
+    select(h, projectId, 'a');
+    observe(h, projectId, 'basis-a');
+    relation(h, {
+      id: 'b-blocks-d',
+      projectId,
+      fromWorkId: 'b',
+      toWorkId: 'd',
+      kind: 'blocks',
+      state: 'active',
+      basis: null,
+      confirmedByUser: true,
+      createdAt: AT,
+    });
+    relation(h, {
+      id: 'b-blocks-e',
+      projectId,
+      fromWorkId: 'b',
+      toWorkId: 'e',
+      kind: 'blocks',
+      state: 'active',
+      basis: null,
+      confirmedByUser: true,
+      createdAt: AT,
+    });
+    h.repo.put('returnPoint', {
+      id: 'return-c',
+      projectId,
+      workItemId: 'c',
+      basis: 'basis-a',
+      current: 'The cleanup is paused at a known point.',
+      remaining: 'One check remains.',
+      next: 'Run the check.',
+      createdAt: AT,
+    });
+
+    const now = h.core.now.resolve(projectId);
+
+    expect(now.recommendation).toMatchObject({
+      status: 'recommended',
+      candidate: { id: 'b', source: 'work-item' },
+      action: 'select-work-item',
+      confidence: 'low',
+      close: true,
+      closeAlternatives: [{ id: 'c', source: 'work-item' }],
+      selectionState: 'current-retained',
+      evidenceGaps: expect.arrayContaining([
+        'purpose-alignment',
+        'direction-alignment',
+        'user-impact',
+        'user-priority',
+      ]),
+    });
+    expect(now.recommendation.reason).toContain('unblock 2 dependent pieces of work');
+    expect(now.next).toMatchObject({ kind: 'start-work', workItemId: 'b' });
+    expect(now.currentWorkId).toBe('a');
+    expect(h.repo.get('workItem', 'a')?.state).toBe('waiting');
+  });
+
+  it('separates missing ranking evidence from an unselected current work', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    h.core.projectModel.view(projectId);
+    work(h, projectId, 'a', 'active', 'First possible work');
+    work(h, projectId, 'b', 'active', 'Second possible work');
+    h.repo.put('direction', {
+      ...h.repo.list('direction').find((direction) => direction.projectId === projectId)!,
+      state: 'stopped',
+      primary: false,
+      endedAt: AT,
+    });
+
+    const now = h.core.now.resolve(projectId);
+
+    expect(now).toMatchObject({
+      currentWorkId: null,
+      currentWorkSelection: null,
+      state: 'choose-work',
+      recommendation: {
+        status: 'insufficient-evidence',
+        candidate: null,
+        reason: 'A confirmed current direction is not available to rank this work.',
+        selectionState: 'unselected',
+      },
+    });
+    expect(
+      h.repo
+        .list('workDecision')
+        .filter((decision) => decision.kind === workDecisionKinds.selectCurrentWork),
+    ).toEqual([]);
+  });
+
+  it('keeps recommendation reads non-mutating across observation refresh and core re-entry', async () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    h.core.projectModel.view(projectId);
+    work(h, projectId, 'a', 'waiting', 'Wait for agent result');
+    work(h, projectId, 'b', 'active', 'Unblock two follow-ups');
+    work(h, projectId, 'c', 'active', 'Saved cleanup');
+    work(h, projectId, 'd', 'waiting', 'Follow-up one');
+    work(h, projectId, 'e', 'waiting', 'Follow-up two');
+    select(h, projectId, 'a');
+    relation(h, {
+      id: 'b-blocks-d',
+      projectId,
+      fromWorkId: 'b',
+      toWorkId: 'd',
+      kind: 'blocks',
+      state: 'active',
+      basis: null,
+      confirmedByUser: true,
+      createdAt: AT,
+    });
+    relation(h, {
+      id: 'b-blocks-e',
+      projectId,
+      fromWorkId: 'b',
+      toWorkId: 'e',
+      kind: 'blocks',
+      state: 'active',
+      basis: null,
+      confirmedByUser: true,
+      createdAt: AT,
+    });
+
+    let commit = 'first-observation';
+    const inspector: ProjectInspector = {
+      inspect: () => ({
+        cwd: '/tmp/example',
+        root: '/tmp/example',
+        branch: 'main',
+        commit,
+        dirty: false,
+        changedPaths: [],
+        changedFiles: [],
+        changedFileCount: 0,
+        additions: 0,
+        deletions: 0,
+        untrackedCount: 0,
+        diffPreview: '',
+        recentCommits: [],
+        status: 'checked',
+        checkedAt: AT,
+        limitations: [],
+        files: [],
+      }),
+    };
+    const core = new StateCarry(
+      h.repo,
+      h.reader,
+      h.summary,
+      h.navigator,
+      h.core.clock,
+      h.core.ids,
+      h.core.events,
+      h.core.sessionExecutor,
+      inspector,
+    );
+    await core.projects.observe(projectId, 'en', undefined, false);
+    const firstObservation = core.projects.latestObservation(projectId)!;
+    h.repo.put('returnPoint', {
+      id: 'return-c',
+      projectId,
+      workItemId: 'c',
+      basis: firstObservation.semanticKey,
+      current: 'The cleanup is paused at a known point.',
+      remaining: 'One check remains.',
+      next: 'Run the check.',
+      createdAt: AT,
+    });
+
+    const savedBeforeReads = {
+      workItems: h.repo.list('workItem'),
+      decisions: h.repo.list('workDecision'),
+      returnPoints: h.repo.list('returnPoint'),
+      proposals: h.repo.list('workProposal'),
+    };
+    const first = core.now.resolve(projectId);
+    const reentry = core.now.resolve(projectId);
+    expect(first.recommendation.candidate?.id).toBe('b');
+    expect(first.recommendation.close).toBe(true);
+    expect(reentry.recommendation).toEqual(first.recommendation);
+    expect({
+      workItems: h.repo.list('workItem'),
+      decisions: h.repo.list('workDecision'),
+      returnPoints: h.repo.list('returnPoint'),
+      proposals: h.repo.list('workProposal'),
+    }).toEqual(savedBeforeReads);
+
+    commit = 'refreshed-observation';
+    await core.projects.observe(projectId, 'en', undefined, false);
+    const refreshedState = {
+      workItems: h.repo.list('workItem'),
+      decisions: h.repo.list('workDecision'),
+      returnPoints: h.repo.list('returnPoint'),
+      proposals: h.repo.list('workProposal'),
+      observation: core.projects.latestObservation(projectId),
+    };
+    const reenteredCore = new StateCarry(
+      h.repo,
+      h.reader,
+      h.summary,
+      h.navigator,
+      h.core.clock,
+      h.core.ids,
+      h.core.events,
+      h.core.sessionExecutor,
+      inspector,
+    );
+    const refreshedRecommendation = reenteredCore.now.resolve(projectId);
+    const refreshedReentry = reenteredCore.now.resolve(projectId);
+    expect(refreshedRecommendation.recommendation.candidate?.id).toBe('b');
+    expect(refreshedRecommendation.recommendation.close).toBe(false);
+    expect(refreshedRecommendation.recommendation.reason).not.toContain('return point');
+    expect(refreshedReentry.recommendation).toEqual(refreshedRecommendation.recommendation);
+    expect(refreshedRecommendation.currentWorkId).toBe('a');
+    expect({
+      workItems: h.repo.list('workItem'),
+      decisions: h.repo.list('workDecision'),
+      returnPoints: h.repo.list('returnPoint'),
+      proposals: h.repo.list('workProposal'),
+      observation: reenteredCore.projects.latestObservation(projectId),
+    }).toEqual(refreshedState);
+
+    reenteredCore.projectModel.selectCurrentWork(projectId, 'b');
+    expect(reenteredCore.now.resolve(projectId)).toMatchObject({
+      currentWorkId: 'b',
+      currentWorkSelection: 'user',
     });
   });
 
@@ -328,17 +577,23 @@ describe('ProjectNow resolver', () => {
       createdAt: AT,
     });
 
-    expect(h.core.now.resolve(projectId).next).toMatchObject({
-      kind: 'start-work',
-      workItemId: 'c',
+    const queued = h.core.now.resolve(projectId);
+    expect(queued.next).toMatchObject({ kind: 'start-work', workItemId: 'c' });
+    expect(queued.recommendation).toMatchObject({
+      status: 'recommended',
+      candidate: { id: 'c', source: 'work-item' },
+      selectionState: 'current-retained',
     });
     h.repo.put('workRelation', {
       ...h.repo.get('workRelation', 'a-then-c')!,
       state: 'needs-review',
     });
-    expect(h.core.now.resolve(projectId).next).toMatchObject({
-      kind: 'review-work-plan',
-      workItemId: 'c',
+    const rechecked = h.core.now.resolve(projectId);
+    expect(rechecked.next).toMatchObject({ kind: 'review-work-plan', workItemId: 'c' });
+    expect(rechecked.recommendation).toMatchObject({
+      status: 'insufficient-evidence',
+      candidate: null,
+      selectionState: 'current-retained',
     });
   });
 
@@ -383,6 +638,11 @@ describe('ProjectNow resolver', () => {
       otherWorkCandidates: [
         expect.objectContaining({ id: 'c', source: 'work-item', disposition: 'evidence-conflict' }),
       ],
+      recommendation: {
+        status: 'insufficient-evidence',
+        candidate: null,
+        selectionState: 'current-retained',
+      },
     });
     expect(now.next?.text).toContain('Follow-up');
     expect(h.repo.get('workItem', 'a')?.state).toBe('completed');
@@ -407,10 +667,16 @@ describe('ProjectNow resolver', () => {
       },
     ]);
 
-    expect(h.core.now.resolve(projectId)).toMatchObject({
+    const now = h.core.now.resolve(projectId);
+    expect(now).toMatchObject({
       currentWorkId: 'a',
       state: 'review',
       next: { kind: 'review-completion', workItemId: 'a' },
+      recommendation: {
+        status: 'insufficient-evidence',
+        candidate: null,
+        selectionState: 'current-retained',
+      },
       otherWorkCount: 1,
       otherWorkCounts: { total: 1, progress: 1, completionReview: 0, evidenceConflict: 0 },
     });

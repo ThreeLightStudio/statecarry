@@ -9,10 +9,14 @@ import {
   type ProjectNowAction,
   type ProjectNowNotice,
   type ProjectNowOtherWorkCounts,
+  type ProjectNowRecommendation,
+  type ProjectNowRecommendationEvidenceGap,
   type ProjectNowWorkCandidate,
+  type ProjectModelView,
   type WorkProposalDisposition,
   type WorkDecision,
   type WorkItem,
+  type WorkProposalMatch,
   type WorkRelation,
 } from '@statecarry/contracts';
 import type { StateCarry } from './service';
@@ -23,6 +27,38 @@ type ResultInfo = {
   downstream: number;
   failed: boolean;
 };
+
+type RankedWorkCandidate = {
+  candidate: ProjectNowWorkCandidate;
+  downstreamCount: number;
+  currentReturnPoint: boolean;
+};
+
+const recommendationEvidenceGaps: ProjectNowRecommendationEvidenceGap[] = [
+  'purpose-alignment',
+  'direction-alignment',
+  'user-impact',
+  'user-priority',
+  'long-term-benefit',
+  'switching-cost',
+  'dependency-coverage',
+];
+
+function noRecommendation(
+  selectionState: ProjectNowRecommendation['selectionState'],
+): ProjectNowRecommendation {
+  return {
+    status: 'none',
+    candidate: null,
+    action: null,
+    reason: null,
+    confidence: null,
+    close: false,
+    closeAlternatives: [],
+    selectionState,
+    evidenceGaps: [],
+  };
+}
 
 function latest<T extends { decidedAt: string }>(items: T[]): T | null {
   return [...items].sort((a, b) => b.decidedAt.localeCompare(a.decidedAt))[0] ?? null;
@@ -154,37 +190,236 @@ export class ProjectNowResolver {
     });
   }
 
-  private waitingAlternative(
-    current: WorkItem,
-    items: WorkItem[],
-    relations: WorkRelation[],
-    projectId: string,
-    reviewWorkIds: ReadonlySet<string>,
-  ): WorkItem | null {
-    const returnPoints = this.core.repo
-      .list('returnPoint')
-      .filter((point) => point.projectId === projectId);
-    const candidates = items.filter(
-      (item) =>
-        item.id !== current.id &&
-        !['completed', 'stopped', 'waiting'].includes(item.state) &&
-        !reviewWorkIds.has(item.id) &&
-        !this.isBlocked(item, items, relations),
+  private workRecommendation(
+    model: ProjectModelView,
+    current: WorkItem | null,
+    primaryDirection: ProjectModelView['directions'][number] | undefined,
+    conflict: ProjectNowNotice | null,
+    candidates: ProjectNowWorkCandidate[],
+    matchesByWorkItem: Map<string, WorkProposalMatch[]>,
+  ): ProjectNowRecommendation {
+    const selectionState: ProjectNowRecommendation['selectionState'] = current
+      ? 'current-retained'
+      : candidates.length
+        ? 'unselected'
+        : 'not-applicable';
+    const none = () => noRecommendation(selectionState);
+    const insufficient = (reason: string): ProjectNowRecommendation => ({
+      status: 'insufficient-evidence',
+      candidate: null,
+      action: null,
+      reason,
+      confidence: null,
+      close: false,
+      closeAlternatives: [],
+      selectionState,
+      evidenceGaps: [...recommendationEvidenceGaps],
+    });
+
+    const needsChoice = !current || ['waiting', 'completed', 'stopped'].includes(current.state);
+    if (!needsChoice) return none();
+    if (candidates.length === 0) return none();
+    if (conflict) return insufficient('Review the project direction before choosing other work.');
+    if (!primaryDirection)
+      return insufficient('A confirmed current direction is not available to rank this work.');
+    if (!model.project.purposes.some((purpose) => purpose.confirmed))
+      return insufficient('A confirmed project purpose is not available to rank this work.');
+
+    if (current?.state === 'waiting') {
+      const currentEvidence = matchesByWorkItem.get(current.id) ?? [];
+      if (evidenceReviewAction(current, classifyWorkProposalMatches(currentEvidence)))
+        return insufficient('Review the selected work before choosing another piece of work.');
+    }
+
+    const queued =
+      current?.state === 'completed'
+        ? this.queuedNext(current, model.workItems, model.relations)
+        : undefined;
+    if (queued?.item) {
+      const candidate = candidates.find(
+        (item) => item.source === 'work-item' && item.id === queued.item?.id,
+      );
+      const queuedDisposition = candidate?.disposition;
+      const reviewAction = evidenceReviewAction(queued.item, queuedDisposition);
+      if (reviewAction)
+        return insufficient(
+          `Review completion evidence for ${queued.item.title} before starting it.`,
+        );
+      if (queued.relation.state === 'needs-review')
+        return insufficient(`Re-check the saved sequence before starting ${queued.item.title}.`);
+      if (!candidate || !this.recommendationCandidateIsReady(candidate, model, current))
+        return insufficient(`Re-check ${queued.item.title} before deciding whether to start it.`);
+      return {
+        status: 'recommended',
+        candidate,
+        action: 'select-work-item',
+        reason: `The saved sequence puts ${queued.item.title} next after the completed work.`,
+        confidence: 'medium',
+        close: false,
+        closeAlternatives: [],
+        selectionState,
+        evidenceGaps: [...recommendationEvidenceGaps],
+      };
+    }
+
+    const readyCandidates = candidates.filter((candidate) =>
+      this.recommendationCandidateIsReady(candidate, model, current),
     );
-    const restartScore = (item: WorkItem) => {
-      const hasReturnPoint = returnPoints.some((point) => point.workItemId === item.id);
-      if (item.state === 'paused' && hasReturnPoint) return 0;
-      if (item.state === 'active' && hasReturnPoint) return 1;
-      if (item.state === 'active') return 2;
-      if (item.state === 'paused') return 3;
-      if (item.state === 'review') return 4;
-      return 5;
+    if (readyCandidates.length === 0) {
+      if (candidates.some((candidate) => candidate.disposition === 'completion-review'))
+        return insufficient(
+          'Completion evidence needs review before this work can be recommended to start.',
+        );
+      if (candidates.some((candidate) => candidate.disposition === 'evidence-conflict'))
+        return insufficient(
+          'Project sources disagree about whether this work is still in progress.',
+        );
+      if (
+        current?.state === 'waiting' &&
+        candidates.some(
+          (candidate) =>
+            candidate.source === 'proposal' &&
+            (candidate.proposalState === 'active' || candidate.proposalState === 'paused'),
+        )
+      )
+        return insufficient(
+          'A provisional work proposal has no saved dependency details, so it cannot be confirmed as safe to start while the selected work is waiting.',
+        );
+      return insufficient(
+        'The available work is waiting, blocked, or has an unclear state or dependency that needs review.',
+      );
+    }
+
+    const observation = model.latestObservation;
+    const currentBasis =
+      observation?.snapshot.status === 'checked' ? observation.semanticKey : null;
+    const ranked: RankedWorkCandidate[] = readyCandidates.map((candidate) => {
+      const downstream = new Set(
+        model.relations
+          .filter(
+            (relation) =>
+              relation.fromWorkId === candidate.id &&
+              relation.state === 'active' &&
+              (relation.kind === 'blocks' || relation.kind === 'next-after'),
+          )
+          .map((relation) => relation.toWorkId)
+          .filter((workItemId) => {
+            const dependent = model.workItems.find((item) => item.id === workItemId);
+            return dependent ? isOpenWork(dependent) : false;
+          }),
+      );
+      const currentReturnPoint =
+        candidate.source === 'work-item' &&
+        currentBasis !== null &&
+        model.returnPoints.some(
+          (point) => point.workItemId === candidate.id && point.basis === currentBasis,
+        );
+      return { candidate, downstreamCount: downstream.size, currentReturnPoint };
+    });
+    const dominates = (left: RankedWorkCandidate, right: RankedWorkCandidate) =>
+      left.downstreamCount >= right.downstreamCount &&
+      Number(left.currentReturnPoint) >= Number(right.currentReturnPoint) &&
+      (left.downstreamCount > right.downstreamCount ||
+        left.currentReturnPoint !== right.currentReturnPoint);
+    const frontier = ranked
+      .filter(
+        (candidate) => !ranked.some((other) => other !== candidate && dominates(other, candidate)),
+      )
+      .sort(
+        (left, right) =>
+          left.candidate.source.localeCompare(right.candidate.source) ||
+          left.candidate.id.localeCompare(right.candidate.id),
+      );
+    const winner = frontier[0];
+    if (!winner) return insufficient('There is not enough current evidence to compare this work.');
+
+    const reasons: string[] = [];
+    if (winner.downstreamCount > 0)
+      reasons.push(
+        `can unblock ${winner.downstreamCount} dependent piece${winner.downstreamCount === 1 ? '' : 's'} of work`,
+      );
+    if (winner.currentReturnPoint)
+      reasons.push('has a return point for the latest checked project state');
+    const close = frontier.length > 1;
+    let reason = reasons.length ? `It ${reasons.join(' and ')}.` : '';
+    if (close) {
+      const alternative = frontier[1];
+      const contrast = alternative
+        ? alternative.currentReturnPoint && winner.downstreamCount > alternative.downstreamCount
+          ? ` This is a close choice: ${alternative.candidate.title} has a return point for the latest checked project state.`
+          : alternative.downstreamCount > winner.downstreamCount && winner.currentReturnPoint
+            ? ` This is a close choice: ${alternative.candidate.title} can unblock ${alternative.downstreamCount} dependent piece${alternative.downstreamCount === 1 ? '' : 's'} of work.`
+            : ''
+        : '';
+      reason = reason
+        ? `${reason}${contrast || ' The available dependency and return-point evidence does not distinguish these choices, so this is a close recommendation.'}`
+        : 'The available dependency and return-point evidence does not distinguish these choices, so this is a close recommendation.';
+    } else if (!reason) {
+      reason =
+        'It is the only available progress option with no blocking dependency recorded for it.';
+    }
+
+    return {
+      status: 'recommended',
+      candidate: winner.candidate,
+      action: winner.candidate.source === 'work-item' ? 'select-work-item' : 'choose-work',
+      reason,
+      confidence:
+        !close && (winner.downstreamCount > 0 || winner.currentReturnPoint) ? 'medium' : 'low',
+      close,
+      closeAlternatives: frontier
+        .slice(1)
+        .map(({ candidate }) => ({
+          id: candidate.id,
+          title: candidate.title,
+          source: candidate.source,
+        })),
+      selectionState,
+      evidenceGaps: [...recommendationEvidenceGaps],
     };
-    return (
-      [...candidates].sort(
-        (a, b) => restartScore(a) - restartScore(b) || a.createdAt.localeCompare(b.createdAt),
-      )[0] ?? null
+  }
+
+  private recommendationCandidateIsReady(
+    candidate: ProjectNowWorkCandidate,
+    model: ProjectModelView,
+    current: WorkItem | null,
+  ): boolean {
+    if (candidate.disposition !== 'progress') return false;
+    if (candidate.source === 'proposal')
+      return (
+        current?.state !== 'waiting' &&
+        (candidate.proposalState === 'active' || candidate.proposalState === 'paused')
+      );
+
+    const item = model.workItems.find((workItem) => workItem.id === candidate.id);
+    if (
+      !item ||
+      item.id === current?.id ||
+      ['completed', 'stopped', 'waiting'].includes(item.state)
+    )
+      return false;
+    if (this.isBlocked(item, model.workItems, model.relations)) return false;
+    const needsDependencyReview = model.relations.some(
+      (relation) =>
+        relation.toWorkId === item.id &&
+        relation.state === 'needs-review' &&
+        (relation.kind === 'blocks' || relation.kind === 'next-after'),
     );
+    if (needsDependencyReview) return false;
+    const overlapsUnfinishedWork = model.relations.some((relation) => {
+      if (relation.kind !== 'overlaps' || relation.state === 'resolved') return false;
+      const otherWorkId =
+        relation.fromWorkId === item.id
+          ? relation.toWorkId
+          : relation.toWorkId === item.id
+            ? relation.fromWorkId
+            : null;
+      const other = otherWorkId
+        ? model.workItems.find((workItem) => workItem.id === otherWorkId)
+        : null;
+      return !!other && isOpenWork(other);
+    });
+    return !overlapsUnfinishedWork;
   }
 
   private queuedNext(current: WorkItem, items: WorkItem[], relations: WorkRelation[]) {
@@ -259,11 +494,6 @@ export class ProjectNowResolver {
       ).length,
     };
     const otherWorkCount = otherWorkCounts.total;
-    const reviewWorkIds = new Set(
-      [...workDispositions]
-        .filter(([, disposition]) => disposition !== 'progress')
-        .map(([workItemId]) => workItemId),
-    );
     const observation = model.latestObservation;
     const freshness = input.checking
       ? ('checking' as const)
@@ -288,11 +518,26 @@ export class ProjectNowResolver {
         otherWorkCount,
         otherWorkCounts,
         otherWorkCandidates,
+        recommendation: noRecommendation(
+          current
+            ? 'current-retained'
+            : otherWorkCandidates.length > 0
+              ? 'unselected'
+              : 'not-applicable',
+        ),
         freshness: 'unknown',
         proposalMatches: matches,
       };
 
     const conflict = this.directionConflict(projectId);
+    const recommendation = this.workRecommendation(
+      model,
+      current,
+      primaryDirection,
+      conflict,
+      otherWorkCandidates,
+      matchesByWorkItem,
+    );
     const results = this.resultInfo(projectId, model.relations).sort(
       (a, b) => b.downstream - a.downstream || Number(b.failed) - Number(a.failed),
     );
@@ -364,6 +609,7 @@ export class ProjectNowResolver {
         otherWorkCount,
         otherWorkCounts,
         otherWorkCandidates,
+        recommendation,
         freshness,
         proposalMatches: matches,
       };
@@ -392,6 +638,7 @@ export class ProjectNowResolver {
           otherWorkCount,
           otherWorkCounts,
           otherWorkCandidates,
+          recommendation,
           freshness,
           proposalMatches: matches,
         };
@@ -417,6 +664,7 @@ export class ProjectNowResolver {
           otherWorkCount,
           otherWorkCounts,
           otherWorkCandidates,
+          recommendation,
           freshness,
           proposalMatches: matches,
         };
@@ -447,6 +695,7 @@ export class ProjectNowResolver {
             otherWorkCount,
             otherWorkCounts,
             otherWorkCandidates,
+            recommendation,
             freshness,
             proposalMatches: matches,
           };
@@ -464,6 +713,7 @@ export class ProjectNowResolver {
           otherWorkCount,
           otherWorkCounts,
           otherWorkCandidates,
+          recommendation,
           freshness,
           proposalMatches: matches,
         };
@@ -489,6 +739,7 @@ export class ProjectNowResolver {
         otherWorkCount,
         otherWorkCounts,
         otherWorkCandidates,
+        recommendation,
         freshness,
         proposalMatches: matches,
       };
@@ -578,11 +829,21 @@ export class ProjectNowResolver {
                 workItemId: queued.item.id,
                 text: `Re-check ${queued.item.title} before starting it.`,
               }
-            : {
-                kind: 'start-work',
-                workItemId: queued.item.id,
-                text: `Continue with ${queued.item.title}.`,
-              };
+            : recommendation.status === 'recommended' &&
+                recommendation.candidate?.source === 'work-item' &&
+                recommendation.candidate.id === queued.item.id
+              ? {
+                  kind: 'start-work',
+                  workItemId: queued.item.id,
+                  text: `Continue with ${queued.item.title}.`,
+                  reason: recommendation.reason ?? undefined,
+                  confidence: recommendation.confidence ?? undefined,
+                }
+              : {
+                  kind: 'choose-next-work',
+                  workItemId: queued.item.id,
+                  text: `Re-check ${queued.item.title} before deciding whether to start it.`,
+                };
       } else if (primaryDirection) {
         next = { kind: 'choose-next-work', text: 'Decide the next work for this direction.' };
       }
@@ -591,22 +852,23 @@ export class ProjectNowResolver {
         state = 'review';
         next = matchReviewAction;
       } else {
-        const alternative = this.waitingAlternative(
-          current,
-          model.workItems,
-          model.relations,
-          projectId,
-          reviewWorkIds,
-        );
-        if (alternative)
-          next = {
-            kind: 'start-work',
-            workItemId: alternative.id,
-            text: `Work on ${alternative.title} while this is waiting.`,
-            reason:
-              'It is independent and has relatively low restart cost from the available saved state.',
-            confidence: 'medium',
-          };
+        if (recommendation.status === 'recommended' && recommendation.candidate) {
+          next =
+            recommendation.candidate.source === 'work-item'
+              ? {
+                  kind: 'start-work',
+                  workItemId: recommendation.candidate.id,
+                  text: `Work on ${recommendation.candidate.title} while this is waiting.`,
+                  reason: recommendation.reason ?? undefined,
+                  confidence: recommendation.confidence ?? undefined,
+                }
+              : {
+                  kind: 'choose-current-work',
+                  text: `Choose whether to work on ${recommendation.candidate.title} while this is waiting.`,
+                  reason: recommendation.reason ?? undefined,
+                  confidence: recommendation.confidence ?? undefined,
+                };
+        }
         secondaryActions.push({
           kind: 'stop-work',
           workItemId: current.id,
@@ -692,6 +954,7 @@ export class ProjectNowResolver {
       otherWorkCount,
       otherWorkCounts,
       otherWorkCandidates,
+      recommendation,
       freshness: finalFreshness,
       proposalMatches: matches,
     };

@@ -23,6 +23,18 @@ import {
   typeField,
 } from './project-ui-fixtures';
 
+const noRecommendation: ProjectNow['recommendation'] = {
+  status: 'none',
+  candidate: null,
+  action: null,
+  reason: null,
+  confidence: null,
+  close: false,
+  closeAlternatives: [],
+  selectionState: 'not-applicable',
+  evidenceGaps: [],
+};
+
 const storageValues = new Map<string, string>();
 const storage: Storage = {
   get length() {
@@ -181,6 +193,7 @@ function bundle() {
         source: 'work-item' as const,
         disposition: 'progress' as const,
       })),
+    recommendation: { ...noRecommendation, selectionState: 'current-retained' },
     freshness: 'current',
     proposalMatches: [],
   });
@@ -1290,6 +1303,7 @@ it('keeps unmatched legacy analysis as a proposal until the user chooses it', as
               nextAction: proposal.nextAction,
             },
           ],
+          recommendation: noRecommendation,
           freshness: 'current' as const,
           proposalMatches: [
             {
@@ -1386,6 +1400,7 @@ it('defines the next durable ProjectRecord directly instead of reopening the gen
           otherWorkCount: 0,
           otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
           otherWorkCandidates: [],
+          recommendation: noRecommendation,
           freshness: 'current' as const,
           proposalMatches: [],
         },
@@ -1569,6 +1584,7 @@ it('opens Define direction in direction mode even when the legacy decision view 
       otherWorkCount: 0,
       otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
       otherWorkCandidates: [],
+      recommendation: noRecommendation,
       freshness: 'current' as const,
       proposalMatches: [],
     },
@@ -1635,6 +1651,7 @@ it('shows saved content while checking and can represent a real nothing-to-do st
       otherWorkCount: 0,
       otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
       otherWorkCandidates: [],
+      recommendation: noRecommendation,
       freshness: 'current' as const,
       proposalMatches: [],
     },
@@ -1728,6 +1745,7 @@ it('reviews release delivery independently from completed implementation work', 
     otherWorkCount: 0,
     otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
     otherWorkCandidates: [],
+    recommendation: { ...noRecommendation, selectionState: 'current-retained' },
     freshness: 'current',
     proposalMatches: [],
   };
@@ -2138,6 +2156,7 @@ it('uses a one-off release policy exception without rewriting the saved policy',
       otherWorkCount: 0,
       otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
       otherWorkCandidates: [],
+      recommendation: noRecommendation,
       freshness: 'current' as const,
       proposalMatches: [],
     },

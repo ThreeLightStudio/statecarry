@@ -6,6 +6,18 @@ import type {
   ProjectWorkspaceEntry,
 } from '@statecarry/presentation';
 const now = '2026-09-21T00:00:00Z';
+const noRecommendation: ProjectNowBundle['now']['recommendation'] = {
+  status: 'none',
+  candidate: null,
+  action: null,
+  reason: null,
+  confidence: null,
+  close: false,
+  closeAlternatives: [],
+  selectionState: 'not-applicable',
+  evidenceGaps: [],
+};
+
 export function projectNowBundle(entry: ProjectWorkspaceEntry): ProjectNowBundle {
   const explicitDirection =
     !!entry.analysis?.goalText && entry.analysis.goalOrigin === 'user-input'
@@ -66,6 +78,7 @@ export function projectNowBundle(entry: ProjectWorkspaceEntry): ProjectNowBundle
         otherWorkCount: 0,
         otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
         otherWorkCandidates: [],
+        recommendation: noRecommendation,
         freshness: 'unknown',
         proposalMatches: [],
       }
@@ -84,6 +97,7 @@ export function projectNowBundle(entry: ProjectWorkspaceEntry): ProjectNowBundle
           otherWorkCount: 0,
           otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
           otherWorkCandidates: [],
+          recommendation: noRecommendation,
           freshness: 'unknown',
           proposalMatches: [],
         }
@@ -101,6 +115,7 @@ export function projectNowBundle(entry: ProjectWorkspaceEntry): ProjectNowBundle
           otherWorkCount: 0,
           otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
           otherWorkCandidates: [],
+          recommendation: noRecommendation,
           freshness: 'unknown',
           proposalMatches: [],
         };

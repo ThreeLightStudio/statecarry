@@ -268,7 +268,23 @@ describe('project observation reuse', () => {
       otherWorkCount: 2,
       otherWorkCounts: { total: 2, progress: 2, completionReview: 0, evidenceConflict: 0 },
     });
+    expect(unresolved.currentWorkSelection).toBeNull();
     expect(unresolved.otherWorkCandidates).toHaveLength(2);
+    expect(core.projectModel.view(projectId).workItems).toHaveLength(0);
+    expect(unresolved.recommendation).toMatchObject({
+      status: 'recommended',
+      close: true,
+      confidence: 'low',
+      selectionState: 'unselected',
+    });
+    expect([
+      unresolved.recommendation.candidate?.id,
+      ...unresolved.recommendation.closeAlternatives.map((candidate) => candidate.id),
+    ]).toEqual(expect.arrayContaining(matches.map((match) => match.proposal.key)));
+    expect([
+      unresolved.recommendation.candidate?.id,
+      ...unresolved.recommendation.closeAlternatives.map((candidate) => candidate.id),
+    ]).toHaveLength(2);
     expect(unresolvedView.otherWork).toHaveLength(2);
     expect(unresolvedView.otherWorkCount).toBe(2);
     expect(unresolvedView.otherWorkCounts).toEqual(unresolved.otherWorkCounts);
@@ -306,8 +322,10 @@ describe('project observation reuse', () => {
       'progress',
     ]);
     core.projectModel.selectProposal(projectId, language.proposal.key);
-    const workId = core.now.resolve(projectId).currentWorkId!;
+    const selected = core.now.resolve(projectId);
+    const workId = selected.currentWorkId!;
     expect(workId).not.toBeNull();
+    expect(selected.currentWorkSelection).toBe('user');
     const alias = language.aliases![0];
     core.projectModel.selectProposal(projectId, alias.key);
     expect(core.now.resolve(projectId).currentWorkId).toBe(workId);

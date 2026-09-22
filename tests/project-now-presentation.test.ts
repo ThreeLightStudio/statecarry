@@ -172,11 +172,10 @@ describe('ProjectNow presentation', () => {
       createdAt: AT,
     });
 
-    const view = presentProjectNow(
-      h.core.projectModel.view(projectId),
-      h.core.now.resolve(projectId),
-    );
+    const now = h.core.now.resolve(projectId);
+    const view = presentProjectNow(h.core.projectModel.view(projectId), now);
     expect(view.work?.id).toBe('a');
+    expect(view.recommendation).toEqual(now.recommendation);
     expect(view.state).toBe('waiting');
     expect(view.nextText).toBe('Work on Small independent cleanup while this is waiting.');
     expect(view.primaryAction).toMatchObject({

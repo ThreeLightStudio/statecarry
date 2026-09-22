@@ -53,6 +53,7 @@ export type ProjectNowView = {
   otherWorkCount: number;
   otherWorkCounts: ProjectNow['otherWorkCounts'];
   otherWork: Array<ProjectNowWorkCandidate & { statusLabel: string }>;
+  recommendation: ProjectNow['recommendation'];
   checking: boolean;
   freshness: ProjectNow['freshness'];
 };
@@ -253,6 +254,7 @@ export function presentProjectNow(model: ProjectModelView, now: ProjectNow): Pro
               : workStatusLabel(candidate.state)
           : proposalStatusLabel(candidate.disposition, candidate.proposalState),
     })),
+    recommendation: now.recommendation,
     checking: now.freshness === 'checking',
     freshness: now.freshness,
   };

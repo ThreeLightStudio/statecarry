@@ -325,6 +325,59 @@ export type ProjectNowOtherWorkCounts = {
   evidenceConflict: number;
 };
 
+export type ProjectNowRecommendationEvidenceGap =
+  | 'purpose-alignment'
+  | 'direction-alignment'
+  | 'user-impact'
+  | 'user-priority'
+  | 'long-term-benefit'
+  | 'switching-cost'
+  | 'dependency-coverage';
+
+type ProjectNowRecommendationContext = {
+  /** Distinguishes missing ranking evidence from a user's still-unselected work. */
+  selectionState: 'unselected' | 'current-retained' | 'not-applicable';
+};
+
+export type ProjectNowRecommendation =
+  | (ProjectNowRecommendationContext & {
+      /** Derived for this read; never a saved user decision. */
+      status: 'recommended';
+      /** One grouped D candidate; proposal aliases do not compete separately. */
+      candidate: ProjectNowWorkCandidate;
+      /** The explicit selection flow available if the user chooses this candidate. */
+      action: 'select-work-item' | 'choose-work';
+      /** A concise explanation based only on recorded evidence. */
+      reason: string;
+      confidence: 'medium' | 'low';
+      /** True when multiple candidates remain equally or incomparably supported. */
+      close: boolean;
+      /** Other undominated grouped candidates when close is true. */
+      closeAlternatives: Array<Pick<ProjectNowWorkCandidate, 'id' | 'title' | 'source'>>;
+      /** Ranking factors the current product records cannot establish. */
+      evidenceGaps: ProjectNowRecommendationEvidenceGap[];
+    })
+  | (ProjectNowRecommendationContext & {
+      status: 'insufficient-evidence';
+      candidate: null;
+      action: null;
+      reason: string;
+      confidence: null;
+      close: false;
+      closeAlternatives: [];
+      evidenceGaps: ProjectNowRecommendationEvidenceGap[];
+    })
+  | (ProjectNowRecommendationContext & {
+      status: 'none';
+      candidate: null;
+      action: null;
+      reason: null;
+      confidence: null;
+      close: false;
+      closeAlternatives: [];
+      evidenceGaps: [];
+    });
+
 export type ProjectNow = {
   projectId: string;
   primaryDirectionId: string | null;
@@ -351,6 +404,7 @@ export type ProjectNow = {
   otherWorkCount: number;
   otherWorkCounts: ProjectNowOtherWorkCounts;
   otherWorkCandidates: ProjectNowWorkCandidate[];
+  recommendation: ProjectNowRecommendation;
   freshness: 'current' | 'checking' | 'changed' | 'unknown';
   proposalMatches: WorkProposalMatch[];
 };

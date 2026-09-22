@@ -13,6 +13,18 @@ import { HttpProjectGateway } from '../apps/web/src/adapters/project-gateway';
 
 const AT = '2026-09-21T01:00:00Z';
 
+const noRecommendation: ProjectNow['recommendation'] = {
+  status: 'none',
+  candidate: null,
+  action: null,
+  reason: null,
+  confidence: null,
+  close: false,
+  closeAlternatives: [],
+  selectionState: 'not-applicable',
+  evidenceGaps: [],
+};
+
 const receipt = (id: string): Receipt => ({
   id: `receipt-${id}`,
   command: 'test',
@@ -143,6 +155,7 @@ function fixture() {
     otherWorkCount: 0,
     otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
     otherWorkCandidates: [],
+    recommendation: { ...noRecommendation, selectionState: 'current-retained' },
     freshness: 'unknown',
     proposalMatches: [],
   };
@@ -341,6 +354,7 @@ describe('ProjectController ProjectNow cutover', () => {
         otherWorkCount: 0,
         otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
         otherWorkCandidates: [],
+        recommendation: noRecommendation,
         freshness: 'unknown',
         proposalMatches: [],
       } as ProjectNow,
@@ -362,6 +376,7 @@ describe('ProjectController ProjectNow cutover', () => {
         otherWorkCount: 0,
         otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
         otherWorkCandidates: [],
+        recommendation: { ...noRecommendation, selectionState: 'current-retained' },
         freshness: 'current',
         proposalMatches: [],
       } as ProjectNow,
