@@ -1,6 +1,6 @@
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
-import { readFile, stat } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import { resolve, relative } from 'node:path';
 import { homedir } from 'node:os';
 import type { SourceReader } from '@statecarry/core';
@@ -59,71 +59,80 @@ export type RawRecord = {
   line: number;
   kind: string;
 };
+
+type RolloutState = {
+  records: RawRecord[];
+  limitations: string[];
+  sessionId: string | null;
+  turnId: string | null;
+};
+
+function consumeRolloutLine(line: string, lineNumber: number, state: RolloutState) {
+  let raw: any;
+  try {
+    raw = JSON.parse(line);
+  } catch {
+    state.limitations.push(`Invalid JSONL line ${lineNumber}`);
+    return;
+  }
+  const p = raw.payload;
+  if (raw.type === 'session_meta') {
+    state.sessionId = p?.id ?? null;
+    return;
+  }
+  if (raw.type === 'turn_context') {
+    state.turnId = p?.turn_id ?? state.turnId;
+    return;
+  }
+  if (raw.type === 'event_msg' && p?.type === 'task_started') {
+    state.turnId = p.turn_id ?? state.turnId;
+    return;
+  }
+  if (raw.type !== 'response_item' || !p) return;
+  if (p.type === 'message' && ['user', 'assistant'].includes(p.role)) {
+    const text = (p.content ?? [])
+      .filter((c: any) => ['input_text', 'output_text', 'text'].includes(c.type))
+      .map((c: any) => c.text)
+      .join('\n');
+    if (text)
+      state.records.push({
+        id: p.id ?? null,
+        turnId: state.turnId,
+        text,
+        actor: p.role === 'user' ? 'user' : 'agent',
+        eventAt: raw.timestamp ?? null,
+        line: lineNumber,
+        kind: p.role === 'user' ? 'userMessage' : 'agentMessage',
+      });
+    return;
+  }
+  if (['function_call_output', 'custom_tool_call_output'].includes(p.type)) {
+    const text = typeof p.output === 'string' ? p.output : JSON.stringify(p.output);
+    state.records.push({
+      id: p.call_id ?? p.id ?? null,
+      turnId: state.turnId,
+      text,
+      actor: 'tool',
+      eventAt: raw.timestamp ?? null,
+      line: lineNumber,
+      kind: 'rawToolOutput',
+    });
+  }
+}
+
 export function parseRollout(contents: string): {
   records: RawRecord[];
   limitations: string[];
   sessionId: string | null;
 } {
   const lines = contents.split('\n'),
-    records: RawRecord[] = [],
-    limitations: string[] = [];
+    state: RolloutState = { records: [], limitations: [], sessionId: null, turnId: null };
   if (lines.at(-1) !== '') {
     lines.pop();
-    limitations.push('Incomplete final JSONL line deferred');
+    state.limitations.push('Incomplete final JSONL line deferred');
   } else lines.pop();
-  let turnId: string | null = null,
-    sessionId: string | null = null;
-  for (let i = 0; i < lines.length; i++) {
-    let raw: any;
-    try {
-      raw = JSON.parse(lines[i]);
-    } catch {
-      limitations.push(`Invalid JSONL line ${i + 1}`);
-      continue;
-    }
-    const p = raw.payload;
-    if (raw.type === 'session_meta') {
-      sessionId = p?.id ?? null;
-      continue;
-    }
-    if (raw.type === 'turn_context') {
-      turnId = p?.turn_id ?? turnId;
-      continue;
-    }
-    if (raw.type === 'event_msg' && p?.type === 'task_started') {
-      turnId = p.turn_id ?? turnId;
-      continue;
-    }
-    if (raw.type !== 'response_item' || !p) continue;
-    if (p.type === 'message' && ['user', 'assistant'].includes(p.role)) {
-      const text = (p.content ?? [])
-        .filter((c: any) => ['input_text', 'output_text', 'text'].includes(c.type))
-        .map((c: any) => c.text)
-        .join('\n');
-      if (text)
-        records.push({
-          id: p.id ?? null,
-          turnId,
-          text,
-          actor: p.role === 'user' ? 'user' : 'agent',
-          eventAt: raw.timestamp ?? null,
-          line: i + 1,
-          kind: p.role === 'user' ? 'userMessage' : 'agentMessage',
-        });
-    } else if (['function_call_output', 'custom_tool_call_output'].includes(p.type)) {
-      const text = typeof p.output === 'string' ? p.output : JSON.stringify(p.output);
-      records.push({
-        id: p.call_id ?? p.id ?? null,
-        turnId,
-        text,
-        actor: 'tool',
-        eventAt: raw.timestamp ?? null,
-        line: i + 1,
-        kind: 'rawToolOutput',
-      });
-    }
-  }
-  return { records, limitations, sessionId };
+  for (let i = 0; i < lines.length; i++) consumeRolloutLine(lines[i], i + 1, state);
+  return { records: state.records, limitations: state.limitations, sessionId: state.sessionId };
 }
 
 export class CodexReader implements SourceReader {
@@ -275,7 +284,32 @@ export class CodexReader implements SourceReader {
           'Selected start turn is missing; no records collected',
         );
       parsed = { records, limitations, sessionId };
-    } else parsed = parseRollout(await readFile(absolute, 'utf8'));
+    } else {
+      const state: RolloutState = { records: [], limitations: [], sessionId: null, turnId: null };
+      const stream = createReadStream(absolute, { encoding: 'utf8' });
+      const lines = createInterface({ input: stream, crlfDelay: Infinity });
+      let bytes = 0,
+        lineNumber = 0;
+      try {
+        for await (const line of lines) {
+          lineNumber++;
+          bytes += Buffer.byteLength(line) + 1;
+          if (bytes > info.size) {
+            state.limitations.push('Incomplete final JSONL line deferred');
+            break;
+          }
+          consumeRolloutLine(line, lineNumber, state);
+        }
+      } finally {
+        lines.close();
+        stream.destroy();
+      }
+      parsed = {
+        records: state.records,
+        limitations: state.limitations,
+        sessionId: state.sessionId,
+      };
+    }
     if (parsed.sessionId !== threadId)
       throw new DomainError(
         'SOURCE_UNAVAILABLE',
@@ -310,12 +344,10 @@ export class CodexReader implements SourceReader {
     if (startTurnId) safeId(startTurnId);
     const observedAt = new Date().toISOString();
     let thread: any,
-      apiError: string | null = null;
+      apiError: string | null = null,
+      providerTurnsIncluded = false;
     try {
-      const response = await this.rpc.request('thread/read', {
-        threadId,
-        includeTurns: !startTurnId,
-      });
+      const response = await this.rpc.request('thread/read', { threadId, includeTurns: false });
       thread = response.thread;
       if (thread.id !== threadId)
         throw new DomainError(
@@ -323,6 +355,17 @@ export class CodexReader implements SourceReader {
           'Returned thread does not match requested target',
         );
       if (thread.path) this.knownPaths.set(threadId, thread.path);
+      if (!thread.path && !this.knownPaths.has(threadId)) {
+        const full = await this.rpc.request('thread/read', { threadId, includeTurns: true });
+        thread = full.thread;
+        providerTurnsIncluded = true;
+        if (thread.id !== threadId)
+          throw new DomainError(
+            'SOURCE_UNAVAILABLE',
+            'Returned thread does not match requested target',
+          );
+        if (thread.path) this.knownPaths.set(threadId, thread.path);
+      }
     } catch (e) {
       if (e instanceof DomainError) throw e;
       apiError = e instanceof Error ? e.message : String(e);
@@ -355,13 +398,19 @@ export class CodexReader implements SourceReader {
       );
     if (startTurnId) {
       thread.turns = [];
-      apiError = 'Selected range uses local JSONL only';
+      providerTurnsIncluded = false;
     }
+    const localProjection = !providerTurnsIncluded;
+    const localProjectionDetail = startTurnId
+      ? 'Selected range uses local JSONL only'
+      : 'Provider turn bodies were skipped; local JSONL supplies evidence';
     const limitations = [
       ...raw.limitations,
       ...(apiError
         ? [`API unavailable; known JSONL only: ${apiError}`, 'Turn state coverage unavailable']
-        : []),
+        : localProjection
+          ? [localProjectionDetail, 'Turn state coverage unavailable']
+          : []),
     ];
     const revisions: SourceRevision[] = [],
       matched = new Set<number>();
@@ -376,11 +425,12 @@ export class CodexReader implements SourceReader {
       record?: RawRecord,
       pathKind: 'api' | 'jsonl' = 'api',
     ) => {
-      const itemLimitations: string[] = apiError
-        ? [
-            'Tool result and turn state coverage are partial in this local JSONL read; missing execution details do not establish completion.',
-          ]
-        : [];
+      const itemLimitations: string[] =
+        apiError || localProjection
+          ? [
+              'Tool result and turn state coverage are partial in this local JSONL read; missing execution details do not establish completion.',
+            ]
+          : [];
       // Retain the accessible text. Larger records remain evidence-readable; summary input is chunked separately.
       if (text.length > 2_000_000) {
         text = text.slice(0, 2_000_000);
@@ -396,7 +446,7 @@ export class CodexReader implements SourceReader {
         sourceStatus,
         actor,
         eventAt: record?.eventAt ?? null,
-        ...(apiError ? { coverage: 'local-only-v1' } : {}),
+        ...(localProjection || apiError ? { coverage: 'local-jsonl-v2' } : {}),
       });
       revisions.push({
         id: identity.hash([key, contentHash]),
@@ -460,7 +510,7 @@ export class CodexReader implements SourceReader {
     // Supplement only raw messages and tool outputs not represented by the API; aliases retain provenance.
     for (const r of raw.records) {
       if (matched.has(r.line) || !r.turnId) continue;
-      if (r.actor === 'tool' && !apiError) continue; // API has typed tool results; do not duplicate differently shaped outputs.
+      if (r.actor === 'tool' && providerTurnsIncluded && !apiError) continue;
       add(
         r.kind,
         r.id ?? `line:${raw.generation}:${r.line}`,
@@ -488,8 +538,12 @@ export class CodexReader implements SourceReader {
       observedAt,
       generation: raw.generation,
       manifest: {
-        method: apiError ? 'known-jsonl-fallback' : 'thread/read+jsonl-locators',
-        filter: { threadId, includeTurns: true, excluded: [...omitted] },
+        method: apiError
+          ? 'known-jsonl-fallback'
+          : providerTurnsIncluded
+            ? 'thread/read+jsonl-locators'
+            : 'thread/read-metadata+jsonl',
+        filter: { threadId, includeTurns: providerTurnsIncluded, excluded: [...omitted] },
         itemCount: revisions.length,
         turnCount: thread.turns?.length ?? 0,
         fingerprint,
