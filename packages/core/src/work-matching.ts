@@ -62,8 +62,8 @@ function proposalsShareExactClaim(left: ProposalEvidenceContext, right: Proposal
 }
 
 export function proposalsShareVerifiedQuote(
-  left: ProposalEvidenceContext,
-  right: ProposalEvidenceContext,
+  left: Pick<WorkProposal, 'evidenceQuotes'>,
+  right: Pick<WorkProposal, 'evidenceQuotes'>,
 ): boolean {
   const leftQuotes = left.evidenceQuotes ?? [];
   const rightQuotes = right.evidenceQuotes ?? [];
@@ -90,17 +90,15 @@ function linkedEvidenceQuotes(decision: {
     : [];
 }
 
-function sharesLinkedEvidence(
-  proposal: WorkProposal,
-  decision: { value: Record<string, unknown> },
-  outputLanguage: 'en' | 'ko' | null,
-): boolean {
+function savedProposalContext(decision: {
+  value: Record<string, unknown>;
+}): ProposalEvidenceContext | null {
   const quotes = linkedEvidenceQuotes(decision);
   const saved = decision.value.proposalEvidenceContext;
-  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return false;
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return null;
   const context = saved as Record<string, unknown>;
-  if (typeof context.title !== 'string' || typeof context.currentState !== 'string') return false;
-  const savedProposal: ProposalEvidenceContext = {
+  if (typeof context.title !== 'string' || typeof context.currentState !== 'string') return null;
+  return {
     title: context.title,
     currentState: context.currentState,
     uncertainty: typeof context.uncertainty === 'string' ? context.uncertainty : null,
@@ -108,15 +106,87 @@ function sharesLinkedEvidence(
     doneWhen: typeof context.doneWhen === 'string' ? context.doneWhen : null,
     evidenceQuotes: quotes,
   };
-  if (!proposalsShareVerifiedQuote(proposal, savedProposal)) return false;
-  const savedLanguage = decision.value.proposalOutputLanguage;
-  if (
-    (savedLanguage === 'en' || savedLanguage === 'ko') &&
-    outputLanguage &&
-    savedLanguage !== outputLanguage
-  )
-    return true;
-  return proposalsShareExactClaim(proposal, savedProposal);
+}
+
+function sharesLinkedEvidence(
+  proposal: WorkProposal,
+  decision: { value: Record<string, unknown> },
+): boolean {
+  const savedProposal = savedProposalContext(decision);
+  return (
+    !!savedProposal &&
+    proposalsShareVerifiedQuote(proposal, savedProposal) &&
+    proposalsShareExactClaim(proposal, savedProposal)
+  );
+}
+
+function sharesValidatedTreeIdentity(
+  proposal: WorkProposal,
+  decision: { value: Record<string, unknown> },
+): boolean {
+  const savedProposal = savedProposalContext(decision);
+  return (
+    proposal.source === 'working-tree-group' &&
+    decision.value.proposalSource === proposal.source &&
+    decision.value.proposalKey === proposal.key &&
+    proposal.key.startsWith('working-tree:') &&
+    proposal.key !== 'working-tree:all' &&
+    !!savedProposal &&
+    proposalsShareVerifiedQuote(proposal, savedProposal)
+  );
+}
+
+function savedRelatedTreeEvidence(decision: {
+  value: Record<string, unknown>;
+}): Array<{ key: string; evidenceQuotes: Array<{ revisionId: string; quote: string }> }> {
+  const value = decision.value.proposalRelatedProposals;
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (
+      !item ||
+      typeof item !== 'object' ||
+      (item as Record<string, unknown>).source !== 'working-tree-group' ||
+      typeof (item as Record<string, unknown>).key !== 'string'
+    )
+      return [];
+    const evidenceQuotes = (item as Record<string, unknown>).evidenceQuotes;
+    return [
+      {
+        key: (item as Record<string, unknown>).key as string,
+        evidenceQuotes: Array.isArray(evidenceQuotes)
+          ? evidenceQuotes.filter(
+              (quote): quote is { revisionId: string; quote: string } =>
+                !!quote &&
+                typeof quote === 'object' &&
+                typeof quote.revisionId === 'string' &&
+                typeof quote.quote === 'string',
+            )
+          : [],
+      },
+    ];
+  });
+}
+
+function sharesSavedTreeBridge(
+  proposal: WorkProposal,
+  decision: { value: Record<string, unknown> },
+  currentProposals: WorkProposal[],
+): boolean {
+  if (proposal.source !== 'analysis-candidate') return false;
+  const savedProposal = savedProposalContext(decision);
+  if (!savedProposal || !proposalsShareVerifiedQuote(proposal, savedProposal)) return false;
+  return savedRelatedTreeEvidence(decision).some((savedTree) => {
+    const currentTree = currentProposals.find(
+      (candidate) => candidate.source === 'working-tree-group' && candidate.key === savedTree.key,
+    );
+    return (
+      !!currentTree &&
+      currentTree.relatedProposalKeys?.includes(proposal.key) === true &&
+      proposalsShareVerifiedQuote(savedTree, currentTree) &&
+      proposalsShareVerifiedQuote(savedProposal, savedTree) &&
+      proposalsShareVerifiedQuote(proposal, currentTree)
+    );
+  });
 }
 
 function proposalIdentity(proposal: WorkProposal): ProposalIdentity {
@@ -297,9 +367,9 @@ export class WorkMatcher {
    * are deliberately not identity evidence.
    */
   private linkedWorkIds(
-    projectId: string,
     proposal: WorkProposal,
     links: ReturnType<StateCarry['projectModel']['view']>['decisions'],
+    currentProposals: WorkProposal[],
   ): Set<string> {
     const identity = proposalIdentity(proposal);
     return new Set(
@@ -317,15 +387,15 @@ export class WorkMatcher {
                 evidenceBasis: typeof basis === 'string' || basis === null ? basis : null,
               }
             : { key, source: proposal.source, evidenceBasis: decision.basis[0] ?? null };
-        const exact = sameIdentity(identity, linkedIdentity);
+        const evidenceContinuity =
+          sharesLinkedEvidence(proposal, decision) ||
+          sharesValidatedTreeIdentity(proposal, decision) ||
+          sharesSavedTreeBridge(proposal, decision, currentProposals);
+        const exact = sameIdentity(identity, linkedIdentity) && evidenceContinuity;
         const continuous =
           linkedIdentity.key === proposal.key &&
           linkedIdentity.source === proposal.source &&
-          sharesLinkedEvidence(
-            proposal,
-            decision,
-            this.proposalOutputLanguage(projectId, proposal),
-          );
+          evidenceContinuity;
         return exact || continuous ? [decision.workItemId!] : [];
       }),
     );
@@ -342,9 +412,10 @@ export class WorkMatcher {
         !!decision.workItemId &&
         workById.has(decision.workItemId),
     );
-    const states = this.proposals(projectId).map((candidate) => ({
+    const currentProposals = this.proposals(projectId);
+    const states = currentProposals.map((candidate) => ({
       proposal: candidate,
-      linkedWorkIds: this.linkedWorkIds(projectId, candidate, links),
+      linkedWorkIds: this.linkedWorkIds(candidate, links, currentProposals),
     }));
     const start = states.find((state) => sameIdentity(state.proposal, proposalIdentity(proposal)));
     if (!start) return new Set();
@@ -375,7 +446,7 @@ export class WorkMatcher {
     );
     const states: ProposalMatchState[] = proposals.map((proposal) => ({
       proposal,
-      linkedWorkIds: this.linkedWorkIds(projectId, proposal, links),
+      linkedWorkIds: this.linkedWorkIds(proposal, links, proposals),
     }));
     const unseen = new Set(states);
     const result: WorkProposalMatch[] = [];

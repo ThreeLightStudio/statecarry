@@ -152,6 +152,17 @@ export class ProjectModel {
         : null);
     if (!match)
       throw new DomainError('REVISION_CONFLICT', 'This work connection needs review.', 409);
+    const proposalRelatedProposals =
+      proposal.source === 'analysis-candidate'
+        ? [match.proposal, ...(match.aliases ?? [])]
+            .filter((member) => member.source === 'working-tree-group')
+            .map((member) => ({
+              key: member.key,
+              source: member.source,
+              evidenceBasis: member.evidenceBasis,
+              evidenceQuotes: member.evidenceQuotes ?? [],
+            }))
+        : [];
     // A proposal key is producer-local wording, not durable Work identity.
     // Only an exact current expression can reuse its deterministic selection
     // record; a reused key on a new basis must start a separate Work.
@@ -161,7 +172,23 @@ export class ProjectModel {
       proposal.source,
       proposal.evidenceBasis,
     ] as const;
-    const proposalWorkItemId = this.core.ids.hash(['proposal-work-item', ...proposalIdentity]);
+    const proposalEvidenceContext = {
+      title: proposal.title,
+      currentState: proposal.currentState,
+      uncertainty: proposal.uncertainty,
+      nextAction: proposal.nextAction,
+      doneWhen: proposal.doneWhen,
+    };
+    const proposalEvidenceQuotes = proposal.evidenceQuotes ?? [];
+    const proposalEvidenceIdentity = this.core.ids.hash({
+      context: proposalEvidenceContext,
+      quotes: proposalEvidenceQuotes,
+    });
+    const proposalWorkItemId = this.core.ids.hash([
+      'proposal-work-item',
+      ...proposalIdentity,
+      proposalEvidenceIdentity,
+    ]);
     const existingId = match.workItemId ?? proposalWorkItemId;
     const existing = existingId ? this.core.repo.get('workItem', existingId) : null;
     const hasExactLink = this.core.repo
@@ -174,7 +201,13 @@ export class ProjectModel {
           decision.workItemId === existingId &&
           decision.value.proposalKey === proposal.key &&
           decision.value.proposalSource === proposal.source &&
-          decision.value.proposalEvidenceBasis === proposal.evidenceBasis,
+          decision.value.proposalEvidenceBasis === proposal.evidenceBasis &&
+          (decision.value.proposalEvidenceIdentity === proposalEvidenceIdentity ||
+            (!decision.value.proposalEvidenceIdentity &&
+              JSON.stringify(decision.value.proposalEvidenceContext ?? null) ===
+                JSON.stringify(proposalEvidenceContext) &&
+              JSON.stringify(decision.value.proposalEvidenceQuotes ?? []) ===
+                JSON.stringify(proposalEvidenceQuotes))),
       );
     const alreadyCurrent =
       !!existing &&
@@ -210,7 +243,11 @@ export class ProjectModel {
       if (!existing) this.core.repo.put('workItem', item);
       if (!hasExactLink)
         this.core.repo.put('workDecision', {
-          id: this.core.ids.hash(['link-work-proposal', ...proposalIdentity]),
+          id: this.core.ids.hash([
+            'link-work-proposal',
+            ...proposalIdentity,
+            proposalEvidenceIdentity,
+          ]),
           projectId,
           workItemId: item.id,
           kind: workDecisionKinds.linkWorkProposal,
@@ -220,17 +257,13 @@ export class ProjectModel {
             proposalEvidenceBasis: proposal.evidenceBasis,
             proposalEvidence: proposal.evidence ?? [],
             proposalEvidenceQuotes: proposal.evidenceQuotes ?? [],
+            proposalEvidenceIdentity,
             proposalOutputLanguage: this.core.workMatcher.proposalOutputLanguage(
               projectId,
               proposal,
             ),
-            proposalEvidenceContext: {
-              title: proposal.title,
-              currentState: proposal.currentState,
-              uncertainty: proposal.uncertainty,
-              nextAction: proposal.nextAction,
-              doneWhen: proposal.doneWhen,
-            },
+            proposalEvidenceContext,
+            proposalRelatedProposals,
           },
           basis: proposal.evidenceBasis ? [proposal.evidenceBasis] : [],
           state: 'valid',

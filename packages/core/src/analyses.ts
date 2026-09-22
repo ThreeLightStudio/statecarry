@@ -35,7 +35,7 @@ export class ProjectAnalyses {
   currentProposalBasis(id: string): string | null {
     const record = this.core.analysisRecord(id);
     if (!record) return null;
-    const view = this.view(id);
+    const view = this.view(id, false);
     return view.state === 'ready' && !view.stale && !view.updatesAvailable
       ? record.result.scope
       : null;
@@ -59,14 +59,18 @@ export class ProjectAnalyses {
         .map((item) => item.candidateKey),
     };
   }
-  private workspace(id: string, hints?: WorkspaceInspectionHints): WorkspaceSnapshot | null {
+  private workspace(
+    id: string,
+    hints?: WorkspaceInspectionHints,
+    includeWorkingTreeAnalysis = true,
+  ): WorkspaceSnapshot | null {
     const work = this.core.project(id),
       connection = this.core.repo.get('connection', work.connectionId);
     if (!this.core.isConnectionActive(connection))
       throw new DomainError('NOT_FOUND', 'Connection not found', 404);
     void hints;
     if (!this.core.projectInspector) return null;
-    return this.core.projects.latestSnapshot(id);
+    return this.core.projects.latestSnapshot(id, includeWorkingTreeAnalysis);
   }
   private workspaceKey(value: WorkspaceSnapshot | null | undefined): string | null {
     if (!value) return null;
@@ -447,9 +451,11 @@ export class ProjectAnalyses {
         }
       });
   }
-  view(id: string): AnalysisWork {
-    const { work, connection, version, scope, sources, availableSources, workspace } =
-      this.input(id);
+  view(id: string, includeWorkingTreeAnalysis = true): AnalysisWork {
+    const { work, connection, version, scope, sources, availableSources, workspace } = this.input(
+      id,
+      this.workspace(id, undefined, includeWorkingTreeAnalysis),
+    );
     const checkpoints = this.core.repo.list('checkpoint').filter((c) => c.projectId === id);
     const unavailable = checkpoints.some((c) => c.status === 'failed');
     const partiallyUnavailable = checkpoints.some(

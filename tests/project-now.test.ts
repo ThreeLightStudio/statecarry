@@ -3,6 +3,7 @@ import {
   workDecisionKinds,
   type Continuation,
   type WorkItem,
+  type WorkProposal,
   type WorkRelation,
 } from '@statecarry/contracts';
 import { AT, harness, source } from './helpers';
@@ -698,7 +699,7 @@ describe('WorkMatcher', () => {
       'working-tree-group',
       [
         {
-          key: 'group:stable',
+          key: 'working-tree:stable',
           source: 'working-tree-group',
           title: '응답 언어 설정',
           state: 'active',
@@ -713,7 +714,7 @@ describe('WorkMatcher', () => {
       ],
       'ko',
     );
-    h.core.projectModel.selectProposal(projectId, 'group:stable');
+    h.core.projectModel.selectProposal(projectId, 'working-tree:stable');
     const linkedWorkId = h.core.now.resolve(projectId).currentWorkId;
 
     observe(h, projectId, 'basis-b', true);
@@ -722,7 +723,7 @@ describe('WorkMatcher', () => {
       'working-tree-group',
       [
         {
-          key: 'group:stable',
+          key: 'working-tree:stable',
           source: 'working-tree-group',
           title: 'Configure reply language',
           state: 'active',
@@ -740,14 +741,14 @@ describe('WorkMatcher', () => {
 
     expect(h.core.workMatcher.match(projectId)).toEqual([
       expect.objectContaining({
-        proposal: expect.objectContaining({ key: 'group:stable', evidenceBasis: 'basis-b' }),
+        proposal: expect.objectContaining({ key: 'working-tree:stable', evidenceBasis: 'basis-b' }),
         workItemId: linkedWorkId,
         confidence: 'explicit',
       }),
     ]);
     expect(h.repo.list('workProposal')[0].history).toEqual([
       expect.objectContaining({
-        key: 'group:stable',
+        key: 'working-tree:stable',
         source: 'working-tree-group',
         evidenceBasis: 'basis-a',
         proposal: expect.objectContaining({
@@ -757,7 +758,7 @@ describe('WorkMatcher', () => {
         }),
       }),
     ]);
-    h.core.projectModel.selectProposal(projectId, 'group:stable');
+    h.core.projectModel.selectProposal(projectId, 'working-tree:stable');
     expect(h.core.now.resolve(projectId).currentWorkId).toBe(linkedWorkId);
     expect(h.core.projectModel.view(projectId).workItems).toHaveLength(2);
   });
@@ -779,6 +780,7 @@ describe('WorkMatcher', () => {
         nextAction: null,
         doneWhen: null,
         evidenceBasis: 'basis-a',
+        evidenceQuotes: [{ revisionId: 'source-implementation', quote: 'Return flow is active.' }],
       },
       {
         key: 'group:diagnostic',
@@ -877,6 +879,7 @@ describe('WorkMatcher', () => {
           nextAction: null,
           doneWhen: null,
           evidenceBasis: 'basis-a',
+          evidenceQuotes: [{ revisionId: 'source-shared', quote: 'This needs a user correction.' }],
         },
       ],
       'en',
@@ -891,6 +894,16 @@ describe('WorkMatcher', () => {
           proposalKey: 'group:shared',
           proposalSource: 'working-tree-group',
           proposalEvidenceBasis: 'basis-a',
+          proposalEvidenceQuotes: [
+            { revisionId: 'source-shared', quote: 'This needs a user correction.' },
+          ],
+          proposalEvidenceContext: {
+            title: 'Shared interpretation',
+            currentState: 'This needs a user correction.',
+            uncertainty: null,
+            nextAction: null,
+            doneWhen: null,
+          },
         },
         basis: ['basis-a'],
         state: 'valid',
@@ -1062,6 +1075,14 @@ describe('WorkMatcher', () => {
           proposalSource: proposal.source,
           proposalEvidenceBasis: proposal.evidenceBasis,
           proposalEvidence: proposal.evidence,
+          proposalEvidenceQuotes: proposal.evidenceQuotes,
+          proposalEvidenceContext: {
+            title: proposal.title,
+            currentState: proposal.currentState,
+            uncertainty: proposal.uncertainty,
+            nextAction: proposal.nextAction,
+            doneWhen: proposal.doneWhen,
+          },
         },
         basis: [proposal.evidenceBasis],
         state: 'valid',
@@ -1176,6 +1197,13 @@ describe('WorkMatcher', () => {
           proposalSource: proposal.source,
           proposalEvidenceBasis: proposal.evidenceBasis,
           proposalEvidenceQuotes: proposal.evidenceQuotes,
+          proposalEvidenceContext: {
+            title: proposal.title,
+            currentState: proposal.currentState,
+            uncertainty: proposal.uncertainty,
+            nextAction: proposal.nextAction,
+            doneWhen: proposal.doneWhen,
+          },
         },
         basis: [proposal.evidenceBasis],
         state: 'valid',
@@ -1191,7 +1219,7 @@ describe('WorkMatcher', () => {
     );
   });
 
-  it('does not carry a saved Work through a generic quote for a reused key', () => {
+  it('does not carry a saved Work through a generic quote after a language change', () => {
     const h = harness();
     const { receipt } = registerProject(h, { goal: 'Improve project return.' });
     const projectId = receipt.projectId;
@@ -1227,9 +1255,9 @@ describe('WorkMatcher', () => {
         {
           key: 'group:reused',
           source: 'working-tree-group',
-          title: 'Update locale preferences',
+          title: '진단 오류 조사',
           state: 'active',
-          currentState: 'Locale preferences need review.',
+          currentState: '진단 오류를 조사해야 합니다.',
           uncertainty: null,
           nextAction: null,
           doneWhen: null,
@@ -1237,7 +1265,7 @@ describe('WorkMatcher', () => {
           evidenceQuotes: quote,
         },
       ],
-      'en',
+      'ko',
     );
 
     expect(h.core.workMatcher.match(projectId)).toEqual([
@@ -1259,6 +1287,115 @@ describe('WorkMatcher', () => {
             decision.state === 'valid',
         ),
     ).toHaveLength(1);
+  });
+
+  it('does not reuse an exact proposal identity when its translated claim changes work', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    const quote = [{ revisionId: 'shared-record', quote: 'No errors detected.' }];
+    observe(h, projectId, 'basis-a', true);
+    const original: WorkProposal = {
+      key: 'analysis:language-settings',
+      source: 'analysis-candidate',
+      title: 'Configure reply language',
+      state: 'active',
+      currentState: 'Reply language is configurable.',
+      uncertainty: null,
+      nextAction: null,
+      doneWhen: null,
+      evidenceBasis: 'basis-a',
+      evidenceQuotes: quote,
+    };
+    h.core.workMatcher.replaceProposals(projectId, 'analysis-candidate', [original], 'en');
+    const available = vi.spyOn(h.core.workMatcher, 'proposals').mockReturnValue([original]);
+    h.core.projectModel.selectProposal(projectId, original.key);
+    const oldWorkId = h.core.now.resolve(projectId).currentWorkId!;
+
+    const unrelated: WorkProposal = {
+      ...original,
+      title: '진단 오류 조사',
+      currentState: '진단 오류를 조사해야 합니다.',
+    };
+    h.core.workMatcher.replaceProposals(projectId, 'analysis-candidate', [unrelated], 'ko');
+    available.mockReturnValue([unrelated]);
+
+    expect(h.core.workMatcher.match(projectId)).toEqual([
+      expect.objectContaining({ workItemId: null, confidence: 'unmatched' }),
+    ]);
+    h.core.projectModel.selectProposal(projectId, unrelated.key);
+    const newWorkId = h.core.now.resolve(projectId).currentWorkId!;
+    expect(newWorkId).not.toBe(oldWorkId);
+    expect(h.repo.list('workItem')).toHaveLength(2);
+  });
+
+  it('keeps translated analysis work through its saved verified tree alias', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    const evidenceQuotes = [{ revisionId: 'source-a', quote: 'Reply language is configurable.' }];
+    const originalTree: WorkProposal = {
+      key: 'working-tree:reply-language',
+      source: 'working-tree-group',
+      title: 'Configure reply language',
+      state: 'active',
+      currentState: 'Reply language is configurable.',
+      uncertainty: null,
+      nextAction: null,
+      doneWhen: null,
+      evidenceBasis: 'tree-basis-a',
+      evidenceQuotes,
+      relatedProposalKeys: ['analysis:reply-language'],
+    };
+    const originalAnalysis: WorkProposal = {
+      key: 'analysis:reply-language',
+      source: 'analysis-candidate',
+      title: 'Configure reply language',
+      state: 'active',
+      currentState: 'Reply language is configurable.',
+      uncertainty: null,
+      nextAction: null,
+      doneWhen: null,
+      evidenceBasis: 'analysis-basis-a',
+      evidenceQuotes,
+    };
+    h.core.workMatcher.replaceProposals(projectId, 'working-tree-group', [originalTree], 'en');
+    h.core.workMatcher.replaceProposals(projectId, 'analysis-candidate', [originalAnalysis], 'en');
+    const available = vi
+      .spyOn(h.core.workMatcher, 'proposals')
+      .mockReturnValue([originalTree, originalAnalysis]);
+    h.core.projectModel.selectProposal(projectId, originalAnalysis.key);
+    const workId = h.core.now.resolve(projectId).currentWorkId!;
+
+    const translatedTree: WorkProposal = {
+      ...originalTree,
+      title: '응답 언어 설정',
+      currentState: '응답 언어를 설정할 수 있습니다.',
+      evidenceBasis: 'tree-basis-b',
+    };
+    const translatedAnalysis: WorkProposal = {
+      ...originalAnalysis,
+      title: '응답 언어 설정',
+      currentState: '응답 언어를 설정할 수 있습니다.',
+      evidenceBasis: 'analysis-basis-b',
+    };
+    h.core.workMatcher.replaceProposals(projectId, 'working-tree-group', [translatedTree], 'ko');
+    h.core.workMatcher.replaceProposals(
+      projectId,
+      'analysis-candidate',
+      [translatedAnalysis],
+      'ko',
+    );
+    available.mockReturnValue([translatedTree, translatedAnalysis]);
+
+    const [match] = h.core.workMatcher.match(projectId);
+    expect(match).toMatchObject({ workItemId: workId, confidence: 'explicit' });
+    expect([match.proposal, ...(match.aliases ?? [])]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: translatedTree.key }),
+        expect.objectContaining({ key: translatedAnalysis.key }),
+      ]),
+    );
   });
 
   it('creates new work when a reused key has unrelated current evidence', () => {

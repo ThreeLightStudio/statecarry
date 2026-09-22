@@ -200,16 +200,32 @@ export class Projects {
       });
   }
 
+  private analysisRelationContext(projectId: string) {
+    return this.core.workMatcher
+      .proposals(projectId)
+      .filter((proposal) => proposal.source === 'analysis-candidate')
+      .map((proposal) => ({
+        key: proposal.key,
+        title: proposal.title,
+        currentState: proposal.currentState,
+        uncertainty: proposal.uncertainty,
+        evidenceQuotes: proposal.evidenceQuotes ?? [],
+      }))
+      .sort((left, right) => left.key.localeCompare(right.key));
+  }
+
   private semanticKey(
     work: ProjectRecord,
     observation: ProjectObservation,
     outputLanguage: 'en' | 'ko',
+    analysisProposals: ReturnType<Projects['analysisRelationContext']>,
   ): string {
     return this.core.ids.hash({
       evidence: observation.semanticKey,
       executionResults: this.executionResults(work, observation),
       outputLanguage,
       projectTitle: this.profile(work).title,
+      analysisProposals,
       analysis: this.core.summary.configuration(),
     });
   }
@@ -240,19 +256,23 @@ export class Projects {
     return this.core.repo.get('projectObservation', projectId);
   }
 
-  latestSnapshot(projectId: string): WorkspaceSnapshot {
+  latestSnapshot(projectId: string, includeWorkingTreeAnalysis = true): WorkspaceSnapshot {
     const work = this.core.project(projectId);
     const connection = this.connection(work);
     const observation = this.latestObservation(projectId);
     if (!observation) return this.unknownSnapshot(connection.cwd);
     const snapshot = this.withoutAnalysis(observation.snapshot);
-    if (!this.isConfirmedDirty(snapshot)) return snapshot;
+    if (!includeWorkingTreeAnalysis || !this.isConfirmedDirty(snapshot)) return snapshot;
+    const analysisProposals = this.analysisRelationContext(projectId);
     // Reading saved text never regenerates it to match a changed preference.
     const record = (['en', 'ko'] as const)
       .flatMap((language) => {
         const saved = this.core.repo.get(
           'workingTreeAnalysis',
-          this.analysisRecordId(projectId, this.semanticKey(work, observation, language)),
+          this.analysisRecordId(
+            projectId,
+            this.semanticKey(work, observation, language, analysisProposals),
+          ),
         );
         const result = saved ? normalizeWorkingTreeAnalysis(saved.result) : null;
         return saved && result ? [{ ...saved, result }] : [];
@@ -349,7 +369,8 @@ export class Projects {
         this.core.events.changed(work.id, 'working-tree-analysis');
       return snapshot;
     }
-    const semanticKey = this.semanticKey(work, observation, outputLanguage);
+    const analysisProposals = this.analysisRelationContext(work.id);
+    const semanticKey = this.semanticKey(work, observation, outputLanguage, analysisProposals);
     const recordId = this.analysisRecordId(work.id, semanticKey);
     const storedRecord = this.core.repo.get('workingTreeAnalysis', recordId);
     const stored = storedRecord ? normalizeWorkingTreeAnalysis(storedRecord.result) : null;
@@ -372,16 +393,6 @@ export class Projects {
         const previousGroups = previous
           ? (normalizeWorkingTreeAnalysis(previous.result)?.groups ?? [])
           : [];
-        const analysisProposals = this.core.workMatcher
-          .proposals(work.id)
-          .filter((proposal) => proposal.source === 'analysis-candidate')
-          .map((proposal) => ({
-            key: proposal.key,
-            title: proposal.title,
-            currentState: proposal.currentState,
-            uncertainty: proposal.uncertainty,
-            evidenceQuotes: proposal.evidenceQuotes ?? [],
-          }));
         const rawResult = await this.core.summary.analyzeWorkingTree!({
           projectTitle: this.profile(work).title,
           outputLanguage,
@@ -413,14 +424,15 @@ export class Projects {
                   this.workingTreeEvidenceContext(group),
                 ),
             );
-            const unique =
-              parsedResult.groups.filter((other) => pathKey(other.files) === pathKey(group.files))
-                .length === 1;
+            const uniqueContinuation =
+              parsedResult.groups.filter(
+                (other) => other.continuesGroupId === group.continuesGroupId,
+              ).length === 1;
             const { continuesGroupId: _continuesGroupId, ...persistedGroup } = group;
             return {
               ...persistedGroup,
               id:
-                unique && matches.length === 1 && matches[0].id
+                uniqueContinuation && matches.length === 1 && matches[0].id
                   ? matches[0].id
                   : this.core.ids.next(),
             };

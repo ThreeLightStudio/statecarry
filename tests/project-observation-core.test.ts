@@ -184,6 +184,7 @@ describe('project observation reuse', () => {
           {
             ...analysis().groups[0],
             title: '응답 언어 설정',
+            continuesGroupId: input.previousGroups[0]?.id,
             relatedProposalKeys: input.analysisProposals
               .filter((proposal: any) => proposal.title === '응답 언어 설정')
               .map((proposal: any) => proposal.key),
@@ -200,6 +201,7 @@ describe('project observation reuse', () => {
           {
             ...analysis().groups[0],
             title: '진단 오류 조사',
+            continuesGroupId: input.previousGroups[1]?.id,
             currentState: '진단 오류를 조사해야 합니다.',
             relatedProposalKeys: input.analysisProposals
               .filter((proposal: any) => proposal.title === '진단 오류 조사')
@@ -246,9 +248,20 @@ describe('project observation reuse', () => {
       };
     });
     const projectId = register(core);
+    await core.projects.observe(projectId, 'ko');
+    expect(analyzeWorkingTree).toHaveBeenCalledTimes(1);
+    expect(core.workMatcher.proposals(projectId)).toHaveLength(2);
+    const initialLanguage = core.workMatcher
+      .match(projectId)
+      .find((match) => match.proposal.title === '응답 언어 설정')!;
+    core.projectModel.selectProposal(projectId, initialLanguage.proposal.key);
+    const selectedWorkId = core.now.resolve(projectId).currentWorkId;
+
     await core.analyses.refresh(projectId, 'ko');
+    expect(analyzeWorkingTree).toHaveBeenCalledTimes(1);
     await core.projects.observe(projectId, 'ko');
     const matches = core.workMatcher.match(projectId);
+    expect(analyzeWorkingTree).toHaveBeenCalledTimes(2);
     expect(core.workMatcher.proposals(projectId)).toHaveLength(4);
     expect(matches).toHaveLength(2);
     const language = matches.find(
@@ -256,7 +269,7 @@ describe('project observation reuse', () => {
         match.proposal.title === '응답 언어 설정' ||
         match.aliases?.some((alias) => alias.title === '응답 언어 설정'),
     )!;
-    expect(language).toMatchObject({ confidence: 'possible' });
+    expect(language).toMatchObject({ confidence: 'explicit' });
     expect([language.proposal, ...(language.aliases ?? [])]).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -279,13 +292,16 @@ describe('project observation reuse', () => {
     const workId = core.now.resolve(projectId).currentWorkId;
     const alias = language.aliases![0];
     core.projectModel.selectProposal(projectId, alias.key);
-    expect(core.now.resolve(projectId).currentWorkId).toBe(workId);
+    expect(workId).toBe(selectedWorkId);
+    expect(core.now.resolve(projectId).currentWorkId).toBe(selectedWorkId);
     core.projectModel.selectProposal(projectId, diagnostic.proposal.key);
     const diagnosticWorkId = core.now.resolve(projectId).currentWorkId;
     core.projectModel.selectProposal(projectId, diagnostic.aliases![0].key);
     expect(diagnosticWorkId).not.toBe(workId);
     expect(core.now.resolve(projectId).currentWorkId).toBe(diagnosticWorkId);
     expect(core.projectModel.view(projectId).workItems).toHaveLength(2);
+    await core.projects.observe(projectId, 'ko');
+    expect(analyzeWorkingTree).toHaveBeenCalledTimes(2);
   });
   it('keeps reads passive and reenters an unchanged project with probe only', async () => {
     const repo = new MemoryRepository();
