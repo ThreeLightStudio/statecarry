@@ -196,7 +196,7 @@ export class ProjectNowResolver {
       ? ('checking' as const)
       : !observation || observation.snapshot.status !== 'checked'
         ? ('unknown' as const)
-        : this.core.workMatcher.hasStaleWorkingTreeProposals(projectId)
+        : this.core.workMatcher.hasStaleProposals(projectId)
           ? ('changed' as const)
           : ('current' as const);
 

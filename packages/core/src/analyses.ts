@@ -30,6 +30,20 @@ export class ProjectAnalyses {
   isRunning(id: string): boolean {
     return this.running.has(id);
   }
+  /** Analysis candidates are suggestions, not durable work. They may be used
+   * only while the exact validated brief is current. */
+  currentProposalBasis(id: string): string | null {
+    const record = this.core.analysisRecord(id);
+    if (!record) return null;
+    // Early migration records did not have a comparable scope fingerprint.
+    // Keep them available for explicit confirmation; their proposal never
+    // becomes durable work unless the person selects it.
+    if (!/^[a-f0-9]{64}$/i.test(record.result.scope)) return record.result.scope;
+    const view = this.view(id);
+    return view.state === 'ready' && !view.stale && !view.updatesAvailable
+      ? record.result.scope
+      : null;
+  }
   forget(id: string): void {
     this.errors.delete(id);
   }

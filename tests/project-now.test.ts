@@ -490,6 +490,33 @@ describe('ProjectNow resolver', () => {
     expect(h.repo.list('workItem')).toEqual([]);
   });
 
+  it('does not present a stale scoped analysis as current work', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    h.core.projectModel.view(projectId);
+    work(h, projectId, 'selected-work', 'active', 'Durable selected work');
+    select(h, projectId, 'selected-work');
+    h.core.storeAnalysis({
+      id: h.core.project(projectId).id,
+      projectId,
+      result: {
+        scope: 'a'.repeat(64),
+        version: 'v1',
+        generatedAt: AT,
+        candidates: [projectCandidate()],
+      },
+    });
+    observe(h, projectId);
+
+    expect(h.core.workMatcher.proposals(projectId)).toEqual([]);
+    expect(h.core.now.resolve(projectId)).toMatchObject({
+      currentWorkId: 'selected-work',
+      freshness: 'changed',
+      proposalMatches: [],
+    });
+  });
+
   it('does not restore a sole unselected work item as current work', () => {
     const h = harness();
     const { receipt } = registerProject(h, { goal: 'Improve project return.' });

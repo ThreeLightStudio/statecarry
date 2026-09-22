@@ -411,32 +411,12 @@ describe('project observation reuse', () => {
     const projectId = register(core);
 
     await core.projects.observe(projectId);
-    core.workMatcher.replaceProposals(
-      projectId,
-      'analysis-candidate',
-      [
-        {
-          key: 'analysis-context',
-          source: 'analysis-candidate',
-          title: 'Saved project context',
-          state: 'active',
-          currentState: 'Saved independently of repository inspection.',
-          uncertainty: null,
-          nextAction: null,
-          doneWhen: null,
-          evidenceBasis: 'analysis-scope',
-        },
-      ],
-      'en',
-    );
     state = unknownSnapshot();
     fingerprint = 'unknown-b';
     await core.projects.observe(projectId);
 
-    expect(core.repo.list('workProposal')).toHaveLength(2);
-    expect(core.workMatcher.proposals(projectId)).toEqual([
-      expect.objectContaining({ source: 'analysis-candidate', key: 'analysis-context' }),
-    ]);
+    expect(core.repo.list('workProposal')).toHaveLength(1);
+    expect(core.workMatcher.proposals(projectId)).toEqual([]);
     expect(core.now.resolve(projectId).freshness).toBe('unknown');
   });
 

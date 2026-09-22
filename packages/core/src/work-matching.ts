@@ -38,6 +38,15 @@ export class WorkMatcher {
       : null;
   }
 
+  private currentAnalysisBasis(projectId: string): string | null {
+    try {
+      return this.core.analyses.currentProposalBasis(projectId);
+    } catch {
+      // A failed or unavailable brief must not become a current work proposal.
+      return null;
+    }
+  }
+
   replaceProposals(
     projectId: string,
     source: WorkProposal['source'],
@@ -79,27 +88,31 @@ export class WorkMatcher {
   proposals(projectId: string): WorkProposal[] {
     this.core.project(projectId);
     const workingTreeBasis = this.currentWorkingTreeBasis(projectId);
+    const analysisBasis = this.currentAnalysisBasis(projectId);
     return this.core.repo
       .list('workProposal')
       .filter(
         (record) =>
           record.projectId === projectId &&
-          (record.proposal.source !== 'working-tree-group' ||
-            (workingTreeBasis !== null && record.proposal.evidenceBasis === workingTreeBasis)),
+          (record.proposal.source === 'working-tree-group'
+            ? workingTreeBasis !== null && record.proposal.evidenceBasis === workingTreeBasis
+            : analysisBasis !== null && record.proposal.evidenceBasis === analysisBasis),
       )
       .map((record) => record.proposal);
   }
 
-  hasStaleWorkingTreeProposals(projectId: string): boolean {
+  hasStaleProposals(projectId: string): boolean {
     this.core.project(projectId);
     const workingTreeBasis = this.currentWorkingTreeBasis(projectId);
+    const analysisBasis = this.currentAnalysisBasis(projectId);
     return this.core.repo
       .list('workProposal')
       .some(
         (record) =>
           record.projectId === projectId &&
-          record.proposal.source === 'working-tree-group' &&
-          (workingTreeBasis === null || record.proposal.evidenceBasis !== workingTreeBasis),
+          (record.proposal.source === 'working-tree-group'
+            ? workingTreeBasis === null || record.proposal.evidenceBasis !== workingTreeBasis
+            : analysisBasis === null || record.proposal.evidenceBasis !== analysisBasis),
       );
   }
   match(projectId: string): WorkProposalMatch[] {
