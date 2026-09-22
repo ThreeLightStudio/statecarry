@@ -54,7 +54,16 @@ export const workingTreeWorkGroupSchema = z
               'agent-interpretation',
             ]),
             text: z.string().min(1).max(700),
-            sources: z.array(z.string().min(1).max(2000)).max(20),
+            sources: z
+              .array(
+                z
+                  .object({
+                    revisionId: z.string().min(1).max(240),
+                    quote: z.string().min(1).max(1200),
+                  })
+                  .strict(),
+              )
+              .max(20),
           })
           .strict(),
       )

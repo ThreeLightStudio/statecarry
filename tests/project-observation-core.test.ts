@@ -180,6 +180,21 @@ describe('project observation reuse', () => {
     await core.projects.observe(projectId, 'en');
     expect(observed.counts()).toEqual({ probes: 1, inspections: 1 });
     expect(analyzeWorkingTree).toHaveBeenCalledTimes(1);
+    const firstAnalysisInput = (analyzeWorkingTree.mock.calls as unknown[][])[0][0];
+    expect(firstAnalysisInput).toMatchObject({
+      records: expect.arrayContaining([
+        expect.objectContaining({
+          revisionId: expect.stringMatching(/^workspace-git:/),
+          actor: 'tool',
+          text: expect.stringContaining('Git workspace: branch main'),
+        }),
+        expect.objectContaining({
+          revisionId: expect.stringMatching(/^workspace-file:/),
+          actor: 'tool',
+          text: expect.stringContaining('File observation: src/main.ts'),
+        }),
+      ]),
+    });
 
     const saved = await core.projects.workspace(projectId);
     expect(saved.workingTreeAnalysis?.summary).toContain('semantic change');

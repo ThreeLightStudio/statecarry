@@ -126,7 +126,8 @@ export class ProjectAnalyses {
     });
   }
   /** Convert bounded project inspection into citable tool records for analysis. */
-  private workspaceRecords(workspace: WorkspaceSnapshot | null) {
+  /** Bounded, citable inspection evidence shared by overview and tree analysis. */
+  workspaceRecords(workspace: WorkspaceSnapshot | null) {
     const files = workspace?.files?.length ? workspace.files : (workspace?.files ?? []);
     if (!workspace) return [];
     const threadId = PROJECT_INSPECTION_THREAD;

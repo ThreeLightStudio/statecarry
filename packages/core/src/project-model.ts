@@ -116,40 +116,66 @@ export class ProjectModel {
     const proposal = this.core.workMatcher.proposalForSelection(projectId, proposalKey);
     if (!proposal)
       throw new DomainError('NOT_FOUND', 'The selected proposal is no longer available.', 404);
-    const linkedWorkIds = new Set(
-      this.core.repo
-        .list('workDecision')
-        .filter(
-          (decision) =>
-            decision.projectId === projectId &&
-            decision.state === 'valid' &&
-            decision.kind === workDecisionKinds.linkWorkProposal &&
-            decision.value.proposalKey === proposal.key &&
-            decision.value.proposalSource === proposal.source &&
-            decision.value.proposalEvidenceBasis === proposal.evidenceBasis &&
-            !!decision.workItemId,
-        )
-        .map((decision) => decision.workItemId!),
-    );
+    const linkedWorkIds = this.core.workMatcher.linkedWorkIdsForProposal(projectId, proposal);
     if (linkedWorkIds.size > 1)
       throw new DomainError(
         'REVISION_CONFLICT',
         'This interpretation is linked to conflicting work. Review the connection first.',
         409,
       );
-    const match = this.core.workMatcher
+    const matched = this.core.workMatcher
       .match(projectId)
       .find(
         (item) =>
-          (item.proposal.key === proposal.key && item.proposal.source === proposal.source) ||
+          (item.proposal.key === proposal.key &&
+            item.proposal.source === proposal.source &&
+            item.proposal.evidenceBasis === proposal.evidenceBasis) ||
           item.aliases?.some(
-            (alias) => alias.key === proposal.key && alias.source === proposal.source,
+            (alias) =>
+              alias.key === proposal.key &&
+              alias.source === proposal.source &&
+              alias.evidenceBasis === proposal.evidenceBasis,
           ),
       );
+    // An explicitly selected migration proposal is intentionally selectable
+    // even when it is not a current automatic candidate. It remains
+    // unmatched until this selection records the durable connection.
+    const match =
+      matched ??
+      (proposal.source === 'analysis-candidate'
+        ? {
+            proposal,
+            workItemId: null,
+            confidence: 'unmatched' as const,
+            reason: 'This saved migration proposal needs an explicit user selection.',
+          }
+        : null);
     if (!match)
       throw new DomainError('REVISION_CONFLICT', 'This work connection needs review.', 409);
-    const existingId = match.workItemId;
+    // A proposal key is producer-local wording, not durable Work identity.
+    // Only an exact current expression can reuse its deterministic selection
+    // record; a reused key on a new basis must start a separate Work.
+    const proposalIdentity = [
+      projectId,
+      proposal.key,
+      proposal.source,
+      proposal.evidenceBasis,
+    ] as const;
+    const proposalWorkItemId = this.core.ids.hash(['proposal-work-item', ...proposalIdentity]);
+    const existingId = match.workItemId ?? proposalWorkItemId;
     const existing = existingId ? this.core.repo.get('workItem', existingId) : null;
+    const hasExactLink = this.core.repo
+      .list('workDecision')
+      .some(
+        (decision) =>
+          decision.projectId === projectId &&
+          decision.state === 'valid' &&
+          decision.kind === workDecisionKinds.linkWorkProposal &&
+          decision.workItemId === existingId &&
+          decision.value.proposalKey === proposal.key &&
+          decision.value.proposalSource === proposal.source &&
+          decision.value.proposalEvidenceBasis === proposal.evidenceBasis,
+      );
     const alreadyCurrent =
       !!existing &&
       this.core.repo
@@ -165,7 +191,7 @@ export class ProjectModel {
     const item: WorkItem =
       existing ??
       workItemSchema.parse({
-        id: this.core.ids.hash(['proposal-work-item', projectId, proposalKey]),
+        id: proposalWorkItemId,
         projectId,
         title: proposal.title,
         state:
@@ -182,9 +208,9 @@ export class ProjectModel {
       });
     this.core.repo.transaction(() => {
       if (!existing) this.core.repo.put('workItem', item);
-      if (!existing || !match.workItemId || match.proposal.key !== proposal.key)
+      if (!hasExactLink)
         this.core.repo.put('workDecision', {
-          id: this.core.ids.hash(['link-work-proposal', projectId, proposalKey]),
+          id: this.core.ids.hash(['link-work-proposal', ...proposalIdentity]),
           projectId,
           workItemId: item.id,
           kind: workDecisionKinds.linkWorkProposal,
@@ -193,6 +219,7 @@ export class ProjectModel {
             proposalSource: proposal.source,
             proposalEvidenceBasis: proposal.evidenceBasis,
             proposalEvidence: proposal.evidence ?? [],
+            proposalEvidenceQuotes: proposal.evidenceQuotes ?? [],
           },
           basis: proposal.evidenceBasis ? [proposal.evidenceBasis] : [],
           state: 'valid',
@@ -200,8 +227,7 @@ export class ProjectModel {
         });
       this.selectCurrentWork(projectId, item.id, false);
     });
-    if (!existing || !alreadyCurrent || match.proposal.key !== proposal.key)
-      this.core.events.changed(projectId);
+    if (!existing || !alreadyCurrent || !hasExactLink) this.core.events.changed(projectId);
     return this.view(projectId);
   }
 

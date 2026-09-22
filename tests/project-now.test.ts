@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   workDecisionKinds,
   type Continuation,
@@ -744,7 +744,16 @@ describe('WorkMatcher', () => {
       }),
     ]);
     expect(h.repo.list('workProposal')[0].history).toEqual([
-      { key: 'group:stable', source: 'working-tree-group', evidenceBasis: 'basis-a' },
+      expect.objectContaining({
+        key: 'group:stable',
+        source: 'working-tree-group',
+        evidenceBasis: 'basis-a',
+        proposal: expect.objectContaining({
+          title: 'Original wording',
+          currentState: 'Original state.',
+          evidence: ['revision:return-flow'],
+        }),
+      }),
     ]);
     h.core.projectModel.selectProposal(projectId, 'group:stable');
     expect(h.core.now.resolve(projectId).currentWorkId).toBe(linkedWorkId);
@@ -894,6 +903,234 @@ describe('WorkMatcher', () => {
       'linked to conflicting work',
     );
     expect((h.repo as import('./helpers').MemoryRepository).data).toEqual(before);
+  });
+
+  it('preserves every transitive source expression and rejects continuity links to different work', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    h.core.projectModel.view(projectId);
+    work(h, projectId, 'work-a', 'active', 'First work');
+    work(h, projectId, 'work-c', 'active', 'Second work');
+    const proposals = [
+      {
+        key: 'analysis:a',
+        source: 'analysis-candidate' as const,
+        title: 'Analysis expression',
+        state: 'active' as const,
+        currentState: 'Analysis evidence is current.',
+        uncertainty: null,
+        nextAction: 'Review the analysis.',
+        doneWhen: 'The analysis is reviewed.',
+        evidenceBasis: 'analysis-basis',
+        evidence: ['revision:source-a'],
+        evidenceQuotes: [{ revisionId: 'source-a', quote: 'The first work is active.' }],
+      },
+      {
+        key: 'group:b',
+        source: 'working-tree-group' as const,
+        title: 'Working-tree bridge',
+        state: 'active' as const,
+        currentState: 'The bridge has both source revisions.',
+        uncertainty: null,
+        nextAction: 'Review the bridge.',
+        doneWhen: 'The bridge is reviewed.',
+        evidenceBasis: 'tree-basis',
+        evidence: ['revision:source-a', 'revision:source-c'],
+        evidenceQuotes: [
+          { revisionId: 'source-a', quote: 'The first work is active.' },
+          { revisionId: 'source-c', quote: 'The second work is active.' },
+        ],
+      },
+      {
+        key: 'analysis:c',
+        source: 'analysis-candidate' as const,
+        title: 'Later analysis expression',
+        state: 'active' as const,
+        currentState: 'Later evidence is current.',
+        uncertainty: null,
+        nextAction: 'Review the later analysis.',
+        doneWhen: 'The later analysis is reviewed.',
+        evidenceBasis: 'analysis-basis',
+        evidence: ['revision:source-c'],
+        evidenceQuotes: [{ revisionId: 'source-c', quote: 'The second work is active.' }],
+      },
+    ];
+    vi.spyOn(h.core.workMatcher, 'proposals').mockReturnValue(proposals);
+
+    expect(h.core.workMatcher.match(projectId)).toEqual([
+      expect.objectContaining({
+        proposal: expect.objectContaining({ key: 'group:b', evidence: proposals[1].evidence }),
+        aliases: expect.arrayContaining([
+          expect.objectContaining({ key: 'analysis:a', title: 'Analysis expression' }),
+          expect.objectContaining({ key: 'analysis:c', title: 'Later analysis expression' }),
+        ]),
+        workItemId: null,
+        confidence: 'possible',
+      }),
+    ]);
+
+    for (const [workItemId, proposal] of [
+      ['work-a', proposals[0]],
+      ['work-c', proposals[2]],
+    ] as const)
+      h.repo.put('workDecision', {
+        id: `link:${workItemId}`,
+        projectId,
+        workItemId,
+        kind: workDecisionKinds.linkWorkProposal,
+        value: {
+          proposalKey: proposal.key,
+          proposalSource: proposal.source,
+          proposalEvidenceBasis: proposal.evidenceBasis,
+          proposalEvidence: proposal.evidence,
+        },
+        basis: [proposal.evidenceBasis],
+        state: 'valid',
+        decidedAt: AT,
+      });
+
+    expect(h.core.workMatcher.match(projectId)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          proposal: expect.objectContaining({ key: 'analysis:a' }),
+          workItemId: null,
+        }),
+        expect.objectContaining({
+          proposal: expect.objectContaining({ key: 'group:b' }),
+          workItemId: null,
+        }),
+        expect.objectContaining({
+          proposal: expect.objectContaining({ key: 'analysis:c' }),
+          workItemId: null,
+        }),
+      ]),
+    );
+    expect(() => h.core.projectModel.selectProposal(projectId, 'group:b')).toThrow(
+      'linked to conflicting work',
+    );
+  });
+
+  it('does not merge different excerpts from the same source revision', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    vi.spyOn(h.core.workMatcher, 'proposals').mockReturnValue([
+      {
+        key: 'analysis:settings',
+        source: 'analysis-candidate',
+        title: 'Change settings',
+        state: 'active',
+        currentState: 'A setting still needs review.',
+        uncertainty: null,
+        nextAction: null,
+        doneWhen: null,
+        evidenceBasis: 'analysis-basis',
+        evidence: ['revision:shared-record'],
+        evidenceQuotes: [{ revisionId: 'shared-record', quote: 'Change the setting.' }],
+      },
+      {
+        key: 'group:error',
+        source: 'working-tree-group',
+        title: 'Investigate an error',
+        state: 'active',
+        currentState: 'An error still needs investigation.',
+        uncertainty: null,
+        nextAction: null,
+        doneWhen: null,
+        evidenceBasis: 'tree-basis',
+        evidence: ['revision:shared-record'],
+        evidenceQuotes: [{ revisionId: 'shared-record', quote: 'The error is still open.' }],
+      },
+    ]);
+
+    expect(h.core.workMatcher.match(projectId)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          proposal: expect.objectContaining({ key: 'analysis:settings' }),
+        }),
+        expect.objectContaining({ proposal: expect.objectContaining({ key: 'group:error' }) }),
+      ]),
+    );
+    expect(h.core.workMatcher.match(projectId)).toHaveLength(2);
+  });
+
+  it('creates new work when a reused key has unrelated current evidence', () => {
+    const h = harness();
+    const changed = vi.spyOn(h.core.events, 'changed');
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    observe(h, projectId, 'basis-a', true);
+    h.core.workMatcher.replaceProposals(
+      projectId,
+      'working-tree-group',
+      [
+        {
+          key: 'group:reused',
+          source: 'working-tree-group',
+          title: 'Initial export work',
+          state: 'active',
+          currentState: 'The initial export work is active.',
+          uncertainty: null,
+          nextAction: null,
+          doneWhen: null,
+          evidenceBasis: 'basis-a',
+          evidence: ['revision:record-a'],
+          evidenceQuotes: [{ revisionId: 'record-a', quote: 'Export work is active.' }],
+        },
+      ],
+      'en',
+    );
+    h.core.projectModel.selectProposal(projectId, 'group:reused');
+    const firstWorkId = h.core.now.resolve(projectId).currentWorkId!;
+    changed.mockClear();
+
+    observe(h, projectId, 'basis-b', true);
+    h.core.workMatcher.replaceProposals(
+      projectId,
+      'working-tree-group',
+      [
+        {
+          key: 'group:reused',
+          source: 'working-tree-group',
+          title: 'Investigate export error',
+          state: 'active',
+          currentState: 'The export error still needs diagnosis.',
+          uncertainty: null,
+          nextAction: null,
+          doneWhen: null,
+          evidenceBasis: 'basis-b',
+          evidence: ['revision:record-b'],
+          evidenceQuotes: [{ revisionId: 'record-b', quote: 'The export error is open.' }],
+        },
+      ],
+      'en',
+    );
+
+    expect(h.core.workMatcher.match(projectId)).toEqual([
+      expect.objectContaining({ workItemId: null, confidence: 'unmatched' }),
+    ]);
+    h.core.projectModel.selectProposal(projectId, 'group:reused');
+    const secondWorkId = h.core.now.resolve(projectId).currentWorkId!;
+    expect(secondWorkId).not.toBe(firstWorkId);
+    expect(h.repo.get('workItem', firstWorkId)).toMatchObject({
+      title: 'Initial export work',
+      state: 'active',
+    });
+    expect(
+      h.repo
+        .list('workDecision')
+        .filter(
+          (decision) =>
+            decision.kind === workDecisionKinds.linkWorkProposal &&
+            decision.workItemId === firstWorkId &&
+            decision.value.proposalEvidenceBasis === 'basis-a',
+        ),
+    ).toHaveLength(1);
+
+    h.core.projectModel.selectProposal(projectId, 'group:reused');
+    expect(h.core.now.resolve(projectId).currentWorkId).toBe(secondWorkId);
+    expect(changed).toHaveBeenCalledTimes(1);
   });
 
   it('does not auto-match an unverified legacy analysis proposal', () => {

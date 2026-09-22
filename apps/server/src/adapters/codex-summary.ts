@@ -275,6 +275,22 @@ export class CodexSummary implements SummaryProvider {
         executionResults: z.array(workingTreeExecutionResultSchema).max(5).default([]),
         outputLanguage: outputLanguageSchema.default('en'),
         snapshot: workspaceSnapshotSchema,
+        records: z
+          .array(
+            z
+              .object({
+                revisionId: z.string().min(1).max(240),
+                threadId: z.string().min(1).max(240),
+                actor: z.literal('tool'),
+                kind: z.string().min(1).max(120),
+                at: z.string().datetime({ offset: true }),
+                text: z.string().min(1).max(12000),
+                limitations: z.array(z.string().max(1500)).max(20),
+              })
+              .strict(),
+          )
+          .max(41)
+          .default([]),
       })
       .strict()
       .parse(input);
@@ -285,7 +301,27 @@ export class CodexSummary implements SummaryProvider {
     ).slice(0, 120);
     if (!data.snapshot.dirty || !changedPaths.length)
       throw new DomainError('SUMMARY_UNAVAILABLE', 'No uncommitted work is available to analyze.');
-    const allowed = new Set(changedPaths);
+    const unavailablePaths = new Set(
+      (data.snapshot.files ?? [])
+        .filter((file) => file.status === 'unavailable' || file.hash === 'unavailable')
+        .map((file) => file.path),
+    );
+    // A changed path with no readable inspection evidence can remain visible
+    // to the user, but must not become model evidence for a work proposal.
+    const allowed = new Set(changedPaths.filter((path) => !unavailablePaths.has(path)));
+    if (!allowed.size)
+      throw new DomainError(
+        'SUMMARY_UNAVAILABLE',
+        'No readable changed files are available for working-tree analysis.',
+      );
+    const recordIds = new Set(data.records.map((record) => record.revisionId));
+    if (new Set(data.records.map((record) => record.revisionId)).size !== data.records.length)
+      throw new DomainError('SUMMARY_UNAVAILABLE', 'Working-tree evidence contains duplicate IDs.');
+    if (data.records.reduce((total, record) => total + record.text.length, 0) > 12_000)
+      throw new DomainError(
+        'SUMMARY_UNAVAILABLE',
+        'Working-tree evidence exceeds its bounded budget.',
+      );
     const relevantFiles = (data.snapshot.files ?? [])
       .filter((file) => allowed.has(file.path))
       .slice(0, 40)
@@ -299,9 +335,12 @@ export class CodexSummary implements SummaryProvider {
         additions: data.snapshot.additions ?? 0,
         deletions: data.snapshot.deletions ?? 0,
         changedFiles: data.snapshot.changedFiles ?? [],
+        unavailablePaths: [...unavailablePaths],
+        limitations: data.snapshot.limitations,
       },
       diff: data.snapshot.diffPreview ?? '',
       changedFilePreviews: relevantFiles,
+      records: data.records,
       executionResults: data.executionResults,
     });
     const languageInstruction =
@@ -322,25 +361,32 @@ export class CodexSummary implements SummaryProvider {
         if (!files.length)
           throw new Error('Working-tree analysis group has no valid changed files');
         const context = group.context?.filter((item) => {
+          // A producer may cite only the exact, bounded records it received.
+          // Raw IDs, titles, file names, and execution request IDs are never
+          // interchangeable evidence.
+          if (
+            !item.sources.length ||
+            !item.sources.every((source) => {
+              const record = data.records.find((item) => item.revisionId === source.revisionId);
+              return !!record && record.text.includes(source.quote);
+            })
+          )
+            return false;
           if (item.nature === 'user-request') return false;
           if (item.nature === 'agent-report' || item.nature === 'user-decision')
             return (
               item.sources.length > 0 &&
-              item.sources.every((id) =>
+              item.sources.every((source) =>
                 data.executionResults.some(
                   (result) =>
-                    result.requestId === id &&
+                    result.requestId === source.revisionId &&
                     (item.nature === 'user-decision'
                       ? result.accepted
                       : result.source === 'agent-report'),
                 ),
               )
             );
-          return item.sources.every(
-            (path) =>
-              allowed.has(path) ||
-              data.executionResults.some((result) => result.requestId === path),
-          );
+          return item.sources.every((source) => recordIds.has(source.revisionId));
         });
         return { ...group, files, ...(context ? { context } : {}) };
       });

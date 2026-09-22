@@ -219,6 +219,8 @@ export type WorkProposal = {
   evidenceBasis: string | null;
   /** Source references used only to establish continuity between proposals. */
   evidence?: string[];
+  /** Exact source excerpts retained for conservative cross-producer continuity. */
+  evidenceQuotes?: Array<{ revisionId: string; quote: string }>;
 };
 
 export type WorkProposalMatch = {
@@ -320,5 +322,11 @@ export type WorkProposalRecord = {
    * source identity and basis for an explicit user connection, but never make
    * a retired proposal current again.
    */
-  history?: Array<{ key: string; source: WorkProposal['source']; evidenceBasis: string | null }>;
+  history?: Array<{
+    key: string;
+    source: WorkProposal['source'];
+    evidenceBasis: string | null;
+    /** The original expression remains inspectable; identity alone is not evidence. */
+    proposal?: WorkProposal;
+  }>;
 };

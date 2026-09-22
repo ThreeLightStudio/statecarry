@@ -16,7 +16,38 @@ function sameIdentity(left: ProposalIdentity, right: ProposalIdentity) {
   );
 }
 
+function sameHistoryEntry(
+  left: {
+    key: string;
+    source: WorkProposal['source'];
+    evidenceBasis: string | null;
+    proposal?: WorkProposal;
+  },
+  right: {
+    key: string;
+    source: WorkProposal['source'];
+    evidenceBasis: string | null;
+    proposal?: WorkProposal;
+  },
+) {
+  return (
+    sameIdentity(left, right) &&
+    JSON.stringify(left.proposal ?? null) === JSON.stringify(right.proposal ?? null)
+  );
+}
+
 function sharesRevisionEvidence(left: WorkProposal, right: WorkProposal): boolean {
+  const leftQuotes = left.evidenceQuotes ?? [];
+  const rightQuotes = right.evidenceQuotes ?? [];
+  // Current producers retain an exact quote. A shared revision alone can
+  // contain unrelated settings, diagnostics, or adjacent work.
+  if (leftQuotes.length || rightQuotes.length)
+    return leftQuotes.some((leftQuote) =>
+      rightQuotes.some(
+        (rightQuote) =>
+          leftQuote.revisionId === rightQuote.revisionId && leftQuote.quote === rightQuote.quote,
+      ),
+    );
   const rightEvidence = new Set(right.evidence ?? []);
   return (left.evidence ?? []).some(
     (evidence) => evidence.startsWith('revision:') && rightEvidence.has(evidence),
@@ -29,6 +60,45 @@ function linkedEvidence(decision: { value: Record<string, unknown> }): string[] 
     ? evidence
     : [];
 }
+
+function linkedEvidenceQuotes(decision: {
+  value: Record<string, unknown>;
+}): Array<{ revisionId: string; quote: string }> {
+  const value = decision.value.proposalEvidenceQuotes;
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is { revisionId: string; quote: string } =>
+          !!item &&
+          typeof item === 'object' &&
+          typeof item.revisionId === 'string' &&
+          typeof item.quote === 'string',
+      )
+    : [];
+}
+
+function sharesLinkedEvidence(
+  proposal: WorkProposal,
+  decision: { value: Record<string, unknown> },
+): boolean {
+  const quotes = linkedEvidenceQuotes(decision);
+  if (proposal.evidenceQuotes?.length || quotes.length)
+    return (proposal.evidenceQuotes ?? []).some((proposalQuote) =>
+      quotes.some(
+        (decisionQuote) =>
+          proposalQuote.revisionId === decisionQuote.revisionId &&
+          proposalQuote.quote === decisionQuote.quote,
+      ),
+    );
+  return linkedEvidence(decision).some(
+    (evidence) => evidence.startsWith('revision:') && (proposal.evidence ?? []).includes(evidence),
+  );
+}
+
+function proposalIdentity(proposal: WorkProposal): ProposalIdentity {
+  return { key: proposal.key, source: proposal.source, evidenceBasis: proposal.evidenceBasis };
+}
+
+type ProposalMatchState = { proposal: WorkProposal; linkedWorkIds: Set<string> };
 
 export class WorkMatcher {
   constructor(private core: StateCarry) {}
@@ -70,6 +140,7 @@ export class WorkMatcher {
             key: record.proposal.key,
             source: record.proposal.source,
             evidenceBasis: record.proposal.evidenceBasis,
+            proposal: record.proposal,
           },
         ]);
         const current = {
@@ -82,8 +153,8 @@ export class WorkMatcher {
           proposal,
           history: history.filter(
             (identity, index) =>
-              !sameIdentity(identity, current) &&
-              history.findIndex((other) => sameIdentity(other, identity)) === index,
+              !sameHistoryEntry(identity, { ...current, proposal }) &&
+              history.findIndex((other) => sameHistoryEntry(other, identity)) === index,
           ),
         };
       })
@@ -164,6 +235,77 @@ export class WorkMatcher {
             : analysisBasis === null || record.proposal.evidenceBasis !== analysisBasis),
       );
   }
+
+  /**
+   * A link can survive a changed proposal basis only through source revisions
+   * explicitly retained with the decision. Similar titles, scopes, or files
+   * are deliberately not identity evidence.
+   */
+  private linkedWorkIds(
+    proposal: WorkProposal,
+    links: ReturnType<StateCarry['projectModel']['view']>['decisions'],
+  ): Set<string> {
+    const identity = proposalIdentity(proposal);
+    return new Set(
+      links.flatMap((decision) => {
+        const key = decision.value.proposalKey;
+        if (typeof key !== 'string') return [];
+        const source = decision.value.proposalSource;
+        const basis = decision.value.proposalEvidenceBasis;
+        const linkedIdentity: ProposalIdentity =
+          typeof source === 'string' &&
+          (source === 'analysis-candidate' || source === 'working-tree-group')
+            ? {
+                key,
+                source,
+                evidenceBasis: typeof basis === 'string' || basis === null ? basis : null,
+              }
+            : { key, source: proposal.source, evidenceBasis: decision.basis[0] ?? null };
+        const exact = sameIdentity(identity, linkedIdentity);
+        const continuous =
+          linkedIdentity.key === proposal.key &&
+          linkedIdentity.source === proposal.source &&
+          sharesLinkedEvidence(proposal, decision);
+        return exact || continuous ? [decision.workItemId!] : [];
+      }),
+    );
+  }
+
+  /** Work ids that would be conflated by selecting this evidence expression. */
+  linkedWorkIdsForProposal(projectId: string, proposal: WorkProposal): Set<string> {
+    const model = this.core.projectModel.view(projectId);
+    const workById = new Map(model.workItems.map((item) => [item.id, item]));
+    const links = model.decisions.filter(
+      (decision) =>
+        decision.state === 'valid' &&
+        decision.kind === workDecisionKinds.linkWorkProposal &&
+        !!decision.workItemId &&
+        workById.has(decision.workItemId),
+    );
+    const states = this.proposals(projectId).map((candidate) => ({
+      proposal: candidate,
+      linkedWorkIds: this.linkedWorkIds(candidate, links),
+    }));
+    const start = states.find((state) => sameIdentity(state.proposal, proposalIdentity(proposal)));
+    if (!start) return new Set();
+    const connected = new Set<ProposalMatchState>([start]);
+    const pending = [start];
+    while (pending.length) {
+      const current = pending.pop()!;
+      for (const other of states) {
+        if (
+          !connected.has(other) &&
+          current.proposal.source !== other.proposal.source &&
+          sharesRevisionEvidence(current.proposal, other.proposal)
+        ) {
+          connected.add(other);
+          pending.push(other);
+        }
+      }
+    }
+    return new Set([...connected].flatMap((state) => [...state.linkedWorkIds]));
+  }
+
   match(projectId: string): WorkProposalMatch[] {
     const model = this.core.projectModel.view(projectId);
     const proposals = this.proposals(projectId);
@@ -175,106 +317,71 @@ export class WorkMatcher {
         !!decision.workItemId &&
         workById.has(decision.workItemId),
     );
-    const matches = proposals.map((proposal) => {
-      const identities: ProposalIdentity[] = [
-        { key: proposal.key, source: proposal.source, evidenceBasis: proposal.evidenceBasis },
-      ];
-      const linkedWorkIds = new Set(
-        links.flatMap((decision) => {
-          const key = decision.value.proposalKey;
-          if (typeof key !== 'string') return [];
-          const source = decision.value.proposalSource;
-          const basis = decision.value.proposalEvidenceBasis;
-          const legacyIdentity: ProposalIdentity = {
-            key,
-            source: proposal.source,
-            evidenceBasis: decision.basis[0] ?? null,
-          };
-          const identity: ProposalIdentity =
-            typeof source === 'string' &&
-            (source === 'analysis-candidate' || source === 'working-tree-group')
-              ? {
-                  key,
-                  source,
-                  evidenceBasis: typeof basis === 'string' || basis === null ? basis : null,
-                }
-              : legacyIdentity;
-          const exact = identities.some((candidate) => sameIdentity(candidate, identity));
-          const continuous =
-            identity.key === proposal.key &&
-            identity.source === proposal.source &&
-            linkedEvidence(decision).some(
-              (evidence) =>
-                evidence.startsWith('revision:') && (proposal.evidence ?? []).includes(evidence),
-            );
-          return exact || continuous ? [decision.workItemId!] : [];
-        }),
-      );
-      if (linkedWorkIds.size === 1) {
-        const workItemId = [...linkedWorkIds][0];
-        return {
-          proposal,
-          workItemId,
-          confidence: 'explicit' as const,
-          reason:
-            'The user explicitly linked this interpretation or its retained evidence history to the work.',
-        };
+    const states: ProposalMatchState[] = proposals.map((proposal) => ({
+      proposal,
+      linkedWorkIds: this.linkedWorkIds(proposal, links),
+    }));
+    const unseen = new Set(states);
+    const result: WorkProposalMatch[] = [];
+    while (unseen.size) {
+      const first = unseen.values().next().value as ProposalMatchState;
+      const component = new Set<ProposalMatchState>([first]);
+      const pending = [first];
+      unseen.delete(first);
+      // Preserve transitive A–B–C provenance. Edges require a shared source
+      // revision across independent producers, never a title or file overlap.
+      while (pending.length) {
+        const current = pending.pop()!;
+        for (const other of unseen) {
+          if (
+            current.proposal.source !== other.proposal.source &&
+            sharesRevisionEvidence(current.proposal, other.proposal)
+          ) {
+            unseen.delete(other);
+            component.add(other);
+            pending.push(other);
+          }
+        }
       }
-
-      return {
-        proposal,
-        workItemId: null,
-        confidence: 'unmatched' as const,
-        reason:
-          'The available evidence is not enough to attach this interpretation to durable work.',
-      };
-    });
-    for (const match of matches) {
-      if (match.workItemId) continue;
-      const equivalents = matches.filter(
-        (other) =>
-          other.workItemId &&
-          other.proposal.source !== match.proposal.source &&
-          sharesRevisionEvidence(match.proposal, other.proposal),
-      );
-      if (new Set(equivalents.map((other) => other.workItemId)).size === 1) {
-        const equivalent = equivalents[0];
-        match.workItemId = equivalent.workItemId;
-        match.confidence = 'explicit';
-        match.reason = 'Current source evidence connects this interpretation to linked work.';
+      const members = [...component];
+      const workIds = new Set(members.flatMap((member) => [...member.linkedWorkIds]));
+      if (workIds.size > 1) {
+        // Do not hide a continuity conflict by picking a convenient alias.
+        for (const member of members)
+          result.push({
+            proposal: member.proposal,
+            workItemId: null,
+            confidence: 'unmatched',
+            reason: 'Connected source evidence is linked to different work and needs review.',
+          });
+        continue;
       }
+      const representative = [...members].sort(
+        (left, right) =>
+          Number(left.proposal.source === 'analysis-candidate') -
+            Number(right.proposal.source === 'analysis-candidate') ||
+          left.proposal.key.localeCompare(right.proposal.key),
+      )[0];
+      const workItemId = [...workIds][0] ?? null;
+      result.push({
+        proposal: representative.proposal,
+        ...(members.length > 1
+          ? {
+              aliases: members
+                .filter((member) => member !== representative)
+                .map((member) => member.proposal),
+            }
+          : {}),
+        workItemId,
+        confidence: workItemId ? 'explicit' : members.length > 1 ? 'possible' : 'unmatched',
+        reason: workItemId
+          ? 'The user explicitly linked this interpretation or its retained evidence history to the work.'
+          : members.length > 1
+            ? 'Independent current sources share direct revision evidence.'
+            : 'The available evidence is not enough to attach this interpretation to durable work.',
+      });
     }
-    // A work can have current evidence from both sources. Core exposes its
-    // strongest evidence once and retains its aliases for audit and selection.
-    return matches
-      .filter((match, index) => {
-        const equivalent = matches
-          .map((other, otherIndex) => ({ other, otherIndex }))
-          .filter(
-            ({ other }) =>
-              other.workItemId === match.workItemId &&
-              (other === match ||
-                other.workItemId !== null ||
-                sharesRevisionEvidence(other.proposal, match.proposal)),
-          )
-          .sort(
-            ({ other: left }, { other: right }) =>
-              Number(left.proposal.source === 'analysis-candidate') -
-              Number(right.proposal.source === 'analysis-candidate'),
-          );
-        return equivalent[0]?.otherIndex === index;
-      })
-      .map((match) => ({
-        ...match,
-        aliases: matches
-          .filter(
-            (other) =>
-              other !== match &&
-              other.workItemId === match.workItemId &&
-              sharesRevisionEvidence(other.proposal, match.proposal),
-          )
-          .map((other) => other.proposal),
-      }));
+    return result;
   }
 
   bestForWork(projectId: string, workItem: WorkItem): WorkProposalMatch | null {

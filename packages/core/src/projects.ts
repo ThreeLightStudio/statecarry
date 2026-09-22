@@ -294,9 +294,10 @@ export class Projects {
         evidence: [
           ...group.files.map((file) => `file:${file}`),
           ...(group.context ?? []).flatMap((item) =>
-            item.sources.map((source) => `revision:${source}`),
+            item.sources.map((source) => `revision:${source.revisionId}`),
           ),
         ],
+        evidenceQuotes: (group.context ?? []).flatMap((item) => item.sources),
       })),
       outputLanguage,
     );
@@ -331,11 +332,13 @@ export class Projects {
     let promise!: Promise<WorkspaceSnapshot>;
     promise = (async () => {
       try {
+        const records = this.core.analyses.workspaceRecords(snapshot);
         const rawResult = await this.core.summary.analyzeWorkingTree!({
           projectTitle: this.profile(work).title,
           outputLanguage,
           snapshot,
           executionResults: this.executionResults(work, observation),
+          records,
         });
         // Never let an older inspection restore proposals after a newer check.
         if (!this.isLatestObservation(observation)) return this.latestSnapshot(work.id);

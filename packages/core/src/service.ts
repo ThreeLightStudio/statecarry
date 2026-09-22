@@ -216,6 +216,7 @@ export class StateCarry {
               doneWhen: candidate.doneWhen,
               evidenceBasis: record.result.scope,
               evidence: candidate.evidence.map((item) => `revision:${item.revisionId}`),
+              evidenceQuotes: candidate.evidence,
             };
           }),
         record.result.outputLanguage ?? 'en',
