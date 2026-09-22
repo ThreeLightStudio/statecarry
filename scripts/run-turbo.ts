@@ -28,7 +28,6 @@ const runtime = JSON.stringify({
   arch: process.arch,
   node: process.version,
   pnpm: commandVersion('pnpm', ['--version']),
-  rtk: commandVersion('rtk', ['--version']),
   git: commandVersion('git', ['--version']),
 });
 

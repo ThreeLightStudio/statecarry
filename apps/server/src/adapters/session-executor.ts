@@ -39,14 +39,14 @@ export class CodexSessionExecutor implements SessionExecutor {
     });
   }
   capability(): SessionCapability {
-    const available = !!resolveExecutable('codex') && !!resolveExecutable('rtk');
+    const available = !!resolveExecutable('codex');
     return {
       create: available ? 'supported' : 'unsupported',
       send: available ? 'supported' : 'unsupported',
       verifiedAt: this.verifiedAt,
       detail: available
         ? 'Send a reviewed request to Codex. Any required approvals remain your choice.'
-        : 'Codex or RTK is unavailable. You can copy your reviewed request.',
+        : 'Codex CLI is unavailable. You can copy your reviewed request.',
     };
   }
   async create(input: SessionCreateInput): Promise<SessionCreateResult> {

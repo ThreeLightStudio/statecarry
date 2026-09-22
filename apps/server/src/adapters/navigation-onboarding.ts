@@ -39,7 +39,7 @@ export async function verifyNavigationArrival(options: {
   const evidence = navigationEvidenceSchema.parse({
     version: 1,
     scheme: 'codex://threads/',
-    dispatch: 'rtk proxy open',
+    dispatch: 'open',
     platform: 'darwin',
     targetId: id,
     targetMatched: true,

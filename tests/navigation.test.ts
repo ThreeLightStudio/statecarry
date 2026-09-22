@@ -27,7 +27,7 @@ const evidence = () =>
   navigationEvidenceSchema.parse({
     version: 1,
     scheme: 'codex://threads/',
-    dispatch: 'rtk proxy open',
+    dispatch: 'open',
     platform: 'darwin',
     targetId: '00000000-0000-4000-8000-000000000001',
     targetMatched: true,
@@ -74,6 +74,18 @@ describe('local navigation evidence', () => {
     expect(readFileSync(path, 'utf8')).toBe(existing);
     expect(spawn).not.toHaveBeenCalled();
   });
+  it('requires a new confirmation when evidence used the retired RTK launch method', () => {
+    const dir = directory();
+    writeFileSync(
+      join(dir, 'navigation-verification.json'),
+      JSON.stringify({ ...evidence(), dispatch: 'rtk proxy open' }),
+    );
+    expect(inspectNavigationEvidence(dir, 'darwin')).toMatchObject({
+      precision: 'unsupported',
+      state: 'invalid',
+      detail: expect.stringMatching(/earlier launch method/),
+    });
+  });
   it('keeps environments outside macOS unsupported even with otherwise valid evidence', () => {
     const dir = directory();
     writeFileSync(join(dir, 'navigation-verification.json'), JSON.stringify(evidence()));
@@ -89,11 +101,11 @@ describe('safe OS dispatch', () => {
     child.emit('exit', 0, null);
     await pending;
     expect(spawn).toHaveBeenCalledWith(
-      expect.stringMatching(/\/rtk$/),
-      ['proxy', 'open', 'codex://threads/00000000-0000-4000-8000-000000000001'],
+      expect.stringMatching(/\/open$/),
+      ['codex://threads/00000000-0000-4000-8000-000000000001'],
       expect.objectContaining({
         stdio: 'ignore',
-        env: expect.objectContaining({ PATH: expect.stringContaining('.headroom/bin') }),
+        env: expect.objectContaining({ PATH: expect.stringContaining('/usr/bin') }),
       }),
     );
   });

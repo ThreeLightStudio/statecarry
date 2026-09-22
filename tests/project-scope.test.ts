@@ -16,11 +16,7 @@ function repository() {
   const cwd = mkdtempSync(join(tmpdir(), 'statecarry-scope-'));
   folders.push(cwd);
   const git = (...args: string[]) =>
-    execFileSync('rtk', ['proxy', 'git', ...args], {
-      cwd,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   git('init', '-q');
   git('config', 'user.name', 'Test');
   git('config', 'user.email', 'test@example.invalid');
@@ -67,7 +63,7 @@ it('handles detached HEAD, filenames with spaces, binary files, and unborn repos
   });
   const empty = mkdtempSync(join(tmpdir(), 'statecarry-unborn-'));
   folders.push(empty);
-  execFileSync('rtk', ['proxy', 'git', 'init', '-q', empty]);
+  execFileSync('git', ['init', '-q', empty]);
   writeFileSync(join(empty, 'first.txt'), 'first');
   expect(inspectChangeScope(empty).complete).toBe(true);
 });

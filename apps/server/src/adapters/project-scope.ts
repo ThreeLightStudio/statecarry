@@ -16,7 +16,7 @@ import type {
   ScopeFile,
   ScopeFileSelection,
 } from '@statecarry/contracts';
-import { resolveExecutable } from './executable-resolver';
+import { executableEnvironment, resolveExecutable } from './executable-resolver';
 
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const previewLimit = 80000;
@@ -45,15 +45,15 @@ export function inspectChangeScope(
   const checkedAt = new Date().toISOString();
   const scopes: ChangeScope[] = [];
   const files: ScopeFile[] = [];
-  const rtk = resolveExecutable('rtk');
+  const gitExecutable = resolveExecutable('git');
   const git = (...args: string[]) => {
-    if (!rtk) throw new Error('RTK is unavailable.');
-    return execFileSync(rtk, ['proxy', 'git', '-c', 'core.quotePath=false', ...args], {
+    if (!gitExecutable) throw new Error('Git is unavailable.');
+    return execFileSync(gitExecutable, ['-c', 'core.quotePath=false', ...args], {
       cwd,
       encoding: 'utf8',
       timeout: 10000,
       maxBuffer: detailLimit,
-      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' },
+      env: { ...executableEnvironment(['git']), GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
   };

@@ -7,7 +7,7 @@ export const navigationEvidenceSchema = z
   .object({
     version: z.literal(1),
     scheme: z.literal('codex://threads/'),
-    dispatch: z.literal('rtk proxy open'),
+    dispatch: z.literal('open'),
     platform: z.literal('darwin'),
     targetId: z.string().uuid(),
     targetMatched: z.literal(true),
@@ -64,7 +64,11 @@ export function inspectNavigationEvidence(
       ...base,
       state: 'invalid',
       detail:
-        'Navigation evidence is incomplete or invalid. Check the existing file using the local CLI.',
+        raw &&
+        typeof raw === 'object' &&
+        (raw as { dispatch?: unknown }).dispatch === 'rtk proxy open'
+          ? 'Navigation was verified through an earlier launch method. Check it again before opening Codex conversations.'
+          : 'Navigation evidence is incomplete or invalid. Check the existing file using the local CLI.',
     };
   return {
     precision: 'thread',

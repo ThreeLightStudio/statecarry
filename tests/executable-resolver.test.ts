@@ -20,18 +20,16 @@ function executable(path: string) {
 }
 
 describe('GUI executable discovery', () => {
-  it('finds user-installed RTK and Codex even when the inherited PATH is minimal', () => {
+  it('finds a user-installed Codex CLI even when the inherited PATH is minimal', () => {
     const home = mkdtempSync(join(tmpdir(), 'statecarry-tools-'));
     roots.push(home);
-    executable(join(home, '.headroom', 'bin', 'rtk'));
     executable(join(home, '.nvm', 'versions', 'node', 'v24.14.1', 'bin', 'codex'));
 
     const env = { PATH: '/usr/bin:/bin' };
-    expect(resolveExecutable('rtk', env, home)).toBe(join(home, '.headroom', 'bin', 'rtk'));
     expect(resolveExecutable('codex', env, home)).toBe(
       join(home, '.nvm', 'versions', 'node', 'v24.14.1', 'bin', 'codex'),
     );
-    expect(executableEnvironment(['rtk', 'codex'], env, home).PATH).toContain(
+    expect(executableEnvironment(['codex'], env, home).PATH).toContain(
       join(home, '.nvm', 'versions', 'node', 'v24.14.1', 'bin'),
     );
   });
@@ -41,7 +39,6 @@ describe('GUI executable discovery', () => {
     const directories = executableDirectories({ PATH: '/custom/bin:/usr/bin' }, home);
     expect(directories.slice(0, 2)).toEqual(['/custom/bin', '/usr/bin']);
     expect(directories).toContain('/opt/homebrew/bin');
-    expect(directories).toContain('/Users/example/.headroom/bin');
     expect(directories).toContain('/Users/example/.local/bin');
     expect(directories).toContain('/Users/example/.volta/bin');
     expect(directories).toContain('/Users/example/.asdf/shims');
@@ -50,10 +47,10 @@ describe('GUI executable discovery', () => {
   it('ignores executable directories and returns null when the executable is absent', () => {
     const home = mkdtempSync(join(tmpdir(), 'statecarry-tools-'));
     roots.push(home);
-    const misleading = join(home, '.headroom', 'bin', 'rtk');
+    const misleading = join(home, '.local', 'bin', 'codex');
     mkdirSync(misleading, { recursive: true });
     chmodSync(misleading, 0o755);
 
-    expect(resolveExecutable('rtk', { PATH: '' }, home)).toBeNull();
+    expect(resolveExecutable('codex', { PATH: '' }, home)).toBeNull();
   });
 });

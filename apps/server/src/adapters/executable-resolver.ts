@@ -32,7 +32,6 @@ export function executableDirectories(
     '/sbin',
     '/opt/homebrew/bin',
     '/usr/local/bin',
-    join(home, '.headroom', 'bin'),
     join(home, '.local', 'bin'),
     join(home, '.volta', 'bin'),
     join(home, '.asdf', 'shims'),

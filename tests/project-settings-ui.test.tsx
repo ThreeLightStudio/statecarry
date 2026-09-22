@@ -297,7 +297,7 @@ it('shows discovered Codex tooling as available before the analysis isolation ch
     source: 'codex-local',
     summary: {
       state: 'unverified',
-      detail: 'RTK and Codex CLI are available. Analysis isolation has not been checked yet.',
+      detail: 'Codex CLI is available. Analysis isolation has not been checked yet.',
       model: null,
     },
     navigation: {
@@ -322,7 +322,7 @@ it('shows discovered Codex tooling as available before the analysis isolation ch
     expect(mounted.host.textContent).toContain(
       "Codex was found, but StateCarry hasn't verified analysis yet.",
     );
-    expect(mounted.host.textContent).not.toContain('RTK and Codex CLI');
+    expect(mounted.host.textContent).not.toContain('Codex CLI is available');
     expect(mounted.host.textContent).not.toContain('Analysis isolation');
   } finally {
     await mounted.unmount();

@@ -27,25 +27,25 @@ export class CodexRpc extends EventEmitter {
     if (this.ready) return;
     if (this.connecting) return this.connecting;
     this.connecting = (async () => {
-      const args = ['proxy', 'codex', 'app-server', '--listen', 'stdio://'];
+      const args = ['app-server', '--listen', 'stdio://'];
       for (const [key, value] of Object.entries(this.overrides))
         args.push('-c', `${key}=${JSON.stringify(value)}`);
       // Scoped to this analysis process group; no global power setting is changed.
       // User-initiated sleep/lid closure is not overridden by an idle-sleep assertion.
       const preventIdleSleep = this.keepAwake && process.platform === 'darwin';
-      const rtk = resolveExecutable('rtk');
-      if (!rtk)
+      const codex = resolveExecutable('codex');
+      if (!codex)
         throw new Error(
-          'RTK was not found. Install RTK or make it available in a standard user executable location.',
+          'Codex CLI was not found in the locations StateCarry can use from the desktop app.',
         );
       const child = spawn(
-        preventIdleSleep ? '/usr/bin/caffeinate' : rtk,
-        preventIdleSleep ? ['-i', rtk, ...args] : args,
+        preventIdleSleep ? '/usr/bin/caffeinate' : codex,
+        preventIdleSleep ? ['-i', codex, ...args] : args,
         {
           cwd: this.cwd,
           stdio: 'pipe',
           detached: process.platform !== 'win32',
-          env: executableEnvironment(['rtk', 'codex']),
+          env: executableEnvironment(['codex']),
         },
       );
       this.child = child;

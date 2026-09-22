@@ -20,14 +20,18 @@ export class CodexNavigator implements Navigator {
 export function dispatchCodex(threadId: string): Promise<void> {
   safeId(threadId);
   return new Promise((resolve, reject) => {
-    const rtk = resolveExecutable('rtk');
-    if (!rtk) {
-      reject(new Error('RTK was not found on this machine.'));
+    const open = resolveExecutable('open');
+    if (!open) {
+      reject(
+        new Error(
+          'macOS Open was not found in the locations StateCarry can use from the desktop app.',
+        ),
+      );
       return;
     }
-    const child = spawn(rtk, ['proxy', 'open', `codex://threads/${encodeURIComponent(threadId)}`], {
+    const child = spawn(open, [`codex://threads/${encodeURIComponent(threadId)}`], {
       stdio: 'ignore',
-      env: executableEnvironment(['rtk', 'codex']),
+      env: executableEnvironment(['open']),
     });
     child.on('error', reject);
     child.on('exit', (code, signal) => {

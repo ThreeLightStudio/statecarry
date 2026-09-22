@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { expect, it, vi } from 'vitest';
 import { CodexSessionExecutor } from '../apps/server/src/adapters/session-executor';
 import type { CodexRpc } from '../apps/server/src/adapters/rpc';
+import * as executableResolver from '../apps/server/src/adapters/executable-resolver';
 
 function fixture() {
   const rpc = Object.assign(new EventEmitter(), {
@@ -18,6 +19,20 @@ function fixture() {
   });
   return { rpc, executor: new CodexSessionExecutor(rpc as unknown as CodexRpc) };
 }
+
+it('reports the missing Codex CLI without referring to the retired RTK dependency', () => {
+  const resolve = vi.spyOn(executableResolver, 'resolveExecutable').mockReturnValue(null);
+  try {
+    expect(new CodexSessionExecutor().capability()).toMatchObject({
+      create: 'unsupported',
+      send: 'unsupported',
+      detail: 'Codex CLI is unavailable. You can copy your reviewed request.',
+    });
+  } finally {
+    resolve.mockRestore();
+  }
+});
+
 it('allows verification artifacts in the project without auto-approving execution', async () => {
   const { rpc, executor } = fixture();
   await executor.create({ projectId: 'work', cwd: '/project', title: 'Check' });
