@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppUpdateState } from '@statecarry/presentation';
-import { APP_VERSION } from '../apps/desktop/src/app-version';
+import { APP_VERSION } from '../app-version';
 import {
   go,
   installBrowser,

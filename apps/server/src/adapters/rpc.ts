@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { StringDecoder } from 'node:string_decoder';
+import { APP_VERSION } from '../../../../app-version';
 import { executableEnvironment, resolveExecutable } from './executable-resolver';
 
 // Small transport boundary inspired by Switchyard codex.ts; no business sessions or store dependencies.
@@ -90,7 +91,7 @@ export class CodexRpc extends EventEmitter {
         }
       });
       await this.call('initialize', {
-        clientInfo: { name: 'statecarry', version: '0.2.0' },
+        clientInfo: { name: 'statecarry', version: APP_VERSION },
         capabilities: { experimentalApi: true },
       });
       this.write({ method: 'initialized', params: {} });

@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import { fileURLToPath } from 'node:url';
 import tsconfig from './tsconfig.json';
-import { APP_VERSION } from './apps/desktop/src/app-version';
+import { APP_VERSION } from './app-version';
 
 // Test the same local workspace sources that TypeScript checks.
 const alias = Object.fromEntries(

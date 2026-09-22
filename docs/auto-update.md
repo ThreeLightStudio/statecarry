@@ -102,13 +102,14 @@ Delta patch generation is currently disabled in `electrobun.config.ts`. Updates 
 
 ## Versioning contract
 
-For a desktop release, keep the application version synchronized in the locations that currently expose it:
+The root `package.json` is the single source of the application version. For a
+desktop release, update its `version` field only. The root `app-version.ts` exports
+that value as `APP_VERSION`, consumed by `electrobun.config.ts`, injected into the
+web UI at build time, and used in Codex RPC client metadata.
 
-- root `package.json`;
-- `apps/desktop/src/app-version.ts`, which is consumed by `electrobun.config.ts` and injected into the web UI;
-- the Codex RPC client metadata in `apps/server/src/adapters/rpc.ts`.
-
-Workspace package versions are not used as the desktop update identity and do not need to change solely for a desktop patch release unless the repository adopts a different package-version policy.
+Workspace package versions are not used as the desktop update identity and do not
+need to change solely for a desktop patch release unless the repository adopts a
+different package-version policy.
 
 ## Verified rollout history
 

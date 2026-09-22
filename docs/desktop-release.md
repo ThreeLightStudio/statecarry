@@ -34,23 +34,14 @@ Electrobun's signing environment uses `ELECTROBUN_DEVELOPER_ID`. Its built-in no
 
 For local notarization, `xcrun notarytool` may instead use a named Keychain profile. The profile name is local operator state and should not be committed. Never put credential values, certificate-owner identity, Team IDs, Apple account addresses, or notary submission IDs into repository documentation or release notes.
 
-## 1. Choose and synchronize the version
+## 1. Set the application version
 
-Use a semantic desktop version such as `0.1.3`. Update the current desktop-facing version locations together:
+Set the semantic application version in the root `package.json` only.
 
-```text
-package.json
-apps/desktop/src/app-version.ts
-apps/server/src/adapters/rpc.ts
-```
-
-`electrobun.config.ts` consumes `APP_VERSION` from `apps/desktop/src/app-version.ts`, so keep the literal version in that shared file instead of duplicating it in the Electrobun config.
-
-Check for stale occurrences before release:
-
-```sh
-rtk rg -n '0\.1\.[0-9]+' package.json apps/desktop/src/app-version.ts apps/server/src/adapters/rpc.ts
-```
+The shared root `app-version.ts` reads `package.json` and exports `APP_VERSION` for
+`electrobun.config.ts`, the web UI build, and Codex RPC client metadata. These
+consumers do not need separate version edits. Workspace package versions are
+independent of the desktop release version.
 
 Review the diff and keep unrelated work out of a version-only release commit.
 

@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { resolve } from 'node:path';
-import { APP_VERSION } from '../desktop/src/app-version';
+import { APP_VERSION } from '../../app-version';
 export default defineConfig(({ command }) => ({
   root: resolve(import.meta.dirname),
   plugins: [react(), tailwindcss()],
