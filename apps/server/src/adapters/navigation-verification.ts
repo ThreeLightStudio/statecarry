@@ -3,11 +3,14 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import type { Capabilities } from '@statecarry/contracts';
 
+export const directNavigationEvidenceFile = 'navigation-direct-verification.json';
+const legacyNavigationEvidenceFile = 'navigation-verification.json';
+
 export const navigationEvidenceSchema = z
   .object({
     version: z.literal(1),
     scheme: z.literal('codex://threads/'),
-    dispatch: z.literal('rtk proxy open'),
+    dispatch: z.literal('open'),
     platform: z.literal('darwin'),
     targetId: z.string().uuid(),
     targetMatched: z.literal(true),
@@ -47,15 +50,33 @@ export function inspectNavigationEvidence(
     };
   let raw: unknown;
   try {
-    raw = JSON.parse(readFileSync(join(dataDir, 'navigation-verification.json'), 'utf8'));
+    raw = JSON.parse(readFileSync(join(dataDir, directNavigationEvidenceFile), 'utf8'));
   } catch (error) {
     const missing = (error as NodeJS.ErrnoException).code === 'ENOENT';
+    if (missing) {
+      try {
+        readFileSync(join(dataDir, legacyNavigationEvidenceFile), 'utf8');
+        return {
+          ...base,
+          state: 'invalid',
+          detail:
+            'Navigation was verified through an earlier launch method, so StateCarry cannot open Codex conversations automatically. Run navigation verification again to use the current launch method.',
+        };
+      } catch (legacyError) {
+        if ((legacyError as NodeJS.ErrnoException).code === 'ENOENT')
+          return {
+            ...base,
+            state: 'missing',
+            detail:
+              'Navigation evidence is not registered. Follow the local CLI setup instructions.',
+          };
+      }
+    }
     return {
       ...base,
-      state: missing ? 'missing' : 'invalid',
-      detail: missing
-        ? 'Navigation evidence is not registered. Follow the local CLI setup instructions.'
-        : 'The navigation evidence file could not be read. Check it using the local CLI. It will not be overwritten automatically.',
+      state: 'invalid',
+      detail:
+        'The navigation evidence file could not be read. Check it using the local CLI. It will not be overwritten automatically.',
     };
   }
   const parsed = navigationEvidenceSchema.safeParse(raw);

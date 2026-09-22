@@ -1,11 +1,11 @@
 import { spawn } from 'node:child_process';
 const grouped = process.platform !== 'win32';
 const children = [
-  spawn('rtk', ['pnpm', 'exec', 'tsx', 'watch', 'apps/server/src/index.ts'], {
+  spawn('pnpm', ['exec', 'tsx', 'watch', 'apps/server/src/index.ts'], {
     stdio: 'inherit',
     detached: grouped,
   }),
-  spawn('rtk', ['pnpm', 'exec', 'vite', '--config', 'apps/web/vite.config.ts'], {
+  spawn('pnpm', ['exec', 'vite', '--config', 'apps/web/vite.config.ts'], {
     stdio: 'inherit',
     detached: grouped,
   }),

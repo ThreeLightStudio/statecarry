@@ -394,7 +394,7 @@ describe('two real fixture repositories, three synthetic sessions and SQLite rec
       const roots = [join(dir, 'repo-a'), join(dir, 'repo-b')];
       for (const root of roots) {
         await mkdir(root);
-        execFileSync('rtk', ['git', 'init', root], { stdio: 'ignore' });
+        execFileSync('git', ['init', root], { stdio: 'ignore' });
       }
       repo = new SQLiteRepository(join(dir, 'data'));
       const h = harness(repo);

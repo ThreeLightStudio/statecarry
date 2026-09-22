@@ -10,7 +10,7 @@ Automatic-update architecture and lifecycle details live in [desktop automatic u
 
 A desktop release is ready only when all of these statements are true:
 
-- the source commit to be tagged has passed `rtk pnpm verify:fresh`;
+- the source commit to be tagged has passed `pnpm verify:fresh`;
 - the stable Electrobun build is signed with a valid Developer ID Application identity;
 - the DMG is accepted by Apple's notary service and has a stapled ticket;
 - the application inside the DMG passes Gatekeeper assessment as a notarized Developer ID app;
@@ -50,9 +50,9 @@ Review the diff and keep unrelated work out of a version-only release commit.
 Run the uncached repository checks:
 
 ```sh
-rtk pnpm verify:fresh
-rtk git diff --check
-rtk git status --short
+pnpm verify:fresh
+git diff --check
+git status --short
 ```
 
 Commit and push the reviewed source before creating final release artifacts. Record the public commit SHA/tag in the GitHub Release; do not record private machine paths or local diagnostic output.
@@ -70,7 +70,7 @@ Load the local release credentials before starting a stable build. The credentia
 
 ```sh
 source ~/.config/statecarry/release-env.zsh
-rtk pnpm desktop:build:stable
+pnpm desktop:build:stable
 ```
 
 The release environment file supplies `ELECTROBUN_DEVELOPER_ID` plus the Electrobun-compatible notarization credentials. With those variables loaded, the stable build completes signing and notarization in one invocation.
@@ -144,7 +144,7 @@ Before publishing, confirm:
 After publishing, verify:
 
 ```sh
-rtk gh api repos/ThreeLightStudio/statecarry/releases/latest --jq '{tag_name,name,draft,prerelease}'
+gh api repos/ThreeLightStudio/statecarry/releases/latest --jq '{tag_name,name,draft,prerelease}'
 ```
 
 and read the public manifest from:

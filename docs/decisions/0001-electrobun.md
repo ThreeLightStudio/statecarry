@@ -39,7 +39,7 @@ Electrobun `2.0.1` is pinned in the existing workspace and uses Cottontail for t
 
 - The current delivery target is macOS on Apple Silicon; other operating systems are outside this decision's scope.
 - The desktop host and loopback server must coordinate startup, normal quit and update restart. A native updater cannot be treated as an independent process from StateCarry's runtime ownership rules.
-- Finder-launched applications have a smaller environment than a development terminal, so discovery of Git, RTK, Codex and other supported executables needs explicit handling.
+- Finder-launched applications have a smaller environment than a development terminal, so discovery of Git, Codex and other supported executables needs explicit handling.
 - Packaging and update verification do not establish real-world explanation quality, Codex analysis quality or human work-return acceptance.
 - A shared web UI preserves compatibility, but desktop-only capabilities must remain behind explicit ports/adapters so browser/source-run behavior continues to work.
 

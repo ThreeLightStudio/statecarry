@@ -23,22 +23,8 @@ jobs:
       - name: Install pinned pnpm
         run: npm install --global pnpm@10.33.2
 
-      - name: Install pinned RTK
-        env:
-          RTK_SHA256: 5dede8ac36648960a3ad52611856b9047a7817b755750d2bdbda8d4e9931db4d
-          RTK_URL: https://github.com/rtk-ai/rtk/releases/download/v0.28.2/rtk-aarch64-apple-darwin.tar.gz
-        run: |
-          test "$(uname -m)" = "arm64"
-          curl -fsSLo "$RUNNER_TEMP/rtk.tar.gz" "$RTK_URL"
-          echo "$RTK_SHA256  $RUNNER_TEMP/rtk.tar.gz" | shasum -a 256 -c -
-          mkdir -p "$RUNNER_TEMP/rtk-bin"
-          tar -xzf "$RUNNER_TEMP/rtk.tar.gz" -C "$RUNNER_TEMP/rtk-bin"
-          chmod +x "$RUNNER_TEMP/rtk-bin/rtk"
-          "$RUNNER_TEMP/rtk-bin/rtk" --version
-          echo "$RUNNER_TEMP/rtk-bin" >> "$GITHUB_PATH"
-
       - name: Install dependencies
-        run: rtk pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Verify source
-        run: rtk pnpm verify
+        run: pnpm verify

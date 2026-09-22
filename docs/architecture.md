@@ -18,7 +18,7 @@ flowchart LR
   subgraph runtime[Local StateCarry runtime]
     server[Loopback HTTP/SSE server\napps/server]
     db[(SQLite records\nand writer lock)]
-    adapters[Codex, RTK, Git\nand OS adapters]
+    adapters[Codex, Git\nand OS adapters]
     server --> db
     server --> adapters
   end
@@ -44,7 +44,7 @@ flowchart TD
   user[User] --> ui[React UI]
   ui -->|HTTP/SSE| api[Loopback server]
   api -->|read/write| store[(Private SQLite data)]
-  api -->|invoke through adapters| tools[Codex, RTK and Git]
+  api -->|invoke through adapters| tools[Codex and Git]
   desktop[Electrobun host] -->|starts and stops| api
   desktop -->|native dialog and updater| ui
   browser[Browser/source-run host] -. provides web host only .-> ui
@@ -70,7 +70,7 @@ In source-run mode, the server is started from the repository and the browser op
 
 StateCarry owns the runtime it starts, including the SQLite writer lock and related local processes. It detects a port or writer conflict and does not terminate an unrelated StateCarry process. Private server records are separate from browser-local drafts, reading preferences and temporary UI state. The browser does not grant action permissions merely because a draft exists; actions requiring current records are revalidated by the server.
 
-The server invokes Codex, RTK and Git through operating-system adapters. Those tools are external dependencies of the runtime, not capabilities supplied by Electrobun. Installed-app executable discovery therefore has to work with the reduced environment normally present when an app is launched from Finder.
+The server invokes Codex and Git through operating-system adapters. Those tools are external dependencies of the runtime, not capabilities supplied by Electrobun. Installed-app executable discovery therefore has to work with the reduced environment normally present when an app is launched from Finder.
 
 ## Electrobun's role
 
