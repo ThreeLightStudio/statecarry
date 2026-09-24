@@ -491,6 +491,149 @@ describe('ProjectNow resolver', () => {
     });
   });
 
+  it('carries refreshed work through re-entry, filters completion review, and switches only after explicit recommendation selection', async () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    h.core.projectModel.view(projectId);
+    work(h, projectId, 'current', 'waiting', 'Wait for verification result');
+    work(h, projectId, 'recommended', 'active', 'Finish return behavior');
+    work(h, projectId, 'review-only', 'active', 'Cleanup that may already be complete');
+    work(h, projectId, 'dependent', 'waiting', 'Dependent follow-up');
+    select(h, projectId, 'current');
+    relation(h, {
+      id: 'recommended-blocks-dependent',
+      projectId,
+      fromWorkId: 'recommended',
+      toWorkId: 'dependent',
+      kind: 'blocks',
+      state: 'active',
+      basis: null,
+      confirmedByUser: true,
+      createdAt: AT,
+    });
+
+    let commit = 'implementation-commit';
+    const inspector: ProjectInspector = {
+      inspect: () => ({
+        cwd: '/tmp/example',
+        root: '/tmp/example',
+        branch: 'main',
+        commit,
+        dirty: false,
+        changedPaths: [],
+        changedFiles: [],
+        changedFileCount: 0,
+        additions: 0,
+        deletions: 0,
+        untrackedCount: 0,
+        diffPreview: '',
+        recentCommits: [],
+        status: 'checked',
+        checkedAt: AT,
+        limitations: [],
+        files: [],
+      }),
+    };
+    const makeCore = () =>
+      new StateCarry(
+        h.repo,
+        h.reader,
+        h.summary,
+        h.navigator,
+        h.core.clock,
+        h.core.ids,
+        h.core.events,
+        h.core.sessionExecutor,
+        inspector,
+      );
+    const matches = () => [
+      {
+        proposal: {
+          ...proposal('recommended-analysis', 'active'),
+          title:
+            commit === 'implementation-commit'
+              ? 'Finish return behavior'
+              : 'Finish verified return behavior',
+          evidenceBasis: commit,
+        },
+        aliases: [
+          {
+            ...proposal('recommended-tree', 'active'),
+            source: 'working-tree-group' as const,
+            title: 'Return behavior implementation',
+            evidenceBasis: commit,
+          },
+        ],
+        workItemId: 'recommended',
+        confidence: 'explicit' as const,
+        reason: 'Both current sources describe the same durable work.',
+      },
+      {
+        proposal: {
+          ...proposal('review-completion', 'done'),
+          title: 'Cleanup that may already be complete',
+          evidenceBasis: commit,
+        },
+        workItemId: 'review-only',
+        confidence: 'explicit' as const,
+        reason: 'Current evidence suggests completion and needs user review.',
+      },
+    ];
+
+    let core = makeCore();
+    vi.spyOn(core.workMatcher, 'match').mockImplementation(matches);
+    await core.projects.observe(projectId, 'en', undefined, false);
+
+    const beforeVerification = core.now.resolve(projectId);
+    expect(beforeVerification).toMatchObject({
+      currentWorkId: 'current',
+      currentWorkSelection: 'user',
+      state: 'waiting',
+      otherWorkCounts: { completionReview: 1 },
+      recommendation: {
+        status: 'recommended',
+        candidate: { id: 'recommended', source: 'work-item' },
+        selectionState: 'current-retained',
+      },
+    });
+    expect(
+      beforeVerification.otherWorkCandidates.filter((item) => item.id === 'recommended'),
+    ).toHaveLength(1);
+    expect(
+      beforeVerification.otherWorkCandidates.find((item) => item.id === 'review-only'),
+    ).toMatchObject({ disposition: 'completion-review' });
+
+    commit = 'verified-commit';
+    await core.projects.observe(projectId, 'en', undefined, false);
+    expect(core.now.resolve(projectId).currentWorkId).toBe('current');
+
+    core = makeCore();
+    vi.spyOn(core.workMatcher, 'match').mockImplementation(matches);
+    const returned = core.now.resolve(projectId);
+    expect(returned).toMatchObject({
+      currentWorkId: 'current',
+      currentWorkSelection: 'user',
+      recommendation: {
+        status: 'recommended',
+        candidate: { id: 'recommended', source: 'work-item' },
+      },
+    });
+    expect(returned.recommendation.reason).toContain('unblock 1 dependent piece of work');
+    expect(returned.otherWorkCandidates.filter((item) => item.id === 'recommended')).toHaveLength(
+      1,
+    );
+    expect(returned.otherWorkCandidates.find((item) => item.id === 'review-only')).toMatchObject({
+      disposition: 'completion-review',
+    });
+
+    core.projectModel.selectCurrentWork(projectId, 'recommended');
+    expect(core.now.resolve(projectId)).toMatchObject({
+      currentWorkId: 'recommended',
+      currentWorkSelection: 'user',
+    });
+  });
+
   it('keeps current work selected while surfacing another result that unblocks downstream work', () => {
     const h = harness();
     const { receipt } = registerProject(h, { goal: 'Improve project return.' });
