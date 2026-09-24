@@ -1564,6 +1564,15 @@ function ProjectNowProjectPage({
     openActionMode(action.kind, action.workItemId, action.requestId, action.releaseId);
   };
 
+  const chooseRecommendation = async () => {
+    const recommendation = view?.recommendation;
+    if (recommendation?.status !== 'recommended' || !recommendation.candidate) return;
+    if (recommendation.candidate.source === 'proposal')
+      await controller.selectProposal(project.id, recommendation.candidate.id);
+    else await controller.selectWorkItem(project.id, recommendation.candidate.id);
+    setOtherOpen(false);
+  };
+
   return (
     <div className="pw-project-detail pw-project-now-page">
       <RouteLink className="pw-project-back" href="#/projects" onNavigate={onNavigate}>
@@ -1708,6 +1717,21 @@ function ProjectNowProjectPage({
                   </Button>
                 )}
               </aside>
+            )}
+
+            {view.recommendation.status === 'recommended' && (
+              <section className="pw-now-recommendation" aria-label="Suggested next work">
+                <span className="pw-small">StateCarry suggests</span>
+                <strong>{view.recommendation.candidate.title}</strong>
+                <p>{view.recommendation.reason}</p>
+                <Button
+                  className="pw-button pw-button--primary"
+                  disabled={busy}
+                  onClick={() => void chooseRecommendation()}
+                >
+                  Choose this work
+                </Button>
+              </section>
             )}
 
             {view.nextText && view.primaryAction && (

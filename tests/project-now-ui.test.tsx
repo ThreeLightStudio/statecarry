@@ -1236,6 +1236,68 @@ it('switches durable current work from the Other work disclosure without changin
   }
 });
 
+it('shows the Core recommendation and changes current work only after the user chooses it', async () => {
+  const h = projectUiFixture([projectEntry('alpha')]);
+  const data = bundle();
+  let currentWork = 'work-a';
+  h.projectGateway.now = vi.fn(async () => {
+    const now = data.current(currentWork);
+    if (currentWork === 'work-a') {
+      now.state = 'waiting';
+      now.currentState = 'The selected work is waiting for an external result.';
+      now.next = {
+        kind: 'start-work',
+        workItemId: 'work-b',
+        text: 'Work on Small follow-up cleanup while this is waiting.',
+      };
+      now.recommendation = {
+        status: 'recommended',
+        candidate: {
+          id: 'work-b',
+          title: 'Small follow-up cleanup',
+          state: 'paused',
+          source: 'work-item',
+          disposition: 'progress',
+        },
+        action: 'select-work-item',
+        reason: 'It has a return point for the latest checked project state.',
+        confidence: 'medium',
+        close: false,
+        closeAlternatives: [],
+        selectionState: 'current-retained',
+        evidenceGaps: ['user-impact'],
+      };
+    }
+    return { initialized: true, model: structuredClone(data.model), now };
+  });
+  h.projectGateway.selectWork = vi.fn(async (_id, _revision, workItemId) => {
+    currentWork = workItemId;
+    return structuredClone(data.model);
+  });
+  window.history.replaceState(null, '', '#/project/alpha');
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
+  try {
+    expect(mounted.host.querySelector('#pw-now-work-title')?.textContent).toBe(
+      'Improve the return screen',
+    );
+    const recommendation = mounted.host.querySelector('[aria-label="Suggested next work"]');
+    expect(recommendation?.textContent).toContain('Small follow-up cleanup');
+    expect(recommendation?.textContent).toContain(
+      'It has a return point for the latest checked project state.',
+    );
+    expect(h.projectGateway.selectWork).not.toHaveBeenCalled();
+
+    await press(mounted.host, 'Choose this work');
+
+    expect(h.projectGateway.selectWork).toHaveBeenCalledWith('alpha', 7, 'work-b');
+    expect(mounted.host.querySelector('#pw-now-work-title')?.textContent).toBe(
+      'Small follow-up cleanup',
+    );
+  } finally {
+    await mounted.unmount();
+  }
+});
+
 it('keeps unmatched legacy analysis as a proposal until the user chooses it', async () => {
   const h = projectUiFixture([projectEntry('alpha')]);
   const data = bundle();

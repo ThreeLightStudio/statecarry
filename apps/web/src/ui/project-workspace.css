@@ -934,6 +934,18 @@
 .pw-now-uncertainty > p {
   @apply m-0 text-base leading-7 text-foreground;
 }
+.pw-now-recommendation {
+  @apply grid gap-2 border-y border-border py-5;
+}
+.pw-now-recommendation > strong {
+  @apply text-lg font-semibold leading-7;
+}
+.pw-now-recommendation > p {
+  @apply m-0 text-sm leading-6 text-muted-foreground;
+}
+.pw-now-recommendation > .pw-button {
+  @apply mt-1 w-fit;
+}
 .pw-now-next {
   @apply grid gap-2.5 pt-1;
 }
