@@ -943,6 +943,21 @@
 .pw-now-recommendation > p {
   @apply m-0 text-sm leading-6 text-muted-foreground;
 }
+.pw-now-recommendation > .pw-now-recommendation-detail {
+  @apply text-xs leading-5 text-muted-foreground;
+}
+.pw-now-recommendation--limited {
+  @apply border-y border-border text-muted-foreground;
+}
+.pw-now-recommendation-basis {
+  @apply text-xs text-muted-foreground;
+}
+.pw-now-recommendation-basis > summary {
+  @apply w-fit cursor-pointer;
+}
+.pw-now-recommendation-basis > p {
+  @apply mt-2 mb-0 leading-5;
+}
 .pw-now-recommendation > .pw-button {
   @apply mt-1 w-fit;
 }
@@ -993,6 +1008,9 @@
 }
 .pw-now-other-work-list {
   @apply mt-3 grid grid-cols-1 gap-1;
+}
+.pw-now-other-work-note {
+  @apply m-0 pb-2 text-xs leading-5 text-muted-foreground;
 }
 .pw-now-other-work-item {
   @apply grid h-auto w-full min-w-0 grid-cols-1 justify-items-start gap-1 px-0 py-2 text-left whitespace-normal;

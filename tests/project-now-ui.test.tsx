@@ -1298,6 +1298,86 @@ it('shows the Core recommendation and changes current work only after the user c
   }
 });
 
+it('explains a close recommendation while keeping the selected work explicit', async () => {
+  const h = projectUiFixture([projectEntry('alpha')]);
+  const data = bundle();
+  h.projectGateway.now = vi.fn(async () => {
+    const now = data.current('work-a');
+    now.state = 'waiting';
+    now.currentState = 'The selected work is waiting for an external result.';
+    now.recommendation = {
+      status: 'recommended',
+      candidate: {
+        id: 'work-b',
+        title: 'Small follow-up cleanup',
+        state: 'paused',
+        source: 'work-item',
+        disposition: 'progress',
+      },
+      action: 'select-work-item',
+      reason: 'It has a return point for the latest checked project state.',
+      confidence: 'low',
+      close: true,
+      closeAlternatives: [{ id: 'work-c', title: 'Review export behavior', source: 'work-item' }],
+      selectionState: 'current-retained',
+      evidenceGaps: ['user-impact', 'user-priority'],
+    };
+    return { initialized: true, model: structuredClone(data.model), now };
+  });
+  window.history.replaceState(null, '', '#/project/alpha');
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
+  try {
+    const recommendation = mounted.host.querySelector('[aria-label="Suggested next work"]');
+    expect(recommendation?.textContent).toContain(
+      'This is a close choice. Review export behavior also remains reasonable',
+    );
+    expect(recommendation?.textContent).toContain(
+      'Your current work stays selected until you choose this.',
+    );
+    await toggleDetails(mounted.host, 'What is still unknown');
+    expect(recommendation?.textContent).toContain('user impact, your priority');
+  } finally {
+    await mounted.unmount();
+  }
+});
+
+it('shows why no recommendation is available and keeps completion review separate', async () => {
+  const h = projectUiFixture([projectEntry('alpha')]);
+  const data = bundle();
+  h.projectGateway.now = vi.fn(async () => {
+    const now = data.current('work-a');
+    now.state = 'waiting';
+    now.otherWorkCount = 2;
+    now.otherWorkCounts = { total: 2, progress: 0, completionReview: 1, evidenceConflict: 1 };
+    now.recommendation = {
+      status: 'insufficient-evidence',
+      candidate: null,
+      action: null,
+      reason: 'Completion evidence needs review before this work can be recommended to start.',
+      confidence: null,
+      close: false,
+      closeAlternatives: [],
+      selectionState: 'current-retained',
+      evidenceGaps: ['dependency-coverage', 'switching-cost'],
+    };
+    return { initialized: true, model: structuredClone(data.model), now };
+  });
+  window.history.replaceState(null, '', '#/project/alpha');
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
+  try {
+    const recommendation = mounted.host.querySelector('[aria-label="No suggested next work"]');
+    expect(recommendation?.textContent).toContain('No suggested next work yet');
+    expect(recommendation?.textContent).toContain(
+      'Completion evidence needs review before this work can be recommended to start.',
+    );
+    await toggleDetails(mounted.host, 'Other work · 2');
+    expect(mounted.host.textContent).toContain('1 work item needs completion review');
+    expect(mounted.host.textContent).toContain('1 work item has conflicting project evidence');
+  } finally {
+    await mounted.unmount();
+  }
+});
+
 it('keeps unmatched legacy analysis as a proposal until the user chooses it', async () => {
   const h = projectUiFixture([projectEntry('alpha')]);
   const data = bundle();

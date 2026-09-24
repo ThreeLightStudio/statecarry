@@ -1719,11 +1719,25 @@ function ProjectNowProjectPage({
               </aside>
             )}
 
-            {view.recommendation.status === 'recommended' && (
+            {view.recommendation.status === 'recommended' && view.recommendation.candidate && (
               <section className="pw-now-recommendation" aria-label="Suggested next work">
                 <span className="pw-small">StateCarry suggests</span>
                 <strong>{view.recommendation.candidate.title}</strong>
                 <p>{view.recommendation.reason}</p>
+                {view.recommendation.closeText && (
+                  <p className="pw-now-recommendation-detail">{view.recommendation.closeText}</p>
+                )}
+                {view.recommendation.selectionText && (
+                  <p className="pw-now-recommendation-detail">
+                    {view.recommendation.selectionText}
+                  </p>
+                )}
+                {view.recommendation.evidenceText && (
+                  <details className="pw-now-recommendation-basis">
+                    <summary>What is still unknown</summary>
+                    <p>{view.recommendation.evidenceText}</p>
+                  </details>
+                )}
                 <Button
                   className="pw-button pw-button--primary"
                   disabled={busy}
@@ -1731,6 +1745,22 @@ function ProjectNowProjectPage({
                 >
                   Choose this work
                 </Button>
+              </section>
+            )}
+
+            {view.recommendation.status === 'insufficient-evidence' && (
+              <section
+                className="pw-now-recommendation pw-now-recommendation--limited"
+                aria-label="No suggested next work"
+              >
+                <span className="pw-small">No suggested next work yet</span>
+                <p>{view.recommendation.reason}</p>
+                {view.recommendation.evidenceText && (
+                  <details className="pw-now-recommendation-basis">
+                    <summary>What is still unknown</summary>
+                    <p>{view.recommendation.evidenceText}</p>
+                  </details>
+                )}
               </section>
             )}
 
@@ -1769,6 +1799,11 @@ function ProjectNowProjectPage({
               >
                 <summary>Other work · {view.otherWorkCount}</summary>
                 <div className="pw-now-other-work-list">
+                  {view.otherWorkNotes.map((note) => (
+                    <p className="pw-now-other-work-note" key={note}>
+                      {note}
+                    </p>
+                  ))}
                   {view.otherWork.map((item) => (
                     <Button
                       key={item.id}

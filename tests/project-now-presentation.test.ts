@@ -175,7 +175,13 @@ describe('ProjectNow presentation', () => {
     const now = h.core.now.resolve(projectId);
     const view = presentProjectNow(h.core.projectModel.view(projectId), now);
     expect(view.work?.id).toBe('a');
-    expect(view.recommendation).toEqual(now.recommendation);
+    expect(view.recommendation).toMatchObject({
+      status: 'recommended',
+      candidate: { id: 'd', source: 'work-item' },
+      action: 'select-work-item',
+      selectionText: 'Your current work stays selected until you choose this.',
+    });
+    expect(view.recommendation.evidenceText).toContain('project purpose fit');
     expect(view.state).toBe('waiting');
     expect(view.nextText).toBe('Work on Small independent cleanup while this is waiting.');
     expect(view.primaryAction).toMatchObject({

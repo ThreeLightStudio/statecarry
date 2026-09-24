@@ -3,6 +3,7 @@ import {
   type ProjectNow,
   type ProjectNowAction,
   type ProjectNowNotice,
+  type ProjectNowRecommendationEvidenceGap,
   type WorkItem,
   type ProjectNowWorkCandidate,
   type WorkProposalDisposition,
@@ -26,6 +27,16 @@ export type PresentedProjectNotice = {
   workItemId: string | null;
   requestId: string | null;
   releaseId: string | null;
+};
+
+export type PresentedProjectRecommendation = {
+  status: ProjectNow['recommendation']['status'];
+  candidate: ProjectNowWorkCandidate | null;
+  action: 'select-work-item' | 'choose-work' | null;
+  reason: string | null;
+  closeText: string | null;
+  selectionText: string | null;
+  evidenceText: string | null;
 };
 
 export type ProjectNowView = {
@@ -52,8 +63,9 @@ export type ProjectNowView = {
   notice: PresentedProjectNotice | null;
   otherWorkCount: number;
   otherWorkCounts: ProjectNow['otherWorkCounts'];
+  otherWorkNotes: string[];
   otherWork: Array<ProjectNowWorkCandidate & { statusLabel: string }>;
-  recommendation: ProjectNow['recommendation'];
+  recommendation: PresentedProjectRecommendation;
   checking: boolean;
   freshness: ProjectNow['freshness'];
 };
@@ -167,6 +179,82 @@ function presentNotice(notice: ProjectNowNotice): PresentedProjectNotice {
   };
 }
 
+function recommendationEvidenceLabel(gap: ProjectNowRecommendationEvidenceGap) {
+  switch (gap) {
+    case 'purpose-alignment':
+      return 'project purpose fit';
+    case 'direction-alignment':
+      return 'current direction fit';
+    case 'user-impact':
+      return 'user impact';
+    case 'user-priority':
+      return 'your priority';
+    case 'long-term-benefit':
+      return 'long-term benefit';
+    case 'switching-cost':
+      return 'switching cost';
+    case 'dependency-coverage':
+      return 'dependency coverage';
+  }
+}
+
+function presentRecommendation(
+  recommendation: ProjectNow['recommendation'],
+): PresentedProjectRecommendation {
+  const evidenceText = recommendation.evidenceGaps.length
+    ? `The current project record does not establish ${recommendation.evidenceGaps
+        .map(recommendationEvidenceLabel)
+        .join(', ')}.`
+    : null;
+  const selectionText =
+    recommendation.selectionState === 'current-retained'
+      ? 'Your current work stays selected until you choose this.'
+      : recommendation.selectionState === 'unselected' && recommendation.status === 'recommended'
+        ? 'This suggestion becomes current work only if you choose it.'
+        : null;
+  if (recommendation.status === 'recommended') {
+    const alternativeTitles = recommendation.closeAlternatives.map((item) => item.title);
+    return {
+      status: recommendation.status,
+      candidate: recommendation.candidate,
+      action: recommendation.action,
+      reason: firstSentence(recommendation.reason, 220),
+      closeText: recommendation.close
+        ? alternativeTitles.length
+          ? `This is a close choice. ${alternativeTitles.join(', ')} also remains reasonable from the current project record.`
+          : 'This is a close choice from the current project record.'
+        : null,
+      selectionText,
+      evidenceText,
+    };
+  }
+  return {
+    status: recommendation.status,
+    candidate: null,
+    action: null,
+    reason:
+      recommendation.status === 'insufficient-evidence'
+        ? firstSentence(recommendation.reason, 220)
+        : null,
+    closeText: null,
+    selectionText: null,
+    evidenceText: recommendation.status === 'insufficient-evidence' ? evidenceText : null,
+  };
+}
+
+function presentOtherWorkNotes(counts: ProjectNow['otherWorkCounts']) {
+  const notes: string[] = [];
+  if (counts.completionReview > 0)
+    notes.push(
+      `${counts.completionReview} ${counts.completionReview === 1 ? 'work item needs' : 'work items need'} completion review before it can be treated as finished or suggested to start.`,
+    );
+  if (counts.evidenceConflict > 0)
+    notes.push(
+      `${counts.evidenceConflict} ${counts.evidenceConflict === 1 ? 'work item has' : 'work items have'} conflicting project evidence and needs review.`,
+    );
+  return notes;
+}
+
 function currentWork(model: ProjectModelView, now: ProjectNow) {
   if (!now.currentWorkId) return null;
   return model.workItems.find((item) => item.id === now.currentWorkId) ?? null;
@@ -242,6 +330,7 @@ export function presentProjectNow(model: ProjectModelView, now: ProjectNow): Pro
     notice: now.notice ? presentNotice(now.notice) : null,
     otherWorkCount: now.otherWorkCount,
     otherWorkCounts: now.otherWorkCounts,
+    otherWorkNotes: presentOtherWorkNotes(now.otherWorkCounts),
     otherWork: now.otherWorkCandidates.map((candidate) => ({
       ...candidate,
       title: compactWhitespace(candidate.title),
@@ -254,7 +343,7 @@ export function presentProjectNow(model: ProjectModelView, now: ProjectNow): Pro
               : workStatusLabel(candidate.state)
           : proposalStatusLabel(candidate.disposition, candidate.proposalState),
     })),
-    recommendation: now.recommendation,
+    recommendation: presentRecommendation(now.recommendation),
     checking: now.freshness === 'checking',
     freshness: now.freshness,
   };
