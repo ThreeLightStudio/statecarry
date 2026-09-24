@@ -82,6 +82,12 @@ If a primary direction is missing, StateCarry should propose a discussion to est
 several purposes all appear valid, do not force the user to choose a single purpose; instead help
 choose the direction to focus on now.
 
+The user may explicitly leave the current direction unset. In that state StateCarry keeps saved Work,
+results and project context readable and actionable where their meaning does not depend on priority.
+It must not rank competing Work as the next priority until a direction is confirmed. Bootstrap
+suggestions must come from current project evidence; stale analysis may remain inspectable history but
+must not prefill Purpose or Direction.
+
 ### Work
 
 Work is one meaningful piece of ongoing effort.

@@ -2,6 +2,7 @@ import {
   type ProjectModelView,
   type ProjectNow,
   type ProjectNowAction,
+  type ProjectNowBootstrap,
   type ProjectNowNotice,
   type ProjectNowRecommendationEvidenceGap,
   type WorkItem,
@@ -66,6 +67,7 @@ export type ProjectNowView = {
   otherWorkNotes: string[];
   otherWork: Array<ProjectNowWorkCandidate & { statusLabel: string }>;
   recommendation: PresentedProjectRecommendation;
+  bootstrap: ProjectNowBootstrap;
   checking: boolean;
   freshness: ProjectNow['freshness'];
 };
@@ -344,6 +346,11 @@ export function presentProjectNow(model: ProjectModelView, now: ProjectNow): Pro
           : proposalStatusLabel(candidate.disposition, candidate.proposalState),
     })),
     recommendation: presentRecommendation(now.recommendation),
+    bootstrap: now.bootstrap ?? {
+      purposeSuggestion: null,
+      directionSuggestion: null,
+      directionDeferred: false,
+    },
     checking: now.freshness === 'checking',
     freshness: now.freshness,
   };

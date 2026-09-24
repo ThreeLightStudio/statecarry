@@ -35,6 +35,45 @@ export class Projects {
   private observationRequests = new Map<string, number>();
   constructor(private core: StateCarry) {}
 
+  private purposeBootstrapHints(
+    work: ProjectRecord,
+    hints?: WorkspaceInspectionHints,
+  ): WorkspaceInspectionHints | undefined {
+    if (work.purposes.some((purpose) => purpose.confirmed)) return hints;
+    return {
+      paths: [
+        ...new Set([
+          ...(hints?.paths ?? []),
+          'README.md',
+          'README',
+          'package.json',
+          'pyproject.toml',
+          'Cargo.toml',
+          'go.mod',
+        ]),
+      ],
+      symbols: hints?.symbols ?? [],
+      terms: hints?.terms ?? [],
+    };
+  }
+
+  private hasPurposeBootstrapSource(snapshot: WorkspaceSnapshot | undefined): boolean {
+    return (
+      snapshot?.files?.some(
+        (file) =>
+          file.status === 'checked' &&
+          !!file.preview &&
+          /(^|\/)(?:readme(?:\.[^/]+)?|package\.json)$/i.test(file.path),
+      ) === true
+    );
+  }
+
+  private hasPurposeBootstrapInspection(snapshot: WorkspaceSnapshot | undefined): boolean {
+    if (this.hasPurposeBootstrapSource(snapshot)) return true;
+    const paths = snapshot?.inspection?.hints.paths ?? [];
+    return ['README.md', 'README', 'package.json'].every((path) => paths.includes(path));
+  }
+
   private hash(action: string, projectId: string | null, command: Command) {
     return this.core.ids.hash({
       action,
@@ -497,6 +536,11 @@ export class Projects {
         'Project workspace inspection is unavailable.',
       );
     const previous = this.latestObservation(projectId);
+    const previousHints = previous?.snapshot.inspection?.hints;
+    const effectiveHints = this.purposeBootstrapHints(work, hints ?? previousHints);
+    const needsPurposeBootstrapInspection =
+      !work.purposes.some((purpose) => purpose.confirmed) &&
+      !this.hasPurposeBootstrapInspection(previous?.snapshot);
     let probeKey: string;
     let snapshot: WorkspaceSnapshot;
     if (inspector.probeAsync || inspector.probe) {
@@ -504,7 +548,7 @@ export class Projects {
         ? await inspector.probeAsync(connection.cwd)
         : inspector.probe!(connection.cwd);
       probeKey = this.probeKey(probe);
-      if (previous?.probeKey === probeKey) {
+      if (previous?.probeKey === probeKey && !needsPurposeBootstrapInspection) {
         if (this.observationRequests.get(projectId) !== request)
           return this.latestSnapshot(projectId);
         return analyze
@@ -513,17 +557,14 @@ export class Projects {
       }
       snapshot = workspaceSnapshotSchema.parse(
         inspector.inspectAsync
-          ? await inspector.inspectAsync(
-              connection.cwd,
-              hints ?? previous?.snapshot.inspection?.hints,
-            )
-          : inspector.inspect(connection.cwd, hints ?? previous?.snapshot.inspection?.hints),
+          ? await inspector.inspectAsync(connection.cwd, effectiveHints)
+          : inspector.inspect(connection.cwd, effectiveHints),
       );
     } else {
       snapshot = workspaceSnapshotSchema.parse(
         inspector.inspectAsync
-          ? await inspector.inspectAsync(connection.cwd, hints)
-          : inspector.inspect(connection.cwd, hints),
+          ? await inspector.inspectAsync(connection.cwd, effectiveHints)
+          : inspector.inspect(connection.cwd, effectiveHints),
       );
       probeKey = this.inspectionKey(snapshot);
       if (previous?.probeKey === probeKey) {

@@ -116,6 +116,7 @@ export const projectExecutionCommandSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('reopen'), id: text }).strict(),
   z.object({ action: z.literal('correct'), key: text, text }).strict(),
   z.object({ action: z.literal('direction'), text, finish: z.boolean() }).strict(),
+  z.object({ action: z.literal('defer-direction') }).strict(),
   z.object({ action: z.literal('conflict'), description: text, source: text }).strict(),
   z.object({ action: z.literal('resolve-conflict'), requestId: text }).strict(),
   z

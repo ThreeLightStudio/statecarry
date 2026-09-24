@@ -355,6 +355,30 @@ describe('project decision loop', () => {
         .find((direction) => direction.state === 'active' && direction.primary)?.text,
     ).toBe('Keep all storage local.');
   });
+  it('records an explicit no-direction choice and clears it when a direction is later saved', async () => {
+    const f = fixture();
+
+    await f.command({ action: 'defer-direction' });
+    expect(f.core.projectModel.directionDeferred(f.id)).toBe(true);
+    expect(
+      f.core.projectModel
+        .directions(f.id)
+        .filter((direction) => direction.state === 'active' && direction.primary),
+    ).toEqual([]);
+
+    await f.command({
+      action: 'direction',
+      text: 'Improve project return decisions.',
+      finish: false,
+    });
+
+    expect(f.core.projectModel.directionDeferred(f.id)).toBe(false);
+    expect(
+      f.core.projectModel
+        .directions(f.id)
+        .find((direction) => direction.state === 'active' && direction.primary)?.text,
+    ).toBe('Improve project return decisions.');
+  });
   it('preserves the created conversation when the send outcome is unknown', async () => {
     const f = fixture();
     vi.mocked(f.session.send).mockRejectedValueOnce(new Error('Disconnected'));

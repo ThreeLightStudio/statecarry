@@ -987,6 +987,167 @@ describe('ProjectNow resolver', () => {
     });
   });
 
+  it('suggests a missing purpose from the current README without saving it automatically', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { purpose: '', goal: undefined });
+    const projectId = receipt.projectId;
+    h.repo.put('projectObservation', {
+      id: projectId,
+      projectId,
+      checkedAt: AT,
+      probeKey: 'probe-readme',
+      inspectionKey: 'inspection-readme',
+      semanticKey: 'readme-basis',
+      snapshot: {
+        cwd: '/tmp/example',
+        root: '/tmp/example',
+        branch: 'main',
+        commit: 'abc123',
+        dirty: false,
+        status: 'checked',
+        checkedAt: AT,
+        limitations: [],
+        files: [
+          {
+            path: 'README.md',
+            hash: 'readme-hash',
+            size: 200,
+            preview:
+              '<p><strong>Return to a project, understand where it stands, and choose what to do next.</strong></p>',
+            status: 'checked',
+            selection: 'related',
+          },
+        ],
+      },
+    });
+
+    const now = h.core.now.resolve(projectId);
+
+    expect(now.bootstrap).toMatchObject({
+      purposeSuggestion: {
+        text: 'Return to a project, understand where it stands, and choose what to do next.',
+        source: 'project-file',
+        detail: 'README.md',
+        basis: 'readme-basis',
+      },
+      directionDeferred: false,
+    });
+    expect(h.core.project(projectId).purposes).toEqual([]);
+  });
+
+  it('uses only current work proposals for a direction suggestion', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: undefined });
+    const projectId = receipt.projectId;
+    observe(h, projectId, 'current-tree-basis', true);
+    h.repo.put('workProposal', {
+      id: 'stale-proposal',
+      projectId,
+      proposal: {
+        ...proposal('stale-direction', 'active'),
+        source: 'working-tree-group',
+        title: 'Old direction that should not return',
+        evidenceBasis: 'old-tree-basis',
+      },
+      outputLanguage: 'en',
+      generatedAt: AT,
+    });
+
+    expect(h.core.now.resolve(projectId).bootstrap?.directionSuggestion).toBeNull();
+
+    h.core.workMatcher.replaceProposals(
+      projectId,
+      'working-tree-group',
+      [
+        {
+          ...proposal('current-direction', 'active'),
+          source: 'working-tree-group',
+          title: 'Improve the current return flow',
+          evidenceBasis: 'current-tree-basis',
+        },
+      ],
+      'en',
+    );
+
+    expect(h.core.now.resolve(projectId).bootstrap?.directionSuggestion).toMatchObject({
+      text: 'Improve the current return flow',
+      source: 'project-state',
+      basis: 'current-tree-basis',
+    });
+  });
+
+  it('keeps current work usable after the user explicitly leaves direction unset', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: undefined });
+    const projectId = receipt.projectId;
+    work(h, projectId, 'work-a', 'active', 'Continue the saved implementation');
+    select(h, projectId, 'work-a');
+    observe(h, projectId);
+
+    expect(h.core.now.resolve(projectId)).toMatchObject({
+      currentWorkId: 'work-a',
+      state: 'needs-direction',
+      next: { kind: 'define-direction' },
+    });
+
+    h.core.projectModel.deferDirection(projectId);
+    expect(h.core.now.resolve(projectId)).toMatchObject({
+      currentWorkId: 'work-a',
+      state: 'active',
+      next: { kind: 'continue-work', workItemId: 'work-a' },
+      bootstrap: { directionDeferred: true },
+    });
+
+    h.core.projectModel.setDirection(projectId, 'Finish the return flow.');
+    expect(h.core.projectModel.directionDeferred(projectId)).toBe(false);
+    expect(h.core.now.resolve(projectId)).toMatchObject({
+      primaryDirectionId: expect.any(String),
+      currentWorkId: 'work-a',
+    });
+  });
+
+  it('returns an idle readable project after choosing no current direction with no open work', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: undefined });
+    const projectId = receipt.projectId;
+    observe(h, projectId);
+
+    h.core.projectModel.deferDirection(projectId);
+
+    expect(h.core.now.resolve(projectId)).toMatchObject({
+      state: 'idle',
+      primaryDirectionId: null,
+      currentWorkId: null,
+      next: null,
+      bootstrap: { directionDeferred: true },
+    });
+  });
+
+  it('does not rank competing work after the user leaves direction unset', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: undefined });
+    const projectId = receipt.projectId;
+    work(h, projectId, 'current', 'waiting', 'Wait for an external result');
+    work(h, projectId, 'other', 'active', 'Independent follow-up');
+    select(h, projectId, 'current');
+    observe(h, projectId);
+
+    h.core.projectModel.deferDirection(projectId);
+    const now = h.core.now.resolve(projectId);
+
+    expect(now).toMatchObject({
+      currentWorkId: 'current',
+      state: 'waiting',
+      bootstrap: { directionDeferred: true },
+      recommendation: {
+        status: 'insufficient-evidence',
+        candidate: null,
+        reason: 'A confirmed current direction is not available to rank this work.',
+      },
+    });
+    expect(now.next).toBeNull();
+  });
+
   it('keeps unmatched legacy analysis out of the current-work resolver', () => {
     const h = harness();
     const { receipt } = registerProject(h, { goal: 'Improve project return.' });
@@ -1009,6 +1170,7 @@ describe('ProjectNow resolver', () => {
       state: 'choose-next-work',
       next: { kind: 'choose-next-work' },
       otherWorkCount: 0,
+      bootstrap: { directionSuggestion: null },
       proposalMatches: [],
     });
     expect(h.repo.list('workItem')).toEqual([]);

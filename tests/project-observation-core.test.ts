@@ -629,6 +629,60 @@ describe('project observation reuse', () => {
     ).toEqual(savedDecisions);
   });
 
+  it('re-inspects an unchanged project for README purpose context when purpose becomes missing', async () => {
+    const repo = new MemoryRepository();
+    let inspections = 0;
+    const seenHints: Array<unknown> = [];
+    const inspector: ProjectInspector = {
+      probe: (cwd) => ({
+        cwd,
+        root: cwd,
+        branch: 'main',
+        commit: 'abcdef',
+        statusFingerprint: 'same-probe',
+        status: 'checked',
+        checkedAt: AT,
+        limitations: [],
+      }),
+      inspect: (_cwd, hints) => {
+        inspections++;
+        seenHints.push(hints);
+        return {
+          ...cleanSnapshot(),
+          files:
+            inspections === 1
+              ? []
+              : [
+                  {
+                    path: 'README.md',
+                    hash: 'readme',
+                    size: 80,
+                    preview: 'A project that makes interrupted work easier to resume.',
+                    status: 'checked' as const,
+                    selection: 'related' as const,
+                  },
+                ],
+        };
+      },
+    };
+    const { core } = coreWithObservation(repo, inspector, vi.fn());
+    const projectId = register(core);
+
+    await core.projects.observe(projectId, 'en', undefined, false);
+    expect(inspections).toBe(1);
+    repo.put('project', { ...core.project(projectId), purposes: [] });
+
+    await core.projects.observe(projectId, 'en', undefined, false);
+
+    expect(inspections).toBe(2);
+    expect(seenHints[1]).toMatchObject({
+      paths: expect.arrayContaining(['README.md', 'package.json']),
+    });
+    expect(core.now.resolve(projectId).bootstrap?.purposeSuggestion?.text).toBe(
+      'A project that makes interrupted work easier to resume.',
+    );
+  });
+
   it('reads legacy cached source IDs and reanalyzes malformed cache without losing selected work', async () => {
     const repo = new MemoryRepository();
     const observed = inspectorFixture();

@@ -96,19 +96,73 @@ function DirectionAction({
 }: Omit<Props, 'edits' | 'actionKind' | 'mode' | 'requestId' | 'selectionKey' | 'onVerify'>) {
   const conflict =
     data?.record.policyConflict?.status === 'open' ? data.record.policyConflict : null;
-  const savedDirection = view.direction?.text ?? data?.record.direction?.text ?? project.goal ?? '';
+  const suggestedDirection = view.bootstrap.directionSuggestion?.text ?? '';
+  const savedGoal =
+    !view.bootstrap.directionDeferred && project.goalConfirmed ? project.goal.trim() || null : null;
+  const savedDirection = conflict
+    ? (view.direction?.text ?? data?.record.direction?.text ?? savedGoal ?? suggestedDirection)
+    : (view.direction?.text ?? savedGoal ?? suggestedDirection);
   const [text, setText] = useState(savedDirection);
   const initialized = useRef(!!savedDirection);
+  const [purposeText, setPurposeText] = useState(
+    project.purpose || view.bootstrap.purposeSuggestion?.text || '',
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (initialized.current) return;
-    const next = view.direction?.text ?? data?.record.direction?.text ?? project.goal ?? '';
+    const next = conflict
+      ? (view.direction?.text ??
+        data?.record.direction?.text ??
+        savedGoal ??
+        view.bootstrap.directionSuggestion?.text ??
+        '')
+      : (view.direction?.text ?? savedGoal ?? view.bootstrap.directionSuggestion?.text ?? '');
     if (!next) return;
     initialized.current = true;
     setText(next);
-  }, [data?.record.direction?.text, project.goal, view.direction?.text]);
+  }, [
+    data?.record.direction?.text,
+    savedGoal,
+    view.bootstrap.directionSuggestion?.text,
+    view.direction?.text,
+  ]);
+
+  useEffect(() => {
+    if (project.purpose) {
+      setPurposeText(project.purpose);
+      return;
+    }
+    if (!purposeText && view.bootstrap.purposeSuggestion?.text)
+      setPurposeText(view.bootstrap.purposeSuggestion.text);
+  }, [project.purpose, purposeText, view.bootstrap.purposeSuggestion?.text]);
+
+  const savePurpose = async () => {
+    const purpose = purposeText.trim();
+    if (!purpose || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const saved = await controller.settings(
+        project.id,
+        {
+          title: project.title,
+          purpose,
+          responseLanguage: project.responseLanguage ?? 'en',
+          focused: project.focused,
+          iconAsset: project.iconAsset,
+          bannerAsset: project.bannerAsset,
+        },
+        project.revision,
+      );
+      if (saved) await controller.readProjectNow(project.id);
+    } catch (cause) {
+      setError(projectError(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const save = async (finish = false) => {
     const direction = text.trim();
@@ -129,7 +183,51 @@ function DirectionAction({
     }
   };
 
+  const deferDirection = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      await controller.projectDecision(project.id, { action: 'defer-direction' });
+      await controller.readProjectNow(project.id);
+      onBack();
+    } catch (cause) {
+      setError(projectError(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!data) return <p role="status">Reading saved project state…</p>;
+
+  if (!conflict && !project.purpose)
+    return (
+      <section className="pw-decision-direction" aria-label="Set project purpose">
+        <section className="pw-direction-bootstrap" aria-label="Project purpose">
+          <div>
+            <h3>Project purpose</h3>
+            <p>
+              {view.bootstrap.purposeSuggestion
+                ? `StateCarry suggested this from ${view.bootstrap.purposeSuggestion.detail}. Review or edit it before saving.`
+                : 'Describe what this project should make possible. StateCarry will use it to explain why work matters.'}
+            </p>
+          </div>
+          <label className="pw-field">
+            Project purpose
+            <Textarea
+              maxLength={1200}
+              value={purposeText}
+              placeholder="What should this project make possible?"
+              onChange={(event) => setPurposeText(event.target.value)}
+            />
+          </label>
+          <Button disabled={busy || !purposeText.trim()} onClick={() => void savePurpose()}>
+            Save project purpose
+          </Button>
+        </section>
+        <ActionError value={error} />
+      </section>
+    );
 
   return (
     <section className="pw-decision-direction" aria-label="Review project direction">
@@ -140,24 +238,46 @@ function DirectionAction({
           <p className="pw-small">Source: {conflict.source}</p>
         </div>
       ) : (
-        <p>{project.purpose || 'No project purpose has been recorded.'}</p>
+        <>
+          <p>{project.purpose}</p>
+          {!view.direction && view.bootstrap.directionSuggestion && (
+            <p className="pw-small">
+              Suggested from {view.bootstrap.directionSuggestion.detail}. Edit it before saving if
+              the broader direction is different.
+            </p>
+          )}
+        </>
       )}
       <label className="pw-field">
-        Direction to confirm
-        <Textarea maxLength={400} value={text} onChange={(event) => setText(event.target.value)} />
+        Current direction
+        <Textarea
+          maxLength={400}
+          value={text}
+          placeholder="What result are you focusing on now?"
+          onChange={(event) => setText(event.target.value)}
+        />
       </label>
       <div className="pw-actions">
         <Button disabled={busy || !text.trim()} onClick={() => void save(false)}>
-          {conflict ? 'Save a different direction' : 'Save direction'}
+          {conflict
+            ? 'Save a different direction'
+            : view.direction
+              ? 'Save direction'
+              : 'Use this direction'}
         </Button>
         {conflict && (
           <Button variant="outline" disabled={busy} onClick={onPolicy}>
             Review a policy change
           </Button>
         )}
-        {!conflict && (
+        {!conflict && !view.direction && (
+          <Button variant="ghost" disabled={busy} onClick={() => void deferDirection()}>
+            No current direction
+          </Button>
+        )}
+        {!conflict && view.direction && (
           <Button variant="ghost" disabled={busy || !text.trim()} onClick={() => void save(true)}>
-            Finish here without a new task
+            Finish this direction
           </Button>
         )}
       </div>

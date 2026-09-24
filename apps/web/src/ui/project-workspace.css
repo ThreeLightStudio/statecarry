@@ -1914,6 +1914,20 @@
   padding-left: 1rem;
   margin-block: 1.25rem;
 }
+.pw-direction-bootstrap {
+  display: grid;
+  gap: 0.8rem;
+  border-block: 1px solid var(--border);
+  padding-block: 1rem;
+  margin-block: 1rem 1.5rem;
+}
+.pw-direction-bootstrap h3,
+.pw-direction-bootstrap p {
+  margin: 0;
+}
+.pw-direction-bootstrap > .pw-button {
+  width: fit-content;
+}
 .pw-decision-scopes {
   border: 0;
   padding: 0;

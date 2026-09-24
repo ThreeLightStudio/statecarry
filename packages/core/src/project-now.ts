@@ -7,6 +7,7 @@ import {
   type Continuation,
   type ProjectNow,
   type ProjectNowAction,
+  type ProjectNowBootstrap,
   type ProjectNowNotice,
   type ProjectNowOtherWorkCounts,
   type ProjectNowRecommendation,
@@ -72,6 +73,69 @@ function decisionString(decision: WorkDecision | null, key: string): string | nu
 function nowState(item: WorkItem): ProjectNow['state'] {
   if (item.state === 'completed') return 'complete';
   return item.state;
+}
+
+function readmePurpose(text: string, projectTitle: string): string | null {
+  const normalized = text
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/<img\b[^>]*>/gi, ' ')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/[`*_~]/g, '')
+    .replace(/\r/g, '');
+  const title = projectTitle.trim().toLowerCase();
+  for (const raw of normalized.split('\n')) {
+    const line = raw
+      .replace(/^#+\s*/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (line.length < 20 || line.length > 500) continue;
+    if (line.toLowerCase() === title) continue;
+    if (/^(website|download|docs?|license|install|installation)\b/i.test(line)) continue;
+    if (/https?:\/\//i.test(line) || /shields\.io/i.test(line)) continue;
+    const sentence = line.match(/^.*?[.!?](?:\s|$)/)?.[0]?.trim() ?? line;
+    if (sentence.length >= 20) return sentence.slice(0, 360);
+  }
+  return null;
+}
+
+function purposeSuggestion(model: ProjectModelView): ProjectNowBootstrap['purposeSuggestion'] {
+  if (model.project.purposes.some((purpose) => purpose.confirmed)) return null;
+  const observation = model.latestObservation;
+  if (!observation || observation.snapshot.status !== 'checked') return null;
+  const files = observation.snapshot.files ?? [];
+  const readme = files
+    .filter(
+      (file) =>
+        file.status === 'checked' && !!file.preview && /(^|\/)readme(?:\.[^/]+)?$/i.test(file.path),
+    )
+    .sort(
+      (a, b) => a.path.split('/').length - b.path.split('/').length || a.path.localeCompare(b.path),
+    )[0];
+  if (readme?.preview) {
+    const text = readmePurpose(readme.preview, model.project.title);
+    if (text)
+      return { text, source: 'project-file', detail: readme.path, basis: observation.semanticKey };
+  }
+  const packageFile = files.find(
+    (file) =>
+      file.status === 'checked' && !!file.preview && /(^|\/)package\.json$/i.test(file.path),
+  );
+  if (packageFile?.preview)
+    try {
+      const description = JSON.parse(packageFile.preview).description;
+      if (typeof description === 'string' && description.trim().length >= 20)
+        return {
+          text: description.trim().slice(0, 360),
+          source: 'project-file',
+          detail: packageFile.path,
+          basis: observation.semanticKey,
+        };
+    } catch {
+      // A truncated package file is simply not a bootstrap source.
+    }
+  return null;
 }
 
 function evidenceReviewAction(
@@ -379,6 +443,54 @@ export class ProjectNowResolver {
     };
   }
 
+  private bootstrap(
+    model: ProjectModelView,
+    current: WorkItem | null,
+    primaryDirection: ProjectModelView['directions'][number] | undefined,
+    matches: WorkProposalMatch[],
+  ): ProjectNowBootstrap {
+    const directionDeferred = this.core.projectModel.directionDeferred(model.project.id);
+    let directionSuggestion: ProjectNowBootstrap['directionSuggestion'] = null;
+    if (!primaryDirection && !directionDeferred) {
+      const observationBasis = model.latestObservation?.semanticKey ?? null;
+      if (current && isOpenWork(current))
+        directionSuggestion = {
+          text: current.title,
+          source: 'current-work',
+          detail: 'the work you already selected',
+          basis: observationBasis ?? `work:${current.id}:${current.updatedAt}`,
+        };
+      else {
+        const open = model.workItems.filter(isOpenWork);
+        if (open.length === 1)
+          directionSuggestion = {
+            text: open[0].title,
+            source: 'current-work',
+            detail: 'the only unfinished saved work',
+            basis: observationBasis ?? `work:${open[0].id}:${open[0].updatedAt}`,
+          };
+        else {
+          const choices = matches
+            .filter(isUnlinkedWorkProposalMatch)
+            .filter(
+              (match) =>
+                classifyWorkProposalMatches([match]) === 'progress' &&
+                (match.proposal.state === 'active' || match.proposal.state === 'paused'),
+            );
+          if (choices.length === 1)
+            directionSuggestion = {
+              text: choices[0].proposal.title,
+              source: 'project-state',
+              detail: 'the current project analysis',
+              basis:
+                choices[0].proposal.evidenceBasis ?? observationBasis ?? 'current-project-state',
+            };
+        }
+      }
+    }
+    return { purposeSuggestion: purposeSuggestion(model), directionSuggestion, directionDeferred };
+  }
+
   private recommendationCandidateIsReady(
     candidate: ProjectNowWorkCandidate,
     model: ProjectModelView,
@@ -502,6 +614,7 @@ export class ProjectNowResolver {
         : this.core.workMatcher.hasStaleProposals(projectId)
           ? ('changed' as const)
           : ('current' as const);
+    const bootstrap = this.bootstrap(model, current, primaryDirection, matches);
 
     if (model.project.lifecycle === 'disconnected')
       return {
@@ -525,6 +638,7 @@ export class ProjectNowResolver {
               ? 'unselected'
               : 'not-applicable',
         ),
+        bootstrap,
         freshness: 'unknown',
         proposalMatches: matches,
       };
@@ -610,6 +724,7 @@ export class ProjectNowResolver {
         otherWorkCounts,
         otherWorkCandidates,
         recommendation,
+        bootstrap,
         freshness,
         proposalMatches: matches,
       };
@@ -639,6 +754,7 @@ export class ProjectNowResolver {
           otherWorkCounts,
           otherWorkCandidates,
           recommendation,
+          bootstrap,
           freshness,
           proposalMatches: matches,
         };
@@ -665,6 +781,7 @@ export class ProjectNowResolver {
           otherWorkCounts,
           otherWorkCandidates,
           recommendation,
+          bootstrap,
           freshness,
           proposalMatches: matches,
         };
@@ -696,6 +813,33 @@ export class ProjectNowResolver {
             otherWorkCounts,
             otherWorkCandidates,
             recommendation,
+            bootstrap,
+            freshness,
+            proposalMatches: matches,
+          };
+        if (bootstrap.directionDeferred)
+          return {
+            projectId,
+            primaryDirectionId: null,
+            currentWorkId: null,
+            currentWorkSelection: null,
+            state: 'idle',
+            currentState: 'No current direction is set. Saved project context remains available.',
+            uncertainty: null,
+            next: releaseAttention
+              ? {
+                  kind: 'review-release',
+                  releaseId: releaseAttention.releaseId ?? undefined,
+                  text: 'Review release and delivery state.',
+                }
+              : null,
+            secondaryActions: [],
+            notice,
+            otherWorkCount,
+            otherWorkCounts,
+            otherWorkCandidates,
+            recommendation,
+            bootstrap,
             freshness,
             proposalMatches: matches,
           };
@@ -714,6 +858,7 @@ export class ProjectNowResolver {
           otherWorkCounts,
           otherWorkCandidates,
           recommendation,
+          bootstrap,
           freshness,
           proposalMatches: matches,
         };
@@ -740,6 +885,7 @@ export class ProjectNowResolver {
         otherWorkCounts,
         otherWorkCandidates,
         recommendation,
+        bootstrap,
         freshness,
         proposalMatches: matches,
       };
@@ -805,14 +951,16 @@ export class ProjectNowResolver {
         requestId: currentResult.request.id,
         text: `Review the result for ${current.title}.`,
       };
-    } else if (!primaryDirection) {
+    } else if (!primaryDirection && !bootstrap.directionDeferred) {
       state = 'needs-direction';
       next = {
         kind: 'define-direction',
         text: 'Confirm or define the current direction before choosing what should come next.',
       };
     } else if (current.state === 'completed') {
-      const queued = this.queuedNext(current, model.workItems, model.relations);
+      const queued = bootstrap.directionDeferred
+        ? undefined
+        : this.queuedNext(current, model.workItems, model.relations);
       if (queued?.item) {
         const queuedReviewAction = evidenceReviewAction(
           queued.item,
@@ -885,7 +1033,9 @@ export class ProjectNowResolver {
     } else if (current.state === 'stopped') {
       next = primaryDirection
         ? { kind: 'choose-next-work', text: 'Decide the next work for this direction.' }
-        : { kind: 'define-direction', text: 'Confirm or define the current direction.' };
+        : bootstrap.directionDeferred
+          ? null
+          : { kind: 'define-direction', text: 'Confirm or define the current direction.' };
     } else if (current.state === 'review') {
       next = { kind: 'review-work', workItemId: current.id, text: `Review ${current.title}.` };
       secondaryActions.push({
@@ -955,6 +1105,7 @@ export class ProjectNowResolver {
       otherWorkCounts,
       otherWorkCandidates,
       recommendation,
+      bootstrap,
       freshness: finalFreshness,
       proposalMatches: matches,
     };

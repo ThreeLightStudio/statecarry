@@ -54,6 +54,45 @@ async function serverFixture() {
 }
 
 describe('project workspace HTTP contract', () => {
+  it('persists an explicit no-current-direction choice through the execution API', async () => {
+    const { h, call, close } = await serverFixture();
+    const created = h.core.projects.create({
+      requestId: 'create-direction-bootstrap-http',
+      expectedRevision: 0,
+      payload: {
+        title: 'Direction bootstrap',
+        cwd: '/tmp/direction-bootstrap',
+        purpose: 'Keep saved project context usable.',
+        threadIds: [],
+        discover: false,
+      },
+    });
+    const id = created.projectId;
+    try {
+      const execution = await call<{ record: { version: number } }>(`/projects/${id}/execution`);
+      expect(execution.status).toBe(200);
+
+      const deferred = await call<{ record: { version: number } }>(
+        `/projects/${id}/execution`,
+        'POST',
+        { expectedVersion: execution.body.record.version, command: { action: 'defer-direction' } },
+      );
+      expect(deferred.status).toBe(200);
+      expect(h.core.projectModel.directionDeferred(id)).toBe(true);
+
+      const now = await call<{ now: ProjectNow }>(`/projects/${id}/now`);
+      expect(now.status).toBe(200);
+      expect(now.body.now).toMatchObject({
+        state: 'idle',
+        primaryDirectionId: null,
+        next: null,
+        bootstrap: { directionDeferred: true },
+      });
+    } finally {
+      await close();
+    }
+  });
+
   it('does not expose retired routes or execution preparation aliases', async () => {
     const { h, call, close } = await serverFixture();
     const id = h.connect();

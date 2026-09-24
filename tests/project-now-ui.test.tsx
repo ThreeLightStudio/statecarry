@@ -1821,7 +1821,155 @@ it('opens Define direction in direction mode even when the legacy decision view 
     await settle();
     await settle();
     expect(mounted.host.querySelector('.pw-decision-direction')).toBeTruthy();
-    expect(mounted.host.textContent).toContain('Direction to confirm');
+    expect(mounted.host.textContent).toContain('Current direction');
+    expect(
+      mounted.host.querySelector<HTMLTextAreaElement>(
+        '[aria-label="Review project direction"] textarea',
+      )?.value,
+    ).toBe('Ship the alpha export');
+  } finally {
+    await mounted.unmount();
+  }
+});
+
+it('prefills missing purpose and direction from current bootstrap evidence and allows no direction', async () => {
+  const entry = projectEntry('alpha');
+  entry.purpose = '';
+  if (entry.analysis) entry.analysis.goalText = '';
+  const h = projectUiFixture([entry]);
+  const data = bundle();
+  data.model.project.purposes = [];
+  data.model.directions = [];
+  data.model.workItems = [];
+  const saveSettings = h.projectGateway.settings!;
+  h.projectGateway.settings = vi.fn(async (id, revision, input) => {
+    const row = h.rows.projects.find((item) => item.projectId === id)!;
+    row.purpose = input.purpose;
+    row.revision = revision + 1;
+    data.model.project.purposes = input.purpose
+      ? [{ id: 'purpose-alpha', text: input.purpose, origin: 'user' as const, confirmed: true }]
+      : [];
+    return saveSettings(id, revision, input);
+  });
+  h.projectGateway.now = vi.fn(async () => ({
+    initialized: true,
+    model: structuredClone(data.model),
+    now: {
+      projectId: 'alpha',
+      primaryDirectionId: null,
+      currentWorkId: null,
+      currentWorkSelection: null,
+      state: 'needs-direction' as const,
+      currentState: 'No confirmed current direction is available.',
+      uncertainty: null,
+      next: { kind: 'define-direction' as const, text: 'Confirm or define the current direction.' },
+      secondaryActions: [],
+      notice: null,
+      otherWorkCount: 0,
+      otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
+      otherWorkCandidates: [],
+      recommendation: noRecommendation,
+      bootstrap: {
+        purposeSuggestion: {
+          text: 'Help developers return to interrupted work and choose what to do next.',
+          source: 'project-file' as const,
+          detail: 'README.md',
+          basis: 'current-basis',
+        },
+        directionSuggestion: {
+          text: 'Improve the project return and recommendation flow',
+          source: 'project-state' as const,
+          detail: 'the current project analysis',
+          basis: 'current-basis',
+        },
+        directionDeferred: false,
+      },
+      freshness: 'current' as const,
+      proposalMatches: [],
+    },
+  }));
+  h.projectGateway.execution = vi.fn(async () => decision());
+  window.history.replaceState(null, '', '#/project/alpha');
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
+  try {
+    await press(mounted.host, 'Define direction');
+    await settle();
+    await settle();
+
+    expect(mounted.host.textContent).toContain(
+      'StateCarry suggested this from README.md. Review or edit it before saving.',
+    );
+    const textareas = mounted.host.querySelectorAll<HTMLTextAreaElement>(
+      '[aria-label="Set project purpose"] textarea',
+    );
+    expect(textareas).toHaveLength(1);
+    expect(textareas[0].value).toBe(
+      'Help developers return to interrupted work and choose what to do next.',
+    );
+
+    await press(mounted.host, 'Save project purpose');
+    expect(h.projectGateway.settings).toHaveBeenCalledWith(
+      'alpha',
+      7,
+      expect.objectContaining({
+        purpose: 'Help developers return to interrupted work and choose what to do next.',
+      }),
+    );
+    await settle();
+    await settle();
+
+    expect(mounted.host.textContent).toContain(
+      'Suggested from the current project analysis. Edit it before saving if the broader direction is different.',
+    );
+    const direction = mounted.host.querySelector<HTMLTextAreaElement>(
+      '[aria-label="Review project direction"] textarea',
+    );
+    expect(direction?.value).toBe('Improve the project return and recommendation flow');
+
+    await press(mounted.host, 'No current direction');
+    expect(vi.mocked(h.projectGateway.execution).mock.calls.at(-1)?.[1]).toEqual({
+      action: 'defer-direction',
+    });
+  } finally {
+    await mounted.unmount();
+  }
+});
+
+it('keeps an explicit no-direction choice from reviving a legacy goal in the project header', async () => {
+  const entry = projectEntry('alpha');
+  entry.purpose = 'Help developers return to interrupted work.';
+  const h = projectUiFixture([entry]);
+  const data = bundle();
+  data.model.directions = [];
+  h.projectGateway.now = vi.fn(async () => ({
+    initialized: true,
+    model: structuredClone(data.model),
+    now: {
+      projectId: 'alpha',
+      primaryDirectionId: null,
+      currentWorkId: null,
+      currentWorkSelection: null,
+      state: 'idle' as const,
+      currentState: 'No current direction is set. Saved project context remains available.',
+      uncertainty: null,
+      next: null,
+      secondaryActions: [],
+      notice: null,
+      otherWorkCount: 0,
+      otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
+      otherWorkCandidates: [],
+      recommendation: noRecommendation,
+      bootstrap: { purposeSuggestion: null, directionSuggestion: null, directionDeferred: true },
+      freshness: 'current' as const,
+      proposalMatches: [],
+    },
+  }));
+  window.history.replaceState(null, '', '#/project/alpha');
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
+  try {
+    const direction = mounted.host.querySelector('[aria-label="Project direction"]');
+    expect(direction?.textContent).toContain('Help developers return to interrupted work.');
+    expect(direction?.textContent).not.toContain('Ship the alpha export');
   } finally {
     await mounted.unmount();
   }

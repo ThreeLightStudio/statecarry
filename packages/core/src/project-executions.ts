@@ -300,6 +300,9 @@ export class ProjectExecutions {
       case 'direction':
         this.core.projectModel.setDirection(id, input.text, input.finish);
         break;
+      case 'defer-direction':
+        this.core.projectModel.deferDirection(id);
+        break;
       case 'conflict':
         this.save(id, (r) => ({
           ...r,

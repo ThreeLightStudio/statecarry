@@ -55,6 +55,13 @@ export class ProjectModel {
     )
       return this.view(projectId);
     this.core.repo.transaction(() => {
+      for (const decision of this.core.repo.list('workDecision'))
+        if (
+          decision.projectId === projectId &&
+          decision.kind === workDecisionKinds.noCurrentDirection &&
+          decision.state === 'valid'
+        )
+          this.core.repo.put('workDecision', { ...decision, state: 'superseded' });
       for (const direction of active) {
         if (direction.id === current?.id && direction.text === text) continue;
         this.core.repo.put('direction', {
@@ -88,6 +95,53 @@ export class ProjectModel {
             ...(finish ? { endedAt: now } : {}),
           }),
         );
+    });
+    if (emit) this.core.events.changed(projectId);
+    return this.view(projectId);
+  }
+
+  directionDeferred(projectId: string): boolean {
+    this.project(projectId);
+    return this.core.repo
+      .list('workDecision')
+      .some(
+        (decision) =>
+          decision.projectId === projectId &&
+          decision.kind === workDecisionKinds.noCurrentDirection &&
+          decision.state === 'valid',
+      );
+  }
+
+  deferDirection(projectId: string, emit = true): ProjectModelView {
+    this.project(projectId);
+    if (this.directionDeferred(projectId)) return this.view(projectId);
+    const now = this.core.clock.now();
+    this.core.repo.transaction(() => {
+      for (const direction of this.core.repo.list('direction'))
+        if (direction.projectId === projectId && direction.state === 'active')
+          this.core.repo.put('direction', {
+            ...direction,
+            state: 'stopped',
+            primary: false,
+            endedAt: now,
+          });
+      for (const decision of this.core.repo.list('workDecision'))
+        if (
+          decision.projectId === projectId &&
+          decision.kind === workDecisionKinds.noCurrentDirection &&
+          decision.state === 'valid'
+        )
+          this.core.repo.put('workDecision', { ...decision, state: 'superseded' });
+      this.core.repo.put('workDecision', {
+        id: this.core.ids.next(),
+        projectId,
+        workItemId: null,
+        kind: workDecisionKinds.noCurrentDirection,
+        value: {},
+        basis: [],
+        state: 'valid',
+        decidedAt: now,
+      });
     });
     if (emit) this.core.events.changed(projectId);
     return this.view(projectId);

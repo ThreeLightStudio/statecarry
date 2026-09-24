@@ -189,6 +189,7 @@ export const workDecisionKinds = {
   linkWorkProposal: 'link-work-proposal',
   executionForWork: 'execution-for-work',
   continueDirectionConflict: 'continue-direction-conflict',
+  noCurrentDirection: 'no-current-direction',
   pauseWork: 'pause-work',
   resumeWork: 'resume-work',
   completeWork: 'complete-work',
@@ -378,6 +379,19 @@ export type ProjectNowRecommendation =
       evidenceGaps: [];
     });
 
+export type ProjectNowBootstrapSuggestion = {
+  text: string;
+  source: 'project-file' | 'current-work' | 'project-state';
+  detail: string;
+  basis: string;
+};
+
+export type ProjectNowBootstrap = {
+  purposeSuggestion: ProjectNowBootstrapSuggestion | null;
+  directionSuggestion: ProjectNowBootstrapSuggestion | null;
+  directionDeferred: boolean;
+};
+
 export type ProjectNow = {
   projectId: string;
   primaryDirectionId: string | null;
@@ -405,6 +419,7 @@ export type ProjectNow = {
   otherWorkCounts: ProjectNowOtherWorkCounts;
   otherWorkCandidates: ProjectNowWorkCandidate[];
   recommendation: ProjectNowRecommendation;
+  bootstrap?: ProjectNowBootstrap;
   freshness: 'current' | 'checking' | 'changed' | 'unknown';
   proposalMatches: WorkProposalMatch[];
 };

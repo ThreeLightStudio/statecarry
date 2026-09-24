@@ -1608,7 +1608,12 @@ function ProjectNowProjectPage({
 
       <section className="pw-now-direction" aria-label="Project direction">
         <span className="pw-small">Current direction</span>
-        <p>{view?.direction?.text ?? (project.goal || project.purpose || 'No direction set.')}</p>
+        <p>
+          {view?.direction?.text ??
+            ((!view?.bootstrap.directionDeferred && project.goal) ||
+              project.purpose ||
+              'No direction set.')}
+        </p>
         {view && view.state !== 'disconnected' && (
           <Button
             className="pw-button pw-button--quiet"
