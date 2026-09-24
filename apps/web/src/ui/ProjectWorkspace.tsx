@@ -1573,6 +1573,12 @@ function ProjectNowProjectPage({
     setOtherOpen(false);
   };
 
+  const recommendationUsesPrimaryAction =
+    view?.recommendation.status === 'recommended' &&
+    view.recommendation.candidate?.source === 'work-item' &&
+    view.primaryAction?.kind === 'start-work' &&
+    view.primaryAction.workItemId === view.recommendation.candidate.id;
+
   return (
     <div className="pw-project-detail pw-project-now-page">
       <RouteLink className="pw-project-back" href="#/projects" onNavigate={onNavigate}>
@@ -1738,13 +1744,15 @@ function ProjectNowProjectPage({
                     <p>{view.recommendation.evidenceText}</p>
                   </details>
                 )}
-                <Button
-                  className="pw-button pw-button--primary"
-                  disabled={busy}
-                  onClick={() => void chooseRecommendation()}
-                >
-                  Choose this work
-                </Button>
+                {!recommendationUsesPrimaryAction && (
+                  <Button
+                    className="pw-button pw-button--primary"
+                    disabled={busy}
+                    onClick={() => void chooseRecommendation()}
+                  >
+                    Choose this work
+                  </Button>
+                )}
               </section>
             )}
 

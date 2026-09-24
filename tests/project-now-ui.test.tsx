@@ -1236,7 +1236,7 @@ it('switches durable current work from the Other work disclosure without changin
   }
 });
 
-it('shows the Core recommendation and changes current work only after the user chooses it', async () => {
+it('shows the Core recommendation without duplicating its primary start action', async () => {
   const h = projectUiFixture([projectEntry('alpha')]);
   const data = bundle();
   let currentWork = 'work-a';
@@ -1285,6 +1285,88 @@ it('shows the Core recommendation and changes current work only after the user c
     expect(recommendation?.textContent).toContain(
       'It has a return point for the latest checked project state.',
     );
+    expect(h.projectGateway.selectWork).not.toHaveBeenCalled();
+    expect(mounted.host.textContent).not.toContain('Choose this work');
+
+    await press(mounted.host, 'Start work');
+
+    expect(h.projectGateway.selectWork).toHaveBeenCalledWith('alpha', 7, 'work-b');
+    expect(mounted.host.querySelector('#pw-now-work-title')?.textContent).toBe(
+      'Small follow-up cleanup',
+    );
+  } finally {
+    await mounted.unmount();
+  }
+});
+
+it('keeps a direct recommendation choice when no current work is selected', async () => {
+  const h = projectUiFixture([projectEntry('alpha')]);
+  const data = bundle();
+  let currentWork: string | null = null;
+  h.projectGateway.now = vi.fn(async () => {
+    if (currentWork) {
+      return {
+        initialized: true,
+        model: structuredClone(data.model),
+        now: data.current(currentWork),
+      };
+    }
+    return {
+      initialized: true,
+      model: structuredClone(data.model),
+      now: {
+        projectId: 'alpha',
+        primaryDirectionId: 'direction-alpha',
+        currentWorkId: null,
+        currentWorkSelection: null,
+        state: 'choose-work' as const,
+        currentState: 'Several pieces of work are available, but none is selected as current.',
+        uncertainty: null,
+        next: {
+          kind: 'choose-current-work' as const,
+          text: 'Choose which work is current before continuing.',
+        },
+        secondaryActions: [],
+        notice: null,
+        otherWorkCount: 2,
+        otherWorkCounts: { total: 2, progress: 2, completionReview: 0, evidenceConflict: 0 },
+        otherWorkCandidates: data.model.workItems.map((item) => ({
+          id: item.id,
+          title: item.title,
+          state: item.state,
+          source: 'work-item' as const,
+          disposition: 'progress' as const,
+        })),
+        recommendation: {
+          status: 'recommended' as const,
+          candidate: {
+            id: 'work-b',
+            title: 'Small follow-up cleanup',
+            state: 'paused' as const,
+            source: 'work-item' as const,
+            disposition: 'progress' as const,
+          },
+          action: 'select-work-item' as const,
+          reason: 'It has the clearest saved return point.',
+          confidence: 'medium' as const,
+          close: false,
+          closeAlternatives: [],
+          selectionState: 'unselected' as const,
+          evidenceGaps: ['user-impact' as const],
+        },
+        freshness: 'current' as const,
+        proposalMatches: [],
+      },
+    };
+  });
+  h.projectGateway.selectWork = vi.fn(async (_id, _revision, workItemId) => {
+    currentWork = workItemId;
+    return structuredClone(data.model);
+  });
+  window.history.replaceState(null, '', '#/project/alpha');
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
+  try {
+    expect(mounted.host.textContent).toContain('Choose this work');
     expect(h.projectGateway.selectWork).not.toHaveBeenCalled();
 
     await press(mounted.host, 'Choose this work');
