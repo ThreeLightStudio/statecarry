@@ -7,3 +7,4 @@
 - Before running `pnpm desktop:build:stable`, load the local release credentials with `source ~/.config/statecarry/release-env.zsh`. Keep that file and the referenced Apple `.p8` key outside the repository.
 - Follow `docs/ui-principles.md` before changing layout, navigation, hierarchy, interaction, loading behavior, component composition, or visual emphasis. Audit product intent, task, IA, state, hierarchy, and generative-UI drift before theme polish.
 - Follow `docs/ux-writing.md` for active user-facing copy, including labels, statuses, errors, notices, helper text, and presentation strings that can reach the UI.
+- The `impeccable` skill (`.agents/skills/impeccable/`, see `PRODUCT.md`) is the visual-craft and audit layer. When it suggests a change to IA, interaction, or copy, `docs/ui-principles.md` and `docs/ux-writing.md` win; record the conflict instead of silently diverging.
