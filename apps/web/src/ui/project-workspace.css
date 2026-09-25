@@ -96,15 +96,12 @@
 
 .pw-brand-mark {
   @apply relative block size-10 shrink-0 overflow-hidden rounded-[12px];
-  background: linear-gradient(145deg, #111a35, #070a14 70%);
-  box-shadow:
-    inset 0 0 0 1px rgb(255 255 255 / 0.08),
-    0 2px 8px rgb(15 23 42 / 0.12);
+  background: var(--brand-mark-bg);
 }
 
 .pw-brand-flow {
   @apply absolute block;
-  background: linear-gradient(90deg, #b55cff 0%, #2f8cff 55%, #3ee0f2 100%);
+  background: var(--brand-flow-bg);
 }
 
 .pw-brand-flow--lead {
@@ -127,7 +124,7 @@
   position: absolute;
   inset: 4px;
   border-radius: 999px;
-  background: #0b1020;
+  background: var(--brand-flow-ring-bg);
   content: '';
 }
 
@@ -157,7 +154,7 @@
 
 .pw-brand-mark {
   @apply block size-10 shrink-0 rounded-[10px];
-  box-shadow: 0 2px 8px rgb(15 23 42 / 0.12);
+  box-shadow: var(--shadow-brand-mark);
 }
 
 .pw-beta-badge {
@@ -386,24 +383,15 @@
 
 .pw-focus-card-banner {
   @apply relative flex h-[168px] items-center justify-center overflow-hidden;
-  background:
-    radial-gradient(circle at 18% 22%, rgb(255 255 255 / 0.75), transparent 24%),
-    radial-gradient(circle at 78% 32%, rgb(255 255 255 / 0.42), transparent 30%),
-    linear-gradient(145deg, #dce9fb 0%, #e7e6fb 46%, #d8f0ed 100%);
+  background: var(--focus-banner-bg-a);
 }
 
 .pw-focus-card:nth-child(3n + 2) .pw-focus-card-banner {
-  background:
-    radial-gradient(circle at 24% 70%, rgb(255 255 255 / 0.64), transparent 28%),
-    radial-gradient(circle at 78% 18%, rgb(255 255 255 / 0.44), transparent 26%),
-    linear-gradient(145deg, #e5ebf7 0%, #d9edf0 45%, #ece7f7 100%);
+  background: var(--focus-banner-bg-b);
 }
 
 .pw-focus-card:nth-child(3n + 3) .pw-focus-card-banner {
-  background:
-    radial-gradient(circle at 70% 66%, rgb(255 255 255 / 0.58), transparent 27%),
-    radial-gradient(circle at 18% 18%, rgb(255 255 255 / 0.48), transparent 22%),
-    linear-gradient(145deg, #e4e7f8 0%, #eee7f4 48%, #dcecf4 100%);
+  background: var(--focus-banner-bg-c);
 }
 
 .pw-focus-card-banner-image {
@@ -456,9 +444,9 @@
 .pw-loading-surface {
   background: linear-gradient(
     90deg,
-    color-mix(in oklab, var(--muted) 88%, white) 0%,
-    color-mix(in oklab, var(--muted) 58%, white) 50%,
-    color-mix(in oklab, var(--muted) 88%, white) 100%
+    color-mix(in oklab, var(--muted) 88%, var(--card)) 0%,
+    color-mix(in oklab, var(--muted) 58%, var(--card)) 50%,
+    color-mix(in oklab, var(--muted) 88%, var(--card)) 100%
   );
   background-size: 200% 100%;
   animation: pw-loading-shimmer 1.35s ease-in-out infinite;
@@ -540,7 +528,7 @@
 }
 
 .pw-card--quiet {
-  background: color-mix(in oklab, var(--muted) 55%, white);
+  background: color-mix(in oklab, var(--muted) 55%, var(--card));
 }
 
 .pw-project-card {
@@ -659,7 +647,7 @@
 .pw-card-link {
   @apply block h-full no-underline transition-[border-color,box-shadow] duration-150;
   border-color: color-mix(in oklab, var(--primary) 50%, var(--border));
-  box-shadow: 0 4px 16px rgb(0 0 0 / 0.04);
+  box-shadow: var(--shadow-card-link);
 }
 
 .pw-card-link:hover {
@@ -667,7 +655,7 @@
 }
 
 .pw-project-card:hover {
-  background: color-mix(in oklab, var(--muted) 35%, white);
+  background: color-mix(in oklab, var(--muted) 35%, var(--card));
 }
 
 .pw-project-card-link::after {
@@ -690,14 +678,14 @@
 .pw-badge--review,
 .pw-badge--unclear,
 .pw-badge--limited {
-  background: #f7edd6;
-  color: #7c5818;
+  background: var(--badge-warning-bg);
+  color: var(--badge-warning-fg);
 }
 
 .pw-badge--waiting,
 .pw-badge--checking {
-  background: #eaf0f7;
-  color: #385b82;
+  background: var(--badge-info-bg);
+  color: var(--badge-info-fg);
 }
 
 .pw-badge--paused,
@@ -706,7 +694,7 @@
 }
 
 .pw-badge--completed {
-  background: color-mix(in oklab, var(--primary) 14%, white);
+  background: color-mix(in oklab, var(--primary) 14%, var(--card));
   @apply text-primary;
 }
 
@@ -1433,28 +1421,28 @@
 }
 
 .pw-uncommitted-work--clean {
-  border-color: color-mix(in oklab, #2f8f62 28%, var(--border));
-  background: color-mix(in oklab, #2f8f62 5%, var(--card));
+  border-color: color-mix(in oklab, var(--status-success) 28%, var(--border));
+  background: color-mix(in oklab, var(--status-success) 5%, var(--card));
 }
 
 .pw-uncommitted-work--normal {
-  border-color: color-mix(in oklab, #4f78a8 24%, var(--border));
-  background: color-mix(in oklab, #4f78a8 4%, var(--card));
+  border-color: color-mix(in oklab, var(--status-info) 24%, var(--border));
+  background: color-mix(in oklab, var(--status-info) 4%, var(--card));
 }
 
 .pw-uncommitted-work--mixed {
-  border-color: color-mix(in oklab, #b78624 30%, var(--border));
-  background: color-mix(in oklab, #b78624 5%, var(--card));
+  border-color: color-mix(in oklab, var(--status-warning) 30%, var(--border));
+  background: color-mix(in oklab, var(--status-warning) 5%, var(--card));
 }
 
 .pw-uncommitted-work--large {
-  border-color: color-mix(in oklab, #bf5f45 30%, var(--border));
-  background: color-mix(in oklab, #bf5f45 5%, var(--card));
+  border-color: color-mix(in oklab, var(--status-error) 30%, var(--border));
+  background: color-mix(in oklab, var(--status-error) 5%, var(--card));
 }
 
 .pw-uncommitted-work--no-git {
-  border-color: color-mix(in oklab, #6e7f96 26%, var(--border));
-  background: color-mix(in oklab, #6e7f96 4%, var(--card));
+  border-color: color-mix(in oklab, var(--status-neutral) 26%, var(--border));
+  background: color-mix(in oklab, var(--status-neutral) 4%, var(--card));
 }
 
 .pw-uncommitted-heading {
@@ -1470,23 +1458,23 @@
 }
 
 .pw-uncommitted-work--clean .pw-git-heading > svg {
-  color: #2f8f62;
+  color: var(--status-success);
 }
 
 .pw-uncommitted-work--normal .pw-git-heading > svg {
-  color: #4f78a8;
+  color: var(--status-info);
 }
 
 .pw-uncommitted-work--mixed .pw-git-heading > svg {
-  color: #b78624;
+  color: var(--status-warning);
 }
 
 .pw-uncommitted-work--large .pw-git-heading > svg {
-  color: #bf5f45;
+  color: var(--status-error);
 }
 
 .pw-uncommitted-work--no-git .pw-git-heading > svg {
-  color: #6e7f96;
+  color: var(--status-neutral);
 }
 
 .pw-uncommitted-groups {
@@ -1572,14 +1560,14 @@
 
 .pw-notice {
   @apply rounded-md border px-[22px] py-[18px];
-  border-color: #dfd6b5;
-  background: #faf6e8;
-  color: #66552e;
+  border-color: var(--notice-warning-border);
+  background: var(--notice-warning-bg);
+  color: var(--notice-warning-fg);
 }
 
 .pw-notice[role='alert'] {
   border-color: color-mix(in oklab, var(--destructive) 28%, var(--border));
-  background: color-mix(in oklab, var(--destructive) 7%, white);
+  background: color-mix(in oklab, var(--destructive) 7%, var(--card));
   @apply text-destructive;
 }
 
@@ -1589,7 +1577,7 @@
 
 .pw-empty {
   @apply grid min-w-0 justify-items-start gap-3.5 rounded-xl border border-dashed border-border bg-card px-8 py-[38px];
-  background: color-mix(in oklab, var(--muted) 45%, white);
+  background: color-mix(in oklab, var(--muted) 45%, var(--card));
 }
 
 .pw-task-nav {

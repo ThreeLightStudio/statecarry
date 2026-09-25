@@ -47,6 +47,40 @@
   --border: oklch(0.89 0.015 145);
   --input: oklch(0.84 0.02 145);
   --ring: oklch(0.55 0.09 158);
+  /* Work-state hues, extracted verbatim from project-workspace.css. Exact values
+     keep rendering invariant; a dark theme may remap them per surface. */
+  --status-success: #2f8f62;
+  --status-info: #4f78a8;
+  --status-warning: #b78624;
+  --status-error: #bf5f45;
+  --status-neutral: #6e7f96;
+  /* Soft status surfaces behind badges and notices. Derived via color-mix would
+     shift rendering, so the audited values stay verbatim here. */
+  --badge-warning-bg: #f7edd6;
+  --badge-warning-fg: #7c5818;
+  --badge-info-bg: #eaf0f7;
+  --badge-info-fg: #385b82;
+  --notice-warning-border: #dfd6b5;
+  --notice-warning-bg: #faf6e8;
+  --notice-warning-fg: #66552e;
+  /* Brand mark and focus-banner art: decorative and theme-invariant. */
+  --brand-mark-bg: linear-gradient(145deg, #111a35, #070a14 70%);
+  --brand-flow-bg: linear-gradient(90deg, #b55cff 0%, #2f8cff 55%, #3ee0f2 100%);
+  --brand-flow-ring-bg: #0b1020;
+  --focus-banner-bg-a:
+    radial-gradient(circle at 18% 22%, rgb(255 255 255 / 0.75), transparent 24%),
+    radial-gradient(circle at 78% 32%, rgb(255 255 255 / 0.42), transparent 30%),
+    linear-gradient(145deg, #dce9fb 0%, #e7e6fb 46%, #d8f0ed 100%);
+  --focus-banner-bg-b:
+    radial-gradient(circle at 24% 70%, rgb(255 255 255 / 0.64), transparent 28%),
+    radial-gradient(circle at 78% 18%, rgb(255 255 255 / 0.44), transparent 26%),
+    linear-gradient(145deg, #e5ebf7 0%, #d9edf0 45%, #ece7f7 100%);
+  --focus-banner-bg-c:
+    radial-gradient(circle at 70% 66%, rgb(255 255 255 / 0.58), transparent 27%),
+    radial-gradient(circle at 18% 18%, rgb(255 255 255 / 0.48), transparent 22%),
+    linear-gradient(145deg, #e4e7f8 0%, #eee7f4 48%, #dcecf4 100%);
+  --shadow-brand-mark: 0 2px 8px rgb(15 23 42 / 0.12);
+  --shadow-card-link: 0 4px 16px rgb(0 0 0 / 0.04);
 }
 
 @layer base {
