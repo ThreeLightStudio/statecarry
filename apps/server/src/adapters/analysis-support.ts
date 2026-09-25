@@ -102,6 +102,7 @@ export type AnalysisMetric = {
   phase: string;
   model: string;
   effort: ReasoningEffort;
+  provider?: 'codex' | 'openrouter';
   startedAt: string;
   elapsedMs: number;
   queueMs: number;

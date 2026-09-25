@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SQLiteRepository } from '../apps/server/src/adapters/sqlite';
 import { CodexReader, parseRollout, sourceText } from '../apps/server/src/adapters/codex-reader';
-import { analysisChunks } from '../apps/server/src/adapters/codex-summary';
+import { analysisChunks } from '../apps/server/src/adapters/analysis-recipes';
 import { source, harness } from './helpers';
 
 const dirs: string[] = [],

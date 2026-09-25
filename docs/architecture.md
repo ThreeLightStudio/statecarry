@@ -72,6 +72,8 @@ StateCarry owns the runtime it starts, including the SQLite writer lock and rela
 
 The server invokes Codex and Git through operating-system adapters. Those tools are external dependencies of the runtime, not capabilities supplied by Electrobun. Installed-app executable discovery therefore has to work with the reduced environment normally present when an app is launched from Finder.
 
+Analysis runs through the `SummaryProvider` port. The default adapter drives the Codex CLI over stdio JSON-RPC; the app-wide **analysis agent** setting (Global Settings, stored as an `agentSettings` entity) can switch background analysis to the OpenRouter adapter, which sends the same structured prompts over OpenRouter's OpenAI-compatible API using a user-supplied key. Session collection, navigation and execution remain Codex-based regardless of the selected analysis agent.
+
 ## Electrobun's role
 
 Electrobun is the native shell and distribution layer. In this project it provides:

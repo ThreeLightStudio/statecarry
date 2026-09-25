@@ -17,4 +17,7 @@ export type {
   ChangeScope,
   SessionQuestion,
   Continuation,
+  AgentProvider,
+  AgentSettingsView,
+  AgentSettingsInput,
 } from '@statecarry/contracts';

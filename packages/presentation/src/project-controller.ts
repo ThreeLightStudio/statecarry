@@ -1820,6 +1820,30 @@ export class ProjectController {
       return Promise.reject(new Error('Integration capabilities are unavailable.'));
     return this.gateway.capabilities();
   }
+  agentSettings() {
+    if (!this.gateway.agentSettings)
+      return Promise.reject(new Error('Analysis agent settings are unavailable.'));
+    return this.gateway.agentSettings();
+  }
+  async saveAgentSettings(
+    input: import('@statecarry/contracts').AgentSettingsInput,
+  ): Promise<boolean> {
+    if (!this.gateway.saveAgentSettings) return false;
+    if (!this.value.online || this.value.busyWorkId) return false;
+    const generation = this.generation;
+    this.set({ busyWorkId: 'agent-settings', error: null, notice: null });
+    try {
+      await this.gateway.saveAgentSettings(input);
+      if (!this.active || generation !== this.generation) return false;
+      this.set({ notice: 'Analysis agent settings were saved.' });
+      return true;
+    } catch (error) {
+      if (this.active && generation === this.generation) this.set({ error: projectError(error) });
+      return false;
+    } finally {
+      if (this.active && generation === this.generation) this.set({ busyWorkId: null });
+    }
+  }
   chooseProjectFolder() {
     if (!this.gateway.chooseFolder)
       return Promise.reject(new Error('The local folder picker is unavailable.'));

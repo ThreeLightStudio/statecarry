@@ -68,6 +68,10 @@ export interface ProjectGateway {
   ): Promise<import('@statecarry/contracts').ProjectExecutionWorkspace>;
   registrations(): Promise<ProjectRegistrations>;
   capabilities?(): Promise<Capabilities>;
+  agentSettings?(): Promise<import('@statecarry/contracts').AgentSettingsView>;
+  saveAgentSettings?(
+    input: import('@statecarry/contracts').AgentSettingsInput,
+  ): Promise<import('@statecarry/contracts').AgentSettingsView>;
   chooseFolder?(): Promise<{ path: string | null }>;
   chooseProjectAsset?(id: string, kind: 'icon' | 'banner'): Promise<{ assetRef: string | null }>;
   appUpdate?(): Promise<AppUpdateState>;

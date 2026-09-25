@@ -24,6 +24,8 @@ import type {
   DeliveryTargetUpdate,
   ReleaseCheckUpdate,
   ReleasePolicyExceptionInput,
+  AgentSettingsView,
+  AgentSettingsInput,
 } from '@statecarry/contracts';
 
 export class ProjectRequestError extends Error {
@@ -228,6 +230,12 @@ export class HttpProjectGateway implements ProjectGateway {
   }
   capabilities() {
     return this.request<Capabilities>('/capabilities');
+  }
+  agentSettings() {
+    return this.request<AgentSettingsView>('/agent-settings');
+  }
+  saveAgentSettings(input: AgentSettingsInput) {
+    return this.request<AgentSettingsView>('/agent-settings', input);
   }
   chooseFolder() {
     return this.request<{ path: string | null }>('/local/folder-picker', {});

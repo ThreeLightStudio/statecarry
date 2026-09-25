@@ -91,6 +91,31 @@ export type AnalysisSettings = {
   checkEffort: ReasoningEffort;
   promptVersion: string;
 };
+export const agentProviderSchema = z.enum(['codex', 'openrouter']);
+export type AgentProvider = z.infer<typeof agentProviderSchema>;
+export const OPENROUTER_DEFAULT_MODEL = 'openrouter/free';
+export const agentSettingsSchema = z
+  .object({
+    provider: agentProviderSchema.default('codex'),
+    openrouterModel: z.string().min(1).max(200).default(OPENROUTER_DEFAULT_MODEL),
+    openrouterApiKey: z.string().min(1).max(400).nullable().default(null),
+  })
+  .strict();
+export type AgentSettings = z.infer<typeof agentSettingsSchema>;
+export const agentSettingsInputSchema = z
+  .object({
+    provider: agentProviderSchema.optional(),
+    openrouterModel: z.string().trim().min(1).max(200).optional(),
+    openrouterApiKey: z.string().trim().min(1).max(400).nullable().optional(),
+  })
+  .strict();
+export type AgentSettingsInput = z.infer<typeof agentSettingsInputSchema>;
+export type AgentSettingsView = {
+  provider: AgentProvider;
+  openrouterModel: string;
+  hasApiKey: boolean;
+  apiKeyHint: string | null;
+};
 export type Freshness = {
   collection: 'unknown' | 'partial' | 'checking' | 'checked';
   summary: 'missing' | 'outdated' | 'current';
@@ -424,6 +449,7 @@ export type Capabilities = {
     state: 'unverified' | 'ready' | 'failed';
     detail: string;
     model: string | null;
+    provider: AgentProvider;
     settings?: AnalysisSettings;
   };
   navigation: {

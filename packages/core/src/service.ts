@@ -1,6 +1,7 @@
 import { ProjectExecutions } from './project-executions';
 import { ProjectAnalyses } from './analyses';
 import { Projects } from './projects';
+import { AgentSettingsService } from './agent-settings';
 import { ProjectModel } from './project-model';
 import { WorkMatcher } from './work-matching';
 import { ProjectNowResolver } from './project-now';
@@ -95,6 +96,7 @@ export function isControlledVerification(s: SourceRevision): boolean {
 }
 export class StateCarry {
   readonly projects = new Projects(this);
+  readonly agent = new AgentSettingsService(this);
   readonly executions = new ProjectExecutions(this);
   readonly projectModel = new ProjectModel(this);
   readonly workMatcher = new WorkMatcher(this);

@@ -42,7 +42,7 @@ export class ChangeEvents extends EventEmitter {
   }
   changed(
     projectId: string | null,
-    topic?: 'profile' | 'sources' | 'observation' | 'working-tree-analysis' | 'overview',
+    topic?: 'profile' | 'sources' | 'observation' | 'working-tree-analysis' | 'overview' | 'agent',
   ) {
     this.emit('change', { projectId, ...(topic ? { topic } : {}) });
   }
@@ -559,6 +559,8 @@ export function createHttpServer(
         if (req.method === 'GET') {
           if (parts[0] === 'capabilities' && parts.length === 1)
             return json(res, 200, core.capabilities());
+          if (parts[0] === 'agent-settings' && parts.length === 1)
+            return json(res, 200, core.agent.view());
           if (
             parts[0] === 'projects' &&
             parts[1] === 'connections' &&
@@ -593,6 +595,8 @@ export function createHttpServer(
           }
         }
         if (req.method === 'POST') {
+          if (parts[0] === 'agent-settings' && parts.length === 1)
+            return json(res, 200, core.agent.save(await body(req)));
           if (parts[0] === 'observations' && parts.length === 1) {
             const event = observationSchema.parse(await body(req));
             if (event.projectId) core.project(event.projectId);

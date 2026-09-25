@@ -1,6 +1,7 @@
 export * from './ports';
 export * from './checks';
 export * from './service';
+export * from './agent-settings';
 export * from './continuations';
 export * from './continuation-payload';
 export * from './project-model';

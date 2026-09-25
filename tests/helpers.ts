@@ -123,7 +123,12 @@ export function harness(
       checkEffort: 'medium',
       promptVersion: 'fake-1',
     }),
-    capability: () => ({ state: 'ready', detail: 'fake provider', model: 'fake' }),
+    capability: () => ({
+      state: 'ready',
+      detail: 'fake provider',
+      model: 'fake',
+      provider: 'codex',
+    }),
     generate: async (s) => {
       generationCalls++;
       return { candidate: candidate(s[0]), model: 'fake' };

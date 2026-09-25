@@ -36,7 +36,7 @@ const contentKinds = {
   releaseBatch: true,
   deliveryTarget: true,
   releasePolicyException: true,
-} satisfies Record<Exclude<keyof Entities, 'source' | 'receipt'>, true>;
+} satisfies Record<Exclude<keyof Entities, 'source' | 'receipt' | 'agentSettings'>, true>;
 type ContentKind = keyof typeof contentKinds;
 type ContentRow = { kind: ContentKind; entity: Entities[ContentKind]; owner: string };
 

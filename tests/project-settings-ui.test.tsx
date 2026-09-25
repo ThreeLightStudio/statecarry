@@ -299,6 +299,7 @@ it('shows discovered Codex tooling as available before the analysis isolation ch
       state: 'unverified',
       detail: 'Codex CLI is available. Analysis isolation has not been checked yet.',
       model: null,
+      provider: 'codex',
     },
     navigation: {
       precision: 'thread',

@@ -19,6 +19,8 @@ import {
   type RecordRange,
   type ProjectDrafts,
   type WorkingTreeView,
+  type AgentProvider,
+  type AgentSettingsView,
 } from '@statecarry/presentation';
 import '@/styles/globals.css';
 import { Alert } from '@/components/ui/alert';
@@ -701,9 +703,27 @@ function GlobalSettings({
   const [capabilities, setCapabilities] = useState<Awaited<
     ReturnType<ProjectController['capabilities']>
   > | null>(null);
+  const [agentSettings, setAgentSettings] = useState<AgentSettingsView | null>(null);
+  const [agentProvider, setAgentProvider] = useState<AgentProvider>('codex');
+  const [openrouterModel, setOpenrouterModel] = useState('');
+  const [openrouterApiKey, setOpenrouterApiKey] = useState('');
+  const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
   const [capabilityError, setCapabilityError] = useState('');
   const mounted = useRef(true);
+
+  const readAgentSettings = async () => {
+    try {
+      const next = await controller.agentSettings();
+      if (mounted.current) {
+        setAgentSettings(next);
+        setAgentProvider(next.provider);
+        setOpenrouterModel(next.openrouterModel);
+      }
+    } catch {
+      // Older gateways without agent settings keep the Codex default.
+    }
+  };
 
   const readCapabilities = async () => {
     try {
@@ -714,13 +734,16 @@ function GlobalSettings({
       }
     } catch {
       if (mounted.current)
-        setCapabilityError('Codex status could not be read from the local StateCarry service.');
+        setCapabilityError(
+          'The analysis status could not be read from the local StateCarry service.',
+        );
     }
   };
 
   useEffect(() => {
     mounted.current = true;
     void readCapabilities();
+    void readAgentSettings();
     return () => {
       mounted.current = false;
     };
@@ -731,6 +754,51 @@ function GlobalSettings({
     await readCapabilities();
     if (mounted.current) setChecking(false);
   };
+
+  const agentDraftChanged =
+    !!agentSettings &&
+    (agentProvider !== agentSettings.provider ||
+      (agentProvider === 'openrouter' &&
+        (openrouterModel.trim() !== agentSettings.openrouterModel ||
+          openrouterApiKey.trim().length > 0)));
+
+  const saveAgent = async () => {
+    if (!agentSettings) return;
+    setSaving(true);
+    const saved = await controller.saveAgentSettings({
+      provider: agentProvider,
+      ...(agentProvider === 'openrouter'
+        ? {
+            openrouterModel: openrouterModel.trim() || agentSettings.openrouterModel,
+            ...(openrouterApiKey.trim() ? { openrouterApiKey: openrouterApiKey.trim() } : {}),
+          }
+        : {}),
+    });
+    if (mounted.current) {
+      setSaving(false);
+      if (saved) {
+        setOpenrouterApiKey('');
+        await readAgentSettings();
+        await readCapabilities();
+      }
+    }
+  };
+
+  const summary = capabilities?.summary;
+  const openrouterSelected = summary?.provider === 'openrouter';
+  const statusText = summary
+    ? openrouterSelected
+      ? summary.state === 'ready'
+        ? 'StateCarry runs background analysis through OpenRouter.'
+        : summary.state === 'unverified'
+          ? 'An OpenRouter key is saved, but StateCarry has not verified analysis yet.'
+          : "StateCarry can't use OpenRouter for analysis right now."
+      : summary.state === 'ready'
+        ? 'StateCarry can use Codex when creating or updating overviews.'
+        : summary.state === 'unverified'
+          ? "Codex was found, but StateCarry hasn't verified analysis yet."
+          : "StateCarry can't use Codex to prepare overviews right now."
+    : null;
 
   return (
     <>
@@ -743,45 +811,106 @@ function GlobalSettings({
       </header>
 
       <div className="pw-stack">
-        <Card className={cardSurface} aria-labelledby="codex-integration-heading">
+        <Card className={cardSurface} aria-labelledby="analysis-agent-heading">
           <div className="pw-section-head">
-            <h2 id="codex-integration-heading">Codex</h2>
+            <h2 id="analysis-agent-heading">Analysis agent</h2>
             <Badge
               kind={
-                capabilities?.summary.state === 'ready'
+                summary?.state === 'ready'
                   ? 'continue'
-                  : capabilities?.summary.state === 'unverified'
+                  : summary?.state === 'unverified'
                     ? 'checking'
-                    : 'limited'
+                    : summary
+                      ? 'limited'
+                      : 'checking'
               }
             >
-              {capabilities
-                ? capabilities.summary.state === 'ready'
+              {summary
+                ? summary.state === 'ready'
                   ? 'Ready'
-                  : capabilities.summary.state === 'unverified'
+                  : summary.state === 'unverified'
                     ? 'Detected · not verified'
                     : 'Needs attention'
                 : 'Checking'}
             </Badge>
           </div>
-          {capabilities ? (
-            <>
-              <p>
-                {capabilities.summary.state === 'ready'
-                  ? 'StateCarry can use Codex when creating or updating overviews.'
-                  : capabilities.summary.state === 'unverified'
-                    ? "Codex was found, but StateCarry hasn't verified analysis yet."
-                    : "StateCarry can't use Codex to prepare overviews right now."}
-              </p>
-            </>
+          {summary && statusText ? (
+            <p>{statusText}</p>
           ) : capabilityError ? (
             <p className="pw-notice" role="alert">
               {capabilityError}
             </p>
           ) : (
             <p className="pw-small" role="status">
-              Checking Codex…
+              Checking {openrouterSelected ? 'OpenRouter' : 'Codex'}…
             </p>
+          )}
+          <div className="pw-setting-row">
+            <div className="pw-setting-copy">
+              <strong>Where analysis runs</strong>
+              <span className="pw-small">
+                StateCarry checks Codex on this device by default. OpenRouter runs the analysis
+                through its API instead.
+              </span>
+            </div>
+            <label className="pw-field">
+              Analysis agent
+              <select
+                name="analysis-agent"
+                value={agentProvider}
+                onChange={(event) =>
+                  setAgentProvider(event.target.value === 'openrouter' ? 'openrouter' : 'codex')
+                }
+              >
+                <option value="codex">Codex (this device)</option>
+                <option value="openrouter">OpenRouter</option>
+              </select>
+            </label>
+          </div>
+          {agentProvider === 'openrouter' && (
+            <>
+              <label className="pw-field">
+                OpenRouter API key
+                <input
+                  type="password"
+                  name="openrouter-api-key"
+                  value={openrouterApiKey}
+                  autoComplete="off"
+                  placeholder={agentSettings?.apiKeyHint ?? 'Paste your OpenRouter key'}
+                  onChange={(event) => setOpenrouterApiKey(event.target.value)}
+                />
+                <span className="pw-field-help">
+                  Create a key at openrouter.ai/keys.{' '}
+                  {agentSettings?.hasApiKey
+                    ? 'A key is already saved on this Mac; type a new one only to replace it.'
+                    : 'The key is stored on this Mac only.'}
+                </span>
+              </label>
+              <label className="pw-field">
+                OpenRouter model
+                <input
+                  type="text"
+                  name="openrouter-model"
+                  value={openrouterModel}
+                  onChange={(event) => setOpenrouterModel(event.target.value)}
+                />
+                <span className="pw-field-help">
+                  openrouter/free picks a free model for every request. You can also name one model,
+                  for example deepseek/deepseek-chat-v3.1:free.
+                </span>
+              </label>
+            </>
+          )}
+          {agentDraftChanged && (
+            <div>
+              <Button
+                className="pw-button"
+                disabled={saving || !state.online || !!state.busyWorkId}
+                onClick={() => void saveAgent()}
+              >
+                {saving ? 'Saving…' : 'Save agent settings'}
+              </Button>
+            </div>
           )}
           <p className="pw-small">
             Codex conversations are optional. Choose the conversations that belong with each

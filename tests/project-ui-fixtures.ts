@@ -99,6 +99,7 @@ export function projectUiFixture(entries = [projectEntry()]) {
       state: 'ready',
       detail: 'Codex summary generation is available.',
       model: 'synthetic-model',
+      provider: 'codex',
     },
     navigation: {
       precision: 'thread',

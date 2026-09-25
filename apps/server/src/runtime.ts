@@ -7,7 +7,7 @@ import {
 import { StateCarry } from '@statecarry/core';
 import { BackgroundLoop } from './background';
 import { CodexReader } from './adapters/codex-reader';
-import { CodexSummary } from './adapters/codex-summary';
+import { AgentSummaryProvider } from './adapters/agent-summary';
 import { identity } from './adapters/identity';
 import { MacLocalFolderPicker, type LocalFolderPicker } from './adapters/local-folder-picker';
 import type { LocalUpdater } from './adapters/local-updater';
@@ -54,7 +54,9 @@ export function createServerRuntime(options: ServerRuntimeOptions = {}) {
   const core = new StateCarry(
     repo,
     new CodexReader(),
-    new CodexSummary(dataDir, settingsFromEnvironment(env)),
+    new AgentSummaryProvider(dataDir, settingsFromEnvironment(env), repo, {
+      openrouterApiKeyFromEnv: env.OPENROUTER_API_KEY ?? null,
+    }),
     new CodexNavigator(dataDir),
     { now: () => new Date().toISOString() },
     identity,
