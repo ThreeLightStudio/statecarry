@@ -1308,7 +1308,7 @@ function NextWorkAction({
             : 'Define the work you want to start next.'}
         </p>
         <label className="pw-field">
-          Project
+          Work name
           <Input maxLength={160} value={title} onChange={(event) => setTitle(event.target.value)} />
         </label>
         <label className="pw-field">
