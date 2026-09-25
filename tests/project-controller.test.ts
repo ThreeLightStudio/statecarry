@@ -1071,4 +1071,45 @@ describe('project-oriented presentation and return memory', () => {
     expect(projectRouteHref(parseProjectRoute('#/projects'))).toBe('#/projects');
     expect(projectRouteHref(parseProjectRoute('#/project/%ZZ'))).toBe('#/home');
   });
+  it('keeps a failed first project check visible while background reads succeed', async () => {
+    const h = setup();
+    h.gateway.now = vi.fn(async () => {
+      throw Object.assign(new Error(RAW), { code: 'PROJECT_INITIALIZATION_FAILED' });
+    });
+    const controller = h.controller();
+    try {
+      await controller.start({ page: 'project', projectId: 'a' });
+      expect(controller.getSnapshot().error).toContain('first project check');
+      expect(controller.getSnapshot().errorSource).toBe('action');
+
+      await controller.refresh(true);
+      expect(controller.getSnapshot().online).toBe(true);
+      expect(controller.getSnapshot().error).toContain('first project check');
+      expect(controller.getSnapshot().errorSource).toBe('action');
+    } finally {
+      controller.stop();
+    }
+  });
+  it('clears a failed read once a read succeeds and reports recovery', async () => {
+    const h = setup();
+    const controller = h.controller();
+    try {
+      await controller.start({ page: 'home' });
+      h.gateway.list = vi.fn(async () => {
+        throw new Error(RAW);
+      });
+      await controller.refresh();
+      expect(controller.getSnapshot().online).toBe(false);
+      expect(controller.getSnapshot().error).toContain('Try again');
+      expect(controller.getSnapshot().errorSource).toBe('read');
+
+      h.gateway.list = vi.fn(async () => structuredClone(h.rows()));
+      await controller.refresh();
+      expect(controller.getSnapshot().online).toBe(true);
+      expect(controller.getSnapshot().error).toBeNull();
+      expect(controller.getSnapshot().errorSource).toBeNull();
+    } finally {
+      controller.stop();
+    }
+  });
 });

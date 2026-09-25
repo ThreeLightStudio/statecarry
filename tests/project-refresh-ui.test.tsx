@@ -162,3 +162,47 @@ it('does not turn passive observation failure into a global project error', asyn
     await mounted.unmount();
   }
 });
+
+it('keeps the failed first project check alert through background stream refreshes', async () => {
+  const h = projectUiFixture();
+  const originalNow = h.projectGateway.now!;
+  const base = await originalNow('alpha');
+  h.projectGateway.now = vi.fn(async () => ({ ...structuredClone(base), initialized: false }));
+  h.projectGateway.initialize = vi.fn(async () => {
+    throw Object.assign(new Error('Project preparation did not finish.'), {
+      code: 'PROJECT_INITIALIZATION_FAILED',
+    });
+  });
+  let connected!: (state: 'connected' | 'disconnected') => void;
+  h.analysisGateway.subscribe = (_listener, onConnection) => {
+    connected = onConnection!;
+    return () => {};
+  };
+  window.history.replaceState(null, '', '#/project/alpha');
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
+  const failed = 'StateCarry could not finish the first project check.';
+  try {
+    await vi.waitFor(() => expect(mounted.host.textContent).toContain(failed));
+
+    await act(async () => {
+      connected('connected');
+    });
+    await vi.waitFor(() =>
+      expect(vi.mocked(h.projectGateway.list).mock.calls.length).toBeGreaterThanOrEqual(2),
+    );
+    expect(mounted.host.textContent).toContain(failed);
+
+    h.projectGateway.initialize = vi.fn(async () => ({
+      ...structuredClone(base),
+      initialized: true,
+    }));
+    const retry = mounted.host.querySelector<HTMLButtonElement>('.pw-notice button');
+    expect(retry?.textContent?.trim()).toBe('Try again');
+    await act(async () => {
+      retry!.click();
+    });
+    await vi.waitFor(() => expect(mounted.host.textContent).not.toContain(failed));
+  } finally {
+    await mounted.unmount();
+  }
+});

@@ -42,6 +42,10 @@ export type ProjectControllerState = {
   online: boolean;
   checkingCurrent: boolean;
   error: string | null;
+  /** What set the current error. Background reads may only clear their own
+   * kind, so an action failure (like a failed first project check) stays
+   * visible until the user acts or that action succeeds. */
+  errorSource: 'read' | 'action' | null;
   notice: string | null;
   memoryError: string | null;
   appUpdate: AppUpdateState | null;
@@ -86,6 +90,7 @@ export class ProjectController {
     online: false,
     checkingCurrent: true,
     error: null,
+    errorSource: null,
     notice: null,
     memoryError: null,
     appUpdate: null,
@@ -356,6 +361,7 @@ export class ProjectController {
         loading: false,
         loadingDetails: this.hydratingWorkIds.size > 0,
         error: null,
+        errorSource: null,
       });
       if (route.page === 'project' && route.projectId) await this.enterProject(route.projectId);
       await this.refresh(true);
@@ -373,6 +379,7 @@ export class ProjectController {
           loadingDetails: false,
           online: false,
           error: projectError(error),
+          errorSource: 'read',
         });
       this.startupReadyForStreamRefresh = true;
     }
@@ -619,6 +626,7 @@ export class ProjectController {
           projectNowLoading: { ...this.value.projectNowLoading, [id]: false },
           projectNowInitializing: { ...this.value.projectNowInitializing, [id]: false },
           error: null,
+          errorSource: null,
         });
         return view;
       } catch (error) {
@@ -627,6 +635,7 @@ export class ProjectController {
             projectNowLoading: { ...this.value.projectNowLoading, [id]: false },
             projectNowInitializing: { ...this.value.projectNowInitializing, [id]: false },
             error: projectError(error),
+            errorSource: 'action',
           });
         return null;
       } finally {
@@ -652,6 +661,7 @@ export class ProjectController {
         this.set({
           releaseLoading: { ...this.value.releaseLoading, [id]: false },
           error: projectError(error),
+          errorSource: 'action',
         });
       return null;
     }
@@ -662,14 +672,14 @@ export class ProjectController {
   ): Promise<ReleaseProjectView | null> {
     const project = this.value.projects.find((item) => item.id === id);
     if (!project) return null;
-    this.set({ busyWorkId: id, error: null });
+    this.set({ busyWorkId: id, error: null, errorSource: null });
     try {
       const value = await run(project);
       if (this.active) this.set({ releases: { ...this.value.releases, [id]: value } });
       await this.readProjectNow(id);
       return value;
     } catch (error) {
-      if (this.active) this.set({ error: projectError(error) });
+      if (this.active) this.set({ error: projectError(error), errorSource: 'action' });
       return null;
     } finally {
       if (this.active) this.set({ busyWorkId: null });
@@ -714,12 +724,12 @@ export class ProjectController {
   async selectWorkItem(id: string, workItemId: string): Promise<ProjectNowView | null> {
     const project = this.value.projects.find((item) => item.id === id);
     if (!project) return null;
-    this.set({ busyWorkId: id, error: null });
+    this.set({ busyWorkId: id, error: null, errorSource: null });
     try {
       await this.gateway.selectWork(id, project.revision, workItemId);
       return await this.readProjectNow(id);
     } catch (error) {
-      if (this.active) this.set({ error: projectError(error) });
+      if (this.active) this.set({ error: projectError(error), errorSource: 'action' });
       return null;
     } finally {
       if (this.active) this.set({ busyWorkId: null });
@@ -733,7 +743,7 @@ export class ProjectController {
     const project = this.value.projects.find((item) => item.id === id);
     const cleanTitle = title.trim();
     if (!project || !cleanTitle) return null;
-    this.set({ busyWorkId: id, error: null });
+    this.set({ busyWorkId: id, error: null, errorSource: null });
     try {
       await this.gateway.createWork(id, project.revision, {
         title: cleanTitle,
@@ -741,7 +751,7 @@ export class ProjectController {
       });
       return await this.readProjectNow(id);
     } catch (error) {
-      if (this.active) this.set({ error: projectError(error) });
+      if (this.active) this.set({ error: projectError(error), errorSource: 'action' });
       return null;
     } finally {
       if (this.active) this.set({ busyWorkId: null });
@@ -750,12 +760,12 @@ export class ProjectController {
   async stopWorkItem(id: string, workItemId: string): Promise<ProjectNowView | null> {
     const project = this.value.projects.find((item) => item.id === id);
     if (!project) return null;
-    this.set({ busyWorkId: id, error: null });
+    this.set({ busyWorkId: id, error: null, errorSource: null });
     try {
       await this.gateway.stopWork(id, project.revision, workItemId);
       return await this.readProjectNow(id);
     } catch (error) {
-      if (this.active) this.set({ error: projectError(error) });
+      if (this.active) this.set({ error: projectError(error), errorSource: 'action' });
       return null;
     } finally {
       if (this.active) this.set({ busyWorkId: null });
@@ -764,12 +774,12 @@ export class ProjectController {
   async pauseWorkItem(id: string, workItemId: string): Promise<ProjectNowView | null> {
     const project = this.value.projects.find((item) => item.id === id);
     if (!project) return null;
-    this.set({ busyWorkId: id, error: null });
+    this.set({ busyWorkId: id, error: null, errorSource: null });
     try {
       await this.gateway.pauseWork(id, project.revision, workItemId);
       return await this.readProjectNow(id);
     } catch (error) {
-      if (this.active) this.set({ error: projectError(error) });
+      if (this.active) this.set({ error: projectError(error), errorSource: 'action' });
       return null;
     } finally {
       if (this.active) this.set({ busyWorkId: null });
@@ -778,12 +788,12 @@ export class ProjectController {
   async resumeWorkItem(id: string, workItemId: string): Promise<ProjectNowView | null> {
     const project = this.value.projects.find((item) => item.id === id);
     if (!project) return null;
-    this.set({ busyWorkId: id, error: null });
+    this.set({ busyWorkId: id, error: null, errorSource: null });
     try {
       await this.gateway.resumeWork(id, project.revision, workItemId);
       return await this.readProjectNow(id);
     } catch (error) {
-      if (this.active) this.set({ error: projectError(error) });
+      if (this.active) this.set({ error: projectError(error), errorSource: 'action' });
       return null;
     } finally {
       if (this.active) this.set({ busyWorkId: null });
@@ -792,12 +802,12 @@ export class ProjectController {
   async completeWorkItem(id: string, workItemId: string): Promise<ProjectNowView | null> {
     const project = this.value.projects.find((item) => item.id === id);
     if (!project) return null;
-    this.set({ busyWorkId: id, error: null });
+    this.set({ busyWorkId: id, error: null, errorSource: null });
     try {
       await this.gateway.completeWork(id, project.revision, workItemId);
       return await this.readProjectNow(id);
     } catch (error) {
-      if (this.active) this.set({ error: projectError(error) });
+      if (this.active) this.set({ error: projectError(error), errorSource: 'action' });
       return null;
     } finally {
       if (this.active) this.set({ busyWorkId: null });
@@ -806,12 +816,12 @@ export class ProjectController {
   async selectProposal(id: string, proposalKey: string): Promise<ProjectNowView | null> {
     const project = this.value.projects.find((item) => item.id === id);
     if (!project) return null;
-    this.set({ busyWorkId: id, error: null });
+    this.set({ busyWorkId: id, error: null, errorSource: null });
     try {
       await this.gateway.selectProposal(id, project.revision, proposalKey);
       return await this.readProjectNow(id);
     } catch (error) {
-      if (this.active) this.set({ error: projectError(error) });
+      if (this.active) this.set({ error: projectError(error), errorSource: 'action' });
       return null;
     } finally {
       if (this.active) this.set({ busyWorkId: null });
@@ -821,12 +831,12 @@ export class ProjectController {
     if (!this.gateway.continueDirectionConflict) return null;
     const project = this.value.projects.find((item) => item.id === id);
     if (!project) return null;
-    this.set({ busyWorkId: id, error: null });
+    this.set({ busyWorkId: id, error: null, errorSource: null });
     try {
       await this.gateway.continueDirectionConflict(id, project.revision);
       return await this.readProjectNow(id);
     } catch (error) {
-      if (this.active) this.set({ error: projectError(error) });
+      if (this.active) this.set({ error: projectError(error), errorSource: 'action' });
       return null;
     } finally {
       if (this.active) this.set({ busyWorkId: null });
@@ -840,6 +850,7 @@ export class ProjectController {
       inspectionLoading: false,
       deletion: null,
       error: null,
+      errorSource: null,
       notice: null,
     });
     if (route.page === 'project' && route.projectId && (this.hasRegistrations || this.hasLoaded))
@@ -922,7 +933,10 @@ export class ProjectController {
           this.present({
             online: true,
             checkingCurrent: false,
-            error: null,
+            // A successful read resolves read failures only. Action failures
+            // (like a failed first project check) stay until the user retries
+            // or the action itself succeeds.
+            ...(this.value.errorSource === 'read' ? { error: null, errorSource: null } : {}),
             loading: false,
             loadingDetails: false,
           });
@@ -950,6 +964,7 @@ export class ProjectController {
             loading: false,
             loadingDetails: false,
             error: projectError(error),
+            errorSource: 'read',
             inspection: null,
             inspectionLoading: false,
           });
@@ -1364,7 +1379,7 @@ export class ProjectController {
       };
     });
     void this.syncDiscussionToCore(id, to).catch((error) => {
-      if (this.active) this.set({ error: projectError(error) });
+      if (this.active) this.set({ error: projectError(error), errorSource: 'action' });
     });
   }
   editTaskDiscussionInput(id: string, key: string, input: string) {
@@ -1408,7 +1423,7 @@ export class ProjectController {
       ),
     }));
     void this.syncDiscussionToCore(id, key).catch((error) => {
-      if (this.active) this.set({ error: projectError(error) });
+      if (this.active) this.set({ error: projectError(error), errorSource: 'action' });
     });
   }
   async askTaskDiscussion(id: string, key: string, questionOverride?: string) {
@@ -1532,7 +1547,7 @@ export class ProjectController {
   ): Promise<boolean> {
     if (!this.value.online || this.needsCurrent(id) || this.value.busyWorkId) return false;
     const generation = this.generation;
-    this.set({ busyWorkId: id, error: null, notice: null });
+    this.set({ busyWorkId: id, error: null, errorSource: null, notice: null });
     try {
       await action();
       if (!this.active || generation !== this.generation) return false;
@@ -1542,7 +1557,7 @@ export class ProjectController {
     } catch (error) {
       if (this.active && generation === this.generation) {
         await this.refresh();
-        this.set({ error: projectError(error) });
+        this.set({ error: projectError(error), errorSource: 'action' });
       }
       return false;
     } finally {
@@ -1731,10 +1746,10 @@ export class ProjectController {
     try {
       const preview = await this.gateway.deletionPreview(id);
       if (this.value.route.projectId !== id || readEpoch !== this.readEpoch) return false;
-      this.set({ deletion: preview, error: null });
+      this.set({ deletion: preview, error: null, errorSource: null });
       return true;
     } catch (error) {
-      this.set({ error: projectError(error) });
+      this.set({ error: projectError(error), errorSource: 'action' });
       return false;
     }
   }
@@ -1766,6 +1781,7 @@ export class ProjectController {
     ) {
       this.set({
         error: 'This task changed and needs another review before its context can be copied.',
+        errorSource: 'action',
       });
       return null;
     }
@@ -1784,6 +1800,7 @@ export class ProjectController {
         inspection: null,
         inspectionLoading: false,
         error: 'This original is no longer available from the current overview.',
+        errorSource: 'action',
       });
       return;
     }
@@ -1809,7 +1826,12 @@ export class ProjectController {
       });
     } catch (error) {
       if (this.active && generation === this.inspectionGeneration)
-        this.set({ inspection: null, inspectionLoading: false, error: projectError(error) });
+        this.set({
+          inspection: null,
+          inspectionLoading: false,
+          error: projectError(error),
+          errorSource: 'action',
+        });
     }
   }
   connections() {
@@ -1831,14 +1853,15 @@ export class ProjectController {
     if (!this.gateway.saveAgentSettings) return false;
     if (!this.value.online || this.value.busyWorkId) return false;
     const generation = this.generation;
-    this.set({ busyWorkId: 'agent-settings', error: null, notice: null });
+    this.set({ busyWorkId: 'agent-settings', error: null, errorSource: null, notice: null });
     try {
       await this.gateway.saveAgentSettings(input);
       if (!this.active || generation !== this.generation) return false;
       this.set({ notice: 'Analysis agent settings were saved.' });
       return true;
     } catch (error) {
-      if (this.active && generation === this.generation) this.set({ error: projectError(error) });
+      if (this.active && generation === this.generation)
+        this.set({ error: projectError(error), errorSource: 'action' });
       return false;
     } finally {
       if (this.active && generation === this.generation) this.set({ busyWorkId: null });
@@ -1866,6 +1889,6 @@ export class ProjectController {
     return this.gateway.turns(id);
   }
   clearNotice() {
-    this.set({ notice: null, error: null, deletion: null });
+    this.set({ notice: null, error: null, errorSource: null, deletion: null });
   }
 }
