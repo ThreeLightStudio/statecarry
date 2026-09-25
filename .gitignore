@@ -36,3 +36,6 @@ id_ed25519
 *.rej
 .DS_Store
 ._*
+
+# Local agent tooling workspace (plan documents, session state)
+.zcode/
