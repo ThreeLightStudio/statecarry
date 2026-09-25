@@ -20,6 +20,7 @@
     "react/rules-of-hooks": "error"
   },
   "ignorePatterns": [
+    ".agents/**",
     ".cache/**",
     ".cottontail-tmp/**",
     ".hutch/**",

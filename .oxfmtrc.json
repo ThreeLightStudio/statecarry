@@ -2,6 +2,7 @@
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
   "embeddedLanguageFormatting": "off",
   "ignorePatterns": [
+    ".agents/**",
     ".cache/**",
     ".cottontail-tmp/**",
     ".hutch/**",
