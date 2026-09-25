@@ -21,7 +21,7 @@ import type { StateCarry } from '@statecarry/core';
 import { canonicalProjectCommand } from './adapters/project-folder';
 import type { LocalFolderPicker } from './adapters/local-folder-picker';
 import type { ProjectAssetStore } from './adapters/local-project-assets';
-import type { LocalUpdater } from './adapters/local-updater';
+import { unsupportedUpdateState, type LocalUpdater } from './adapters/local-updater';
 import { reportServerError } from './error-log';
 import {
   browserStateLimit,
@@ -187,12 +187,24 @@ export function createHttpServer(
           return json(res, 200, { path: await local.folderPicker.choose() });
         }
         if (parts[0] === 'local' && parts[1] === 'updater' && parts.length >= 2) {
-          if (!local.updater)
+          if (!local.updater) {
+            // Dev and source environments have no desktop updater; the
+            // automatic state and check polls get a supported:false state so a
+            // normal startup stays quiet. Explicit actions still error.
+            if (req.method === 'GET' && parts.length === 2)
+              return json(res, 200, unsupportedUpdateState());
+            if (req.method === 'POST' && parts.length === 3 && parts[2] === 'check') {
+              z.object({})
+                .strict()
+                .parse(await body(req));
+              return json(res, 200, unsupportedUpdateState());
+            }
             throw new DomainError(
               'CAPABILITY_UNSUPPORTED',
               'App updates are unavailable in this environment.',
               501,
             );
+          }
           if (req.method === 'GET' && parts.length === 2)
             return json(res, 200, await local.updater.state());
           if (req.method === 'POST' && parts.length === 3) {

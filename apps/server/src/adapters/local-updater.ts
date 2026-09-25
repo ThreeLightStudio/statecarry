@@ -22,3 +22,17 @@ export interface LocalUpdater {
   download(): Promise<LocalUpdateState>;
   restart(): Promise<LocalUpdateState>;
 }
+
+/** State for environments without a desktop updater (dev, source runs). The
+ * automatic state and check polls must get this instead of an error so a
+ * normal startup stays quiet in the server log. */
+export function unsupportedUpdateState(): LocalUpdateState {
+  return {
+    supported: false,
+    currentVersion: '',
+    latestVersion: null,
+    phase: 'idle',
+    progress: null,
+    error: null,
+  };
+}
