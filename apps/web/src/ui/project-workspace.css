@@ -298,7 +298,7 @@
 }
 
 .pw-feedback-link {
-  @apply text-sm font-medium text-foreground no-underline;
+  @apply py-2.5 text-sm font-medium text-foreground no-underline;
 }
 
 .pw-feedback-link:hover {
@@ -763,7 +763,7 @@
   padding-bottom: 64px;
 }
 .pw-project-back {
-  @apply mb-5 inline-flex items-center gap-2 text-sm text-muted-foreground no-underline;
+  @apply -mt-2.5 mb-2.5 inline-flex items-center gap-2 py-2.5 text-sm text-muted-foreground no-underline;
 }
 .pw-project-back:hover {
   @apply text-foreground;
@@ -867,7 +867,7 @@
   @apply h-auto justify-start gap-2 border-0 bg-transparent px-0 py-2 text-muted-foreground shadow-none;
 }
 .pw-project-detail .pw-context-disclosure {
-  @apply rounded-none border-0 border-t border-border bg-transparent px-0 py-4;
+  @apply rounded-none border-0 border-t border-border bg-transparent px-0 py-1.5;
 }
 .pw-project-detail .pw-context-disclosure > summary {
   @apply text-sm font-normal text-muted-foreground;
@@ -1224,11 +1224,11 @@
 }
 
 .pw-context-disclosure {
-  @apply rounded-lg border border-border bg-card px-4 py-3.5;
+  @apply rounded-lg border border-border bg-card px-4 py-1;
 }
 
 .pw-context-disclosure > summary {
-  @apply flex cursor-pointer list-none items-center justify-between gap-4 font-semibold;
+  @apply flex cursor-pointer list-none items-center justify-between gap-4 py-2.5 font-semibold;
 }
 
 .pw-context-disclosure > summary::-webkit-details-marker {
