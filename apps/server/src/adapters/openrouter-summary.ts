@@ -262,7 +262,7 @@ export class OpenRouterSummary extends AnalysisRecipes implements SummaryProvide
         return {
           value,
           model: routedModel,
-          remote: { pid: null, threadId: requestId, turnId: null, phase },
+          remote: { pid: null, threadId: requestId, turnId: null, phase, provider: 'openrouter' },
         };
       } finally {
         clearTimeout(timeout);

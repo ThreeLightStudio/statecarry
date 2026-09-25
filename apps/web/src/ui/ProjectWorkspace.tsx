@@ -850,7 +850,8 @@ function GlobalSettings({
               <strong>Where analysis runs</strong>
               <span className="pw-small">
                 StateCarry checks Codex on this device by default. OpenRouter runs the analysis
-                through its API instead.
+                through its API instead. If Codex usage runs out and an OpenRouter key is saved,
+                analysis automatically continues with OpenRouter until Codex is available again.
               </span>
             </div>
             <label className="pw-field">

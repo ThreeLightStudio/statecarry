@@ -218,7 +218,7 @@ export class CodexSummary extends AnalysisRecipes implements SummaryProvider {
       if (this.closing) throw new Error('Summary provider is shutting down');
       await rpc.connect();
       pid = rpc.child?.pid ?? null;
-      onRemote({ pid, threadId, turnId, phase });
+      onRemote({ pid, threadId, turnId, phase, provider: 'codex' });
       const { config } = await rpc.request('config/read', { includeLayers: false });
       if (config.model !== this.settings.model || config.model_reasoning_effort !== effort)
         throw new DomainError(
@@ -269,7 +269,7 @@ export class CodexSummary extends AnalysisRecipes implements SummaryProvider {
           'CAPABILITY_UNSUPPORTED',
           'Read-only network-disabled sandbox was not applied',
         );
-      onRemote({ pid, threadId, turnId, phase });
+      onRemote({ pid, threadId, turnId, phase, provider: 'codex' });
       let resolve!: (v: unknown) => void,
         reject!: (e: Error) => void,
         lastText = '';
@@ -390,7 +390,7 @@ export class CodexSummary extends AnalysisRecipes implements SummaryProvider {
         });
         mark('turnAcceptedMs');
         turnId = result.turn.id;
-        onRemote({ pid, threadId, turnId, phase });
+        onRemote({ pid, threadId, turnId, phase, provider: 'codex' });
         for (const p of buffered) notify(p);
         const value = await complete;
         mark('modelCompletedMs');

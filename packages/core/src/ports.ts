@@ -118,6 +118,8 @@ export type AttemptMeta = {
   threadId: string | null;
   turnId: string | null;
   phase: string;
+  /** Adapter that produced the attempt; resolve() routes by it. Absent means codex. */
+  provider?: import('@statecarry/contracts').AgentProvider;
 };
 export interface SummaryProvider {
   generateAnalysis?(input: unknown): Promise<unknown>;
