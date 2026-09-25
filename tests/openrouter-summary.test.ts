@@ -162,6 +162,50 @@ describe('OpenRouter summary provider', () => {
     expect(s.metrics[0]?.outcome).toBe('completed');
   });
 
+  it('redraws the free route when the model returns no message content', async () => {
+    const { impl, requests } = fetchMock((url, request) => {
+      if (url.endsWith('/key')) return jsonResponse(200, { data: {} });
+      if (request === 1)
+        return jsonResponse(200, {
+          id: 'gen-1',
+          model: 'some/reasoning-model:free',
+          choices: [
+            {
+              message: { content: null, reasoning: 'Let me think about it' },
+              finish_reason: 'length',
+            },
+          ],
+        });
+      return jsonResponse(200, completionBody(JSON.stringify({ answer: 'ok' })));
+    });
+    const s = summary(impl);
+    const result = await runOnce(s);
+    expect(result.value).toEqual({ answer: 'ok' });
+    expect(requests.filter((request) => request.url.endsWith('/chat/completions'))).toHaveLength(2);
+    expect(s.metrics[0]?.outcome).toBe('completed');
+  });
+
+  it('describes the model and next step when every attempt returns no content', async () => {
+    const { impl, requests } = fetchMock((url) => {
+      if (url.endsWith('/key')) return jsonResponse(200, { data: {} });
+      return jsonResponse(200, {
+        id: 'gen-1',
+        model: 'some/reasoning-model:free',
+        choices: [
+          {
+            message: { content: null, reasoning: 'Let me think about it' },
+            finish_reason: 'length',
+          },
+        ],
+      });
+    });
+    const s = summary(impl);
+    await expect(runOnce(s)).rejects.toThrow(
+      'OpenRouter model some/reasoning-model:free returned no message content (finish_reason: length). The model returned only reasoning text. Try naming a specific OpenRouter model in Settings instead of openrouter/free.',
+    );
+    expect(requests.filter((request) => request.url.endsWith('/chat/completions'))).toHaveLength(3);
+  });
+
   it('falls back to schema-in-instructions when the model rejects json_schema', async () => {
     const { impl, requests } = fetchMock((url, request) => {
       if (url.endsWith('/key')) return jsonResponse(200, { data: {} });

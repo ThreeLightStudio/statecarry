@@ -174,6 +174,8 @@ export class OpenRouterSummary extends AnalysisRecipes implements SummaryProvide
       routedModel = this.settings.model,
       requestId: string | null = null,
       withoutResponseFormat = false;
+    let noContentFinish: string | null = null,
+      noContentReasoningOnly = false;
     const controller = new AbortController();
     this.active.add(controller);
     try {
@@ -220,7 +222,20 @@ export class OpenRouterSummary extends AnalysisRecipes implements SummaryProvide
                     : {}),
                 }
               : null;
-            break;
+            const messageContent = choice.message?.content ?? null;
+            if (messageContent !== null && messageContent.trim() !== '') {
+              content = messageContent;
+              break;
+            }
+            // Free routing can land a model that answers without message
+            // content (reasoning-only runs, content filters); redrawing the
+            // route is the only remedy, so retry and describe the failure
+            // once every attempt comes back empty.
+            noContentFinish = choice.finish_reason ?? null;
+            noContentReasoningOnly = !!choice.message?.reasoning?.trim();
+            if (attempt === MAX_ATTEMPTS - 1)
+              throw this.noContentError(routedModel, noContentFinish, noContentReasoningOnly);
+            continue;
           }
           const errorText = await response.text();
           if (
@@ -248,7 +263,7 @@ export class OpenRouterSummary extends AnalysisRecipes implements SummaryProvide
           throw this.classify(response.status, errorText, 'OpenRouter request failed');
         }
         if (content === null)
-          throw new Error('OpenRouter response did not include message content');
+          throw this.noContentError(routedModel, noContentFinish, noContentReasoningOnly);
         if (
           (phase.includes('question') || phase.includes('explanation')) &&
           content.length > EXPLANATION_LIMITS.transport
@@ -359,6 +374,19 @@ export class OpenRouterSummary extends AnalysisRecipes implements SummaryProvide
         provider: 'openrouter',
       };
     return new Error(message);
+  }
+  /** Every routed attempt answered without message content; random free
+   * routing is the usual cause, so point at naming a specific model. */
+  private noContentError(routedModel: string, finishReason: string | null, reasoningOnly: boolean) {
+    const reason = finishReason ? ` (finish_reason: ${finishReason})` : '';
+    const reasoning = reasoningOnly ? ' The model returned only reasoning text.' : '';
+    const advice =
+      this.settings.model === 'openrouter/free'
+        ? ' Try naming a specific OpenRouter model in Settings instead of openrouter/free.'
+        : '';
+    return new Error(
+      `OpenRouter model ${routedModel} returned no message content${reason}.${reasoning}${advice}`,
+    );
   }
   protected async retryDelay(attempt: number, retryAfter: string | null): Promise<void> {
     const seconds = retryAfter !== null && retryAfter !== '' ? Number(retryAfter) : NaN;
