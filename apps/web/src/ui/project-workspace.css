@@ -1222,7 +1222,8 @@
   @apply m-0 text-center;
 }
 .pw-return-decision,
-.pw-task-discussion {
+.pw-task-discussion,
+.pw-release-section {
   overflow-wrap: anywhere;
 }
 

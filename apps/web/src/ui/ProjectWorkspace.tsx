@@ -4,6 +4,7 @@ import {
   useState,
   useSyncExternalStore,
   type ComponentProps,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from 'react';
 import {
@@ -416,7 +417,6 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
     },
     [],
   );
-  useEffect(() => {}, [controller]);
   useEffect(() => {
     const heading = mainRef.current?.querySelector<HTMLElement>('h1');
     heading?.focus({ preventScroll: true });
@@ -425,15 +425,25 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
     if (route.page !== 'project' || !project) return;
     const id = project.id;
     let scroll = controller.getSnapshot().edits[id]?.scroll ?? 0;
+    let pending: ReturnType<typeof setTimeout> | null = null;
     const frame = requestAnimationFrame(() => window.scrollTo(0, scroll));
+    // Scroll events fire per frame; persisting each one would re-render the
+    // whole workspace and write storage far more often than a saved scroll
+    // position is ever read back.
     const record = () => {
       scroll = window.scrollY;
-      controller.recordScroll(id, scroll);
+      if (pending === null) {
+        pending = setTimeout(() => {
+          pending = null;
+          controller.recordScroll(id, scroll);
+        }, 250);
+      }
     };
     window.addEventListener('scroll', record, { passive: true });
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener('scroll', record);
+      if (pending !== null) clearTimeout(pending);
       controller.recordScroll(id, scroll);
     };
   }, [controller, route.page, project?.id]);
@@ -806,7 +816,7 @@ function GlobalSettings({
         <div className="pw-hero-copy">
           <span className="pw-eyebrow">Settings</span>
           <h1 tabIndex={-1}>StateCarry settings</h1>
-          <p className="pw-lead">Check app-wide integration availability.</p>
+          <p className="pw-lead">Check whether analysis is available right now.</p>
         </div>
       </header>
 
@@ -834,15 +844,15 @@ function GlobalSettings({
                 : 'Checking'}
             </Badge>
           </div>
-          {summary && statusText ? (
-            <p>{statusText}</p>
-          ) : capabilityError ? (
+          {capabilityError ? (
             <p className="pw-notice" role="alert">
               {capabilityError}
             </p>
           ) : (
-            <p className="pw-small" role="status">
-              Checking {openrouterSelected ? 'OpenRouter' : 'Codex'}…
+            <p role="status" className={summary ? undefined : 'pw-small'}>
+              {summary && statusText
+                ? statusText
+                : `Checking ${openrouterSelected ? 'OpenRouter' : 'Codex'}…`}
             </p>
           )}
           <div className="pw-setting-row">
@@ -904,6 +914,11 @@ function GlobalSettings({
           )}
           {agentDraftChanged && (
             <div>
+              {!state.online && (
+                <p className="pw-small">
+                  The local service is unavailable, so settings can't be saved right now.
+                </p>
+              )}
               <Button
                 className="pw-button"
                 disabled={saving || !state.online || !!state.busyWorkId}
@@ -996,11 +1011,13 @@ function FocusProjectCard({ project, onNavigate }: { project: ProjectView; onNav
       current={undefined}
     >
       <span className="pw-focus-card-banner" aria-hidden="true">
-        {bannerUrl && <img className="pw-focus-card-banner-image" src={bannerUrl} alt="" />}
+        {bannerUrl && (
+          <img className="pw-focus-card-banner-image" src={bannerUrl} alt="" decoding="async" />
+        )}
       </span>
       <span className="pw-focus-card-body">
         <span className="pw-focus-card-icon" aria-hidden="true">
-          {iconUrl ? <img src={iconUrl} alt="" /> : <Folder />}
+          {iconUrl ? <img src={iconUrl} alt="" decoding="async" /> : <Folder />}
         </span>
         <span className="pw-focus-card-copy">
           <strong>{project.title}</strong>
@@ -1017,14 +1034,13 @@ function LoadingLines({ label, lines = 3 }: { label: string; lines?: number }) {
       {Array.from({ length: lines }, (_, index) => (
         <span className="pw-loading-line" key={index} aria-hidden="true" />
       ))}
-      <span className="sr-only">{label}</span>
     </div>
   );
 }
 
 function FocusLoadingSlot() {
   return (
-    <div className="pw-focus-card pw-focus-card--loading" aria-label="Finding projects">
+    <div className="pw-focus-card pw-focus-card--loading">
       <span className="pw-focus-card-banner pw-loading-surface" aria-hidden="true" />
       <span className="pw-focus-card-body">
         <span className="pw-focus-card-icon pw-loading-surface" aria-hidden="true" />
@@ -1037,8 +1053,8 @@ function FocusLoadingSlot() {
 function FocusEmptySlot({ primary, onNavigate }: { primary: boolean; onNavigate: Navigate }) {
   if (!primary)
     return (
-      <div className="pw-focus-slot pw-focus-slot--empty" aria-label="Empty focus slot">
-        <span>Empty focus slot</span>
+      <div className="pw-focus-slot pw-focus-slot--empty">
+        <span>Ready for a project</span>
       </div>
     );
   return (
@@ -1075,7 +1091,7 @@ function Home({ state, onNavigate }: WorkspaceProps & { state: WorkspaceState })
         <div className="pw-section-head">
           <div className="pw-stack">
             <h2 id="home-focus-heading">Focus projects</h2>
-            <span className="pw-small">{focused.length} of 3 focus slots used</span>
+            <span className="pw-small">{focused.length} of 3 in focus</span>
           </div>
         </div>
         <div className="pw-focus-grid">
@@ -1159,13 +1175,49 @@ function Projects({ state, controller, onNavigate }: WorkspaceProps & { state: W
     window.addEventListener('keydown', close);
     return () => window.removeEventListener('keydown', close);
   }, [focusReplacement, replacingFocus]);
+  const focusReplaceDialog = useRef<HTMLElement>(null);
+  const focusReplaceTrigger = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!focusReplacement) return;
+    focusReplaceTrigger.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    focusReplaceDialog.current?.querySelector<HTMLElement>('#focus-replace-heading')?.focus();
+    return () => {
+      focusReplaceTrigger.current?.focus();
+      focusReplaceTrigger.current = null;
+    };
+  }, [focusReplacement]);
+  const trapFocusReplaceTab = (event: ReactKeyboardEvent) => {
+    if (event.key !== 'Tab' || !focusReplaceDialog.current) return;
+    const focusables = Array.from(
+      focusReplaceDialog.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+      ),
+    );
+    if (!focusables.length) return;
+    const active = document.activeElement;
+    if (
+      event.shiftKey &&
+      (active === focusables[0] || !focusReplaceDialog.current.contains(active))
+    ) {
+      event.preventDefault();
+      focusables[focusables.length - 1].focus();
+    } else if (!event.shiftKey && active === focusables[focusables.length - 1]) {
+      event.preventDefault();
+      focusables[0].focus();
+    }
+  };
   const projectCard = (project: ProjectView) => (
     <article
       key={project.id}
       className={cn(cardSurface, 'pw-card pw-card--quiet pw-project-card pw-project-list-card')}
     >
       <span className="pw-project-list-icon" aria-hidden="true">
-        {project.iconAsset ? <img src={projectAssetUrl(project.iconAsset)} alt="" /> : <Folder />}
+        {project.iconAsset ? (
+          <img src={projectAssetUrl(project.iconAsset)} alt="" decoding="async" loading="lazy" />
+        ) : (
+          <Folder />
+        )}
       </span>
       <div className="pw-project-list-copy">
         <div className="pw-project-list-title">
@@ -1190,7 +1242,7 @@ function Projects({ state, controller, onNavigate }: WorkspaceProps & { state: W
             disabled={!state.online || state.busyWorkId === project.id}
             onClick={() => void controller.restore(project.id)}
           >
-            Reconnect project
+            {state.busyWorkId === project.id ? 'Reconnecting…' : 'Reconnect project'}
           </Button>
         ) : (
           <Button
@@ -1206,11 +1258,7 @@ function Projects({ state, controller, onNavigate }: WorkspaceProps & { state: W
     </article>
   );
   const loadingCards = Array.from({ length: 3 }, (_, index) => (
-    <article
-      key={index}
-      className={cn(cardSurface, 'pw-card pw-card--quiet pw-project-list-card')}
-      aria-label="Finding projects"
-    >
+    <article key={index} className={cn(cardSurface, 'pw-card pw-card--quiet pw-project-list-card')}>
       <span className="pw-project-list-icon pw-loading-surface" aria-hidden="true" />
       <LoadingLines label="Finding projects" lines={2} />
     </article>
@@ -1274,14 +1322,18 @@ function Projects({ state, controller, onNavigate }: WorkspaceProps & { state: W
       {focusReplacement && (
         <div className="pw-modal-layer" role="presentation">
           <section
+            ref={focusReplaceDialog}
             className="pw-focus-replace-modal"
             role="dialog"
             aria-modal="true"
             aria-labelledby="focus-replace-heading"
+            onKeyDown={trapFocusReplaceTab}
           >
             <div className="pw-stack">
               <span className="pw-eyebrow">Focus is full</span>
-              <h2 id="focus-replace-heading">Choose a project to replace</h2>
+              <h2 id="focus-replace-heading" tabIndex={-1}>
+                Choose a project to replace
+              </h2>
               <p className="pw-small">
                 {focusReplacement.title} will take its place in Home focus.
               </p>
@@ -1384,13 +1436,15 @@ function WorkingTreeCard({
           <h2>Working-tree recovery unavailable</h2>
         </div>
         <p>{tree.summary}</p>
-        <div className="pw-actions" aria-label="No Git preview actions">
-          <Button type="button" disabled>
-            Set up Git
-          </Button>
-        </div>
         {developerPreview && (
-          <p className="pw-small">Actions are disabled in this developer preview.</p>
+          <>
+            <div className="pw-actions">
+              <Button type="button" disabled>
+                Set up Git
+              </Button>
+            </div>
+            <p className="pw-small">Actions are disabled in this developer preview.</p>
+          </>
         )}
       </section>
     );
@@ -2322,8 +2376,8 @@ function CreateProject({ controller, onNavigate }: WorkspaceProps) {
           <section className="pw-notice" aria-label="Existing project folder">
             <h2>This folder is already a project</h2>
             <p>
-              Open {existing.title} to continue. Its saved purpose, goal, overview, task choices,
-              and Codex conversations are kept.
+              Open {existing.title} to continue. Its saved purpose, goal, overview, work, and Codex
+              conversations are kept.
             </p>
             <p className="pw-small">
               The values entered here do not replace the existing project. Use project settings to
@@ -2580,6 +2634,7 @@ function SourcePicker({
           </Button>
           <span className="pw-small" role="status">
             {value.threadIds.length} selected
+            {value.threadIds.length >= 30 && ' · Up to 30 conversations can be connected.'}
           </span>
         </div>
       )}
@@ -2617,7 +2672,7 @@ function SourcePicker({
                     <label>
                       Read this conversation from
                       <select
-                        aria-label={`Starting point for ${thread.title}`}
+                        aria-label={`Read this conversation from ${thread.title}`}
                         disabled={disabled || !!exact}
                         value={value.startTurnIds[thread.id] ?? ''}
                         onChange={(event) => {
@@ -2747,7 +2802,9 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
     revision: number;
     loaded: boolean;
   }>({ input: initialSources(), revision: project.revision, loaded: false });
-  const [sourceError, setSourceError] = useState('');
+  const [sourceError, setSourceError] = useState<{ message: string; retryable: boolean } | null>(
+    null,
+  );
   const [loadingSources, setLoadingSources] = useState(false);
   const [confirmRemoval, setConfirmRemoval] = useState(false);
   const [previewing, setPreviewing] = useState(false);
@@ -2772,13 +2829,16 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
     const generation = ++sourceRequest.current;
     const revision = project.revision;
     setLoadingSources(true);
-    setSourceError('');
+    setSourceError(null);
     try {
       const connections = await controller.connections();
       if (!mounted.current || generation !== sourceRequest.current) return;
       const connection = connections.find((item) => item.projectId === project.id);
       if (!connection) {
-        setSourceError('Codex conversation settings could not be found. Try again.');
+        setSourceError({
+          message: 'Codex conversation settings could not be found. Try again.',
+          retryable: true,
+        });
         return;
       }
       const inherited: SourceScope = {
@@ -2798,7 +2858,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
       });
     } catch (failure) {
       if (mounted.current && generation === sourceRequest.current)
-        setSourceError(projectError(failure));
+        setSourceError({ message: projectError(failure), retryable: true });
     } finally {
       if (mounted.current && generation === sourceRequest.current) setLoadingSources(false);
     }
@@ -2854,12 +2914,15 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
     const submitted = sourceDraft;
     const input = selectedSources(submitted.input);
     if (!validSourceRanges(input)) {
-      setSourceError(
-        'Complete the required IDs for the advanced conversation range, or remove it.',
-      );
+      // A validation error describes the current draft, so reloading sources
+      // would discard the user's unsaved edits. Only load failures may retry.
+      setSourceError({
+        message: 'Complete the required IDs for the advanced conversation range, or remove it.',
+        retryable: false,
+      });
       return;
     }
-    setSourceError('');
+    setSourceError(null);
     const saved = await controller.sources(project.id, input, submitted.revision);
     if (saved && mounted.current)
       setSourceDraft((current) =>
@@ -2941,7 +3004,12 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
               <div className="pw-project-asset-setting">
                 <div className="pw-project-asset-preview pw-project-asset-preview--icon">
                   {profile.iconAsset ? (
-                    <img src={projectAssetUrl(profile.iconAsset)} alt="Project icon preview" />
+                    <img
+                      src={projectAssetUrl(profile.iconAsset)}
+                      alt="Project icon preview"
+                      decoding="async"
+                      loading="lazy"
+                    />
                   ) : (
                     <Folder aria-hidden="true" />
                   )}
@@ -2978,7 +3046,12 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
               <div className="pw-project-asset-setting">
                 <div className="pw-project-asset-preview pw-project-asset-preview--banner">
                   {profile.bannerAsset ? (
-                    <img src={projectAssetUrl(profile.bannerAsset)} alt="Project banner preview" />
+                    <img
+                      src={projectAssetUrl(profile.bannerAsset)}
+                      alt="Project banner preview"
+                      decoding="async"
+                      loading="lazy"
+                    />
                   ) : (
                     <span className="pw-small">No banner</span>
                   )}
@@ -3082,14 +3155,16 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
               {loadingSources && <p role="status">Loading Codex conversations…</p>}
               {sourceError && (
                 <div className="pw-notice" role="alert">
-                  <p>{sourceError}</p>
-                  <Button
-                    className="pw-button"
-                    disabled={loadingSources}
-                    onClick={() => void readSources()}
-                  >
-                    Try again
-                  </Button>
+                  <p>{sourceError.message}</p>
+                  {sourceError.retryable && (
+                    <Button
+                      className="pw-button"
+                      disabled={loadingSources}
+                      onClick={() => void readSources()}
+                    >
+                      Try again
+                    </Button>
+                  )}
                 </div>
               )}
               {sourceDraft.loaded && (
@@ -3150,7 +3225,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
           <p>
             {project.disconnected
               ? 'This project is disconnected. Reconnect it so StateCarry can check for changes again. Updating the overview remains a separate action.'
-              : 'Disconnect this project to stop StateCarry from checking for new project information. Its saved goal, overview, tasks, and choices remain.'}
+              : 'Disconnect this project to stop StateCarry from checking for new project information. Its saved goal, overview, work, and choices remain.'}
           </p>
           <p className="pw-small">Project files and original Codex conversations stay unchanged.</p>
           <Button
@@ -3160,7 +3235,11 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
               project.disconnected ? void controller.restore(project.id) : void disconnect()
             }
           >
-            {project.disconnected ? 'Reconnect project' : 'Disconnect project'}
+            {project.disconnected
+              ? busy
+                ? 'Reconnecting…'
+                : 'Reconnect project'
+              : 'Disconnect project'}
           </Button>
         </section>
         <section className={cn(cardSurface, 'pw-card')} aria-labelledby="project-removal-heading">
@@ -3181,7 +3260,7 @@ function ProjectSettings({ project, state, controller, onNavigate }: ProjectProp
             {previewing ? 'Checking…' : 'Review what will be deleted'}
           </Button>
           {preview && (
-            <div className="pw-stack" aria-label="Deletion preview">
+            <div className="pw-stack" role="region" aria-label="Deletion preview">
               <p>This permanently deletes the project data listed below. This cannot be undone.</p>
               <dl className="pw-facts">
                 <div>

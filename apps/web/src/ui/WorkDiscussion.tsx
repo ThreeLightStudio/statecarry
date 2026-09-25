@@ -72,7 +72,7 @@ export function WorkDiscussion({
         </p>
       )}
       {stale && (
-        <div className="pw-return-observation">
+        <div className="pw-return-observation" role="status">
           <div>
             <p>The project has changed. Earlier answers still refer to the previous state.</p>
             <Button
@@ -106,11 +106,7 @@ export function WorkDiscussion({
                   .map((item) => (
                     <div key={item.id}>
                       <p>{item.text}</p>
-                      <span className="pw-small">
-                        {item.kind === 'interpretation'
-                          ? 'StateCarry interpretation'
-                          : attribution[item.nature]}
-                      </span>
+                      <span className="pw-small">{attribution[item.nature]}</span>
                       {item.uncertainty && <p className="pw-small">{item.uncertainty}</p>}
                     </div>
                   ))}
@@ -182,7 +178,7 @@ export function WorkDiscussion({
         </div>
         <Button
           type="button"
-          className="pw-button pw-button--primary pw-discussion-organize"
+          className="pw-button pw-button--quiet pw-discussion-organize"
           disabled={busy || stale}
           onClick={() =>
             void ask(

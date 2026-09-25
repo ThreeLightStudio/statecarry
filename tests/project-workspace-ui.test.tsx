@@ -71,7 +71,7 @@ it('shows up to three Home focus slots and moves full project browsing to Projec
     const focus = mounted.host.querySelector('section[aria-labelledby="home-focus-heading"]')!;
     expect(focus.querySelectorAll('.pw-focus-card')).toHaveLength(2);
     expect(focus.querySelectorAll('.pw-focus-slot')).toHaveLength(1);
-    expect(focus.textContent).toContain('2 of 3 focus slots used');
+    expect(focus.textContent).toContain('2 of 3 in focus');
     expect(focus.querySelector('a[href="#/project/alpha"]')).toBeTruthy();
     expect(focus.querySelector('a[href="#/project/beta"]')).toBeTruthy();
     expect(focus.textContent).not.toContain('Project disconnected');
@@ -151,6 +151,7 @@ it('opens a replacement modal when all three focus slots are full', async () => 
       (item) => item.textContent?.trim() === 'Add to focus',
     )!;
     await act(async () => {
+      add.focus();
       add.click();
     });
     const dialog = mounted.host.querySelector<HTMLElement>('[role="dialog"]')!;
@@ -158,6 +159,7 @@ it('opens a replacement modal when all three focus slots are full', async () => 
     expect(dialog.textContent).toContain('Focus is full');
     expect(dialog.textContent).toContain('Project delta will take its place in Home focus.');
     expect(dialog.querySelectorAll('.pw-focus-replace-option')).toHaveLength(3);
+    expect(document.activeElement).toBe(dialog.querySelector('#focus-replace-heading'));
     const first = dialog.querySelector<HTMLButtonElement>('.pw-focus-replace-option')!;
     await act(async () => {
       first.click();
@@ -175,6 +177,7 @@ it('opens a replacement modal when all three focus slots are full', async () => 
       focused: true,
     });
     expect(mounted.host.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(add);
   } finally {
     await mounted.unmount();
   }
@@ -242,6 +245,39 @@ it('preserves exact source boundaries and submits source/profile changes with th
       bannerAsset: null,
     });
     expect(h.analysisGateway.refresh).not.toHaveBeenCalled();
+  } finally {
+    await mounted.unmount();
+  }
+});
+
+it('keeps unsaved source edits when range validation fails and hides the reload action', async () => {
+  const h = projectUiFixture();
+  const connection: Connection = {
+    id: 'connection-alpha',
+    projectId: 'alpha',
+    title: 'Project alpha',
+    cwd: '/synthetic/alpha',
+    threadIds: ['thread-alpha'],
+    startTurnIds: { 'thread-alpha': 'turn-start' },
+    recordRanges: { 'thread-alpha': { start: { turnId: 'turn-start', itemId: '' } } },
+    discover: false,
+    revision: 1,
+    createdAt: now,
+  };
+  h.projectGateway.connections = vi.fn(async () => [connection]);
+  window.history.replaceState(null, '', '#/project/alpha/settings');
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
+  try {
+    await settle();
+    expect(h.projectGateway.connections).toHaveBeenCalledTimes(1);
+    await press(mounted.host, 'Save conversations');
+    const notice = mounted.host.querySelector('.pw-notice[role="alert"]')!;
+    expect(notice.textContent).toContain(
+      'Complete the required IDs for the advanced conversation range, or remove it.',
+    );
+    expect([...notice.querySelectorAll('button')]).toHaveLength(0);
+    expect(h.projectGateway.connections).toHaveBeenCalledTimes(1);
+    expect(h.projectGateway.sources).not.toHaveBeenCalled();
   } finally {
     await mounted.unmount();
   }

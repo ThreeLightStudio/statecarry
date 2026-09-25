@@ -303,7 +303,7 @@ function RequestReport({
     );
   return (
     <>
-      <p>
+      <p role="status">
         {request.state === 'prepared' && !request.externalReport
           ? 'Your request is ready to review before anything is sent.'
           : request.externalReport
@@ -1479,7 +1479,7 @@ function ReleaseAction({
     policyTargetsReady.length > 0 &&
     policyTargetsReady.some((target) => target.required);
   const policyEditor = (
-    <div aria-label="Release policy editor">
+    <div role="group" aria-label="Release policy editor">
       <label className="pw-field">
         Policy name
         <Input
@@ -1530,6 +1530,7 @@ function ReleaseAction({
               <input
                 type="checkbox"
                 checked={target.required}
+                aria-label={`Required for release completion — target ${index + 1}`}
                 onChange={(event) =>
                   setPolicyTargets((items) =>
                     items.map((item) =>
@@ -1727,7 +1728,15 @@ function ReleaseAction({
             {active.checks.map((check) => (
               <div key={check.id} className="pw-context-item">
                 <strong>{check.label}</strong>
-                <span className="pw-small">{check.state}</span>
+                <span className="pw-small">
+                  {check.state === 'pending'
+                    ? 'Waiting'
+                    : check.state === 'passed'
+                      ? 'Passed'
+                      : check.state === 'failed'
+                        ? 'Failed'
+                        : check.state}
+                </span>
                 {check.detail && <span className="pw-small">{check.detail}</span>}
                 <div className="pw-actions">
                   {check.state !== 'passed' && (
@@ -1855,7 +1864,7 @@ function ReleaseAction({
   }
 
   return (
-    <section aria-label="Release and delivery">
+    <section className="pw-release-section" aria-label="Release and delivery">
       <h3>Review completed work for delivery</h3>
       <p>Policy · {release.policy.name}</p>
       {release.policyNeedsReview && (
@@ -1894,15 +1903,22 @@ function ReleaseAction({
         </label>
         <Button
           variant="outline"
-          disabled={busy || !exceptionReason.trim() || !exceptionTargetLabel.trim()}
+          disabled={
+            busy || !!selectedExceptionId || !exceptionReason.trim() || !exceptionTargetLabel.trim()
+          }
           onClick={() => void recordReleaseException()}
         >
-          {selectedExceptionId ? 'Exception recorded for this release' : 'Record policy exception'}
+          Record policy exception
         </Button>
+        {selectedExceptionId && (
+          <p className="pw-small" role="status">
+            Exception recorded for this release.
+          </p>
+        )}
       </details>
       {release.pendingWork.length ? (
         <>
-          <div aria-label="Choose release work">
+          <div role="group" aria-label="Choose release work">
             {release.pendingWork.map((item) => (
               <label key={item.id}>
                 <input
