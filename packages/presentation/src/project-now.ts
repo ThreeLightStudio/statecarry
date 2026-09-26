@@ -367,9 +367,9 @@ function compactStatus(now: ProjectNow) {
     case 'needs-direction':
       return 'Direction needed';
     case 'choose-work':
-      return 'Choose current work';
+      return 'Work needs choosing';
     case 'choose-next-work':
-      return 'Choose next work';
+      return 'Next work needs choosing';
     case 'waiting':
       return 'Waiting';
     case 'review':

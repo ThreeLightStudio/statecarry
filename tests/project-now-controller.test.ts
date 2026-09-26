@@ -292,18 +292,58 @@ describe('ProjectController ProjectNow cutover', () => {
     },
   );
 
-  it('can retry a project read after a synchronous gateway failure', async () => {
+  it('hydrates Home and Projects compacts in the background without initializing', async () => {
     const f = fixture();
-    const bundle = await f.gateway.now!('a');
-    f.gateway.now = vi
-      .fn()
-      .mockImplementationOnce(() => {
-        throw new Error('Read failed before sending');
-      })
-      .mockResolvedValue(bundle);
     const controller = new ProjectController(f.gateway, f.analysis, f.memory);
     try {
       await controller.start({ page: 'home' });
+      expect(f.gateway.initialize).not.toHaveBeenCalled();
+      expect(controller.getSnapshot().projectCompacts.a).toMatchObject({
+        current: 'Legacy selected work',
+        status: 'Ready to continue',
+      });
+    } finally {
+      controller.stop();
+    }
+  });
+
+  it('keeps background compact failures quiet until the project is entered', async () => {
+    const f = fixture();
+    const bundle = await f.gateway.now!('a');
+    f.gateway.now = vi.fn(async () => {
+      throw new Error('Project A could not be read');
+    });
+    const controller = new ProjectController(f.gateway, f.analysis, f.memory);
+    try {
+      await controller.start({ page: 'home' });
+      expect(controller.getSnapshot().error).toBeNull();
+      expect(controller.getSnapshot().projectCompacts.a).toBeUndefined();
+      expect(f.gateway.initialize).not.toHaveBeenCalled();
+      f.gateway.now = vi.fn(async () => structuredClone(bundle));
+      controller.navigate({ page: 'project', projectId: 'a' });
+      await controller.readProjectNow('a');
+      expect(controller.getSnapshot().projectCompacts.a).toMatchObject({
+        current: 'Legacy selected work',
+      });
+      expect(controller.getSnapshot().error).toBeNull();
+    } finally {
+      controller.stop();
+    }
+  });
+
+  it('can retry a project read after a synchronous gateway failure', async () => {
+    const f = fixture();
+    const bundle = await f.gateway.now!('a');
+    f.gateway.now = vi.fn().mockResolvedValue(bundle);
+    const controller = new ProjectController(f.gateway, f.analysis, f.memory);
+    try {
+      await controller.start({ page: 'home' });
+      f.gateway.now = vi
+        .fn()
+        .mockImplementationOnce(() => {
+          throw new Error('Read failed before sending');
+        })
+        .mockResolvedValue(bundle);
       expect(await controller.readProjectNow('a')).toBeNull();
       expect(await controller.readProjectNow('a')).toMatchObject({ work: { id: 'work-a' } });
       expect(controller.getSnapshot().error).toBeNull();

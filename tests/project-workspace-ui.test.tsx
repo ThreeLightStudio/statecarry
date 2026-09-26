@@ -132,6 +132,67 @@ it('keeps project search hidden below six projects and adds focus immediately wh
   }
 });
 
+it('shows focus cards with the current work and compact state from ProjectNow', async () => {
+  const alpha = projectEntry('alpha');
+  alpha.focused = true;
+  const beta = projectEntry('beta');
+  beta.focused = true;
+  beta.analysis!.goalText = null;
+  beta.analysis!.goalOrigin = 'inferred';
+  const h = projectUiFixture([alpha, beta]);
+  window.history.replaceState(null, '', '#/home');
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
+  try {
+    await settle();
+    await settle();
+    const cards = [...mounted.host.querySelectorAll<HTMLElement>('.pw-focus-card')];
+    expect(cards).toHaveLength(2);
+    const alphaCard = cards.find((card) => card.textContent?.includes('Project alpha'))!;
+    expect(alphaCard.textContent).toContain('Decide the next work');
+    expect(alphaCard.textContent).toContain('Work complete');
+    expect(alphaCard.textContent).not.toContain(
+      'Make exported work understandable when returning.',
+    );
+    const betaCard = cards.find((card) => card.textContent?.includes('Project beta'))!;
+    expect(betaCard.textContent).toContain('Define the current direction');
+    expect(betaCard.textContent).toContain('Direction needed');
+    expect(betaCard.textContent).toContain('No confirmed current direction is available.');
+  } finally {
+    await mounted.unmount();
+  }
+});
+
+it('shows project list cards with their current work instead of the project purpose', async () => {
+  const alpha = projectEntry('alpha');
+  const disconnected = projectEntry('stale');
+  disconnected.disconnectedAt = now;
+  disconnected.analysis = null;
+  const h = projectUiFixture([alpha, disconnected]);
+  window.history.replaceState(null, '', '#/projects');
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
+  try {
+    await settle();
+    await settle();
+    const cards = [...mounted.host.querySelectorAll<HTMLElement>('.pw-project-list-card')];
+    const alphaCard = cards.find((card) => card.textContent?.includes('Project alpha'))!;
+    expect(alphaCard.textContent).toContain('Decide the next work');
+    expect(alphaCard.textContent).toContain('Work complete');
+    expect(alphaCard.textContent).not.toContain(
+      'Make exported work understandable when returning.',
+    );
+    const staleCard = cards.find((card) => card.textContent?.includes('Project stale'))!;
+    expect(staleCard.textContent).toContain('Disconnected');
+    expect(staleCard.textContent).not.toContain('Decide the next work');
+    expect(
+      [...staleCard.querySelectorAll('button')].some((button) =>
+        button.textContent?.includes('Reconnect project'),
+      ),
+    ).toBe(true);
+  } finally {
+    await mounted.unmount();
+  }
+});
+
 it('opens a replacement modal when all three focus slots are full', async () => {
   const alpha = projectEntry('alpha');
   const beta = projectEntry('beta');

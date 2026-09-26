@@ -432,8 +432,16 @@
   @apply truncate text-base font-semibold text-foreground;
 }
 
+.pw-focus-card-work {
+  @apply line-clamp-2 text-sm leading-5 text-foreground;
+}
+
 .pw-focus-card-status {
   @apply truncate text-[13px] text-muted-foreground;
+}
+
+.pw-focus-card-reason {
+  @apply line-clamp-2 text-xs leading-4 text-muted-foreground;
 }
 
 .pw-loading-block {
@@ -592,8 +600,8 @@
   @apply block truncate;
 }
 
-.pw-project-list-purpose {
-  @apply line-clamp-1 text-sm text-muted-foreground;
+.pw-project-list-current {
+  @apply line-clamp-1 text-sm text-foreground;
 }
 
 .pw-project-list-status {

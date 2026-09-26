@@ -16,6 +16,7 @@ import {
   type ProjectSourcesInput,
   type ProjectView,
   type ProjectNowView,
+  type ProjectCompactView,
   type PresentedProjectAction,
   type RecordRange,
   type ProjectDrafts,
@@ -362,7 +363,7 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
       : !state.online
         ? "StateCarry can't connect to its local service."
         : state.checkingCurrent
-          ? 'Checking for changes…'
+          ? 'Checking current state'
           : null;
   const routeTitle =
     route.page === 'home'
@@ -1001,7 +1002,15 @@ function GlobalSettings({
   );
 }
 
-function FocusProjectCard({ project, onNavigate }: { project: ProjectView; onNavigate: Navigate }) {
+function FocusProjectCard({
+  project,
+  compact,
+  onNavigate,
+}: {
+  project: ProjectView;
+  compact: ProjectCompactView | undefined;
+  onNavigate: Navigate;
+}) {
   const bannerUrl = projectAssetUrl(project.bannerAsset);
   const iconUrl = projectAssetUrl(project.iconAsset);
   return (
@@ -1022,7 +1031,9 @@ function FocusProjectCard({ project, onNavigate }: { project: ProjectView; onNav
         </span>
         <span className="pw-focus-card-copy">
           <strong>{project.title}</strong>
-          <span className="pw-focus-card-status">{project.stateLabel}</span>
+          {compact && <span className="pw-focus-card-work">{compact.current}</span>}
+          <span className="pw-focus-card-status">{compact?.status ?? project.stateLabel}</span>
+          {compact?.reason && <span className="pw-focus-card-reason">{compact.reason}</span>}
         </span>
       </span>
     </RouteLink>
@@ -1105,7 +1116,12 @@ function Home({ state, onNavigate }: WorkspaceProps & { state: WorkspaceState })
           ) : (
             <>
               {focused.map((project) => (
-                <FocusProjectCard key={project.id} project={project} onNavigate={onNavigate} />
+                <FocusProjectCard
+                  key={project.id}
+                  project={project}
+                  compact={state.projectCompacts[project.id]}
+                  onNavigate={onNavigate}
+                />
               ))}
               {slots.map((slot) => (
                 <FocusEmptySlot key={slot} primary={slot === 0} onNavigate={onNavigate} />
@@ -1208,56 +1224,59 @@ function Projects({ state, controller, onNavigate }: WorkspaceProps & { state: W
       focusables[0].focus();
     }
   };
-  const projectCard = (project: ProjectView) => (
-    <article
-      key={project.id}
-      className={cn(cardSurface, 'pw-card pw-card--quiet pw-project-card pw-project-list-card')}
-    >
-      <span className="pw-project-list-icon" aria-hidden="true">
-        {project.iconAsset ? (
-          <img src={projectAssetUrl(project.iconAsset)} alt="" decoding="async" loading="lazy" />
-        ) : (
-          <Folder />
-        )}
-      </span>
-      <div className="pw-project-list-copy">
-        <div className="pw-project-list-title">
-          <h3>
-            <RouteLink
-              className="pw-project-card-link"
-              href={projectHref(project.id)}
-              onNavigate={onNavigate}
-            >
-              {project.title}
-            </RouteLink>
-          </h3>
-          {project.focused && <Badge>Your focus</Badge>}
+  const projectCard = (project: ProjectView) => {
+    const compact = state.projectCompacts[project.id];
+    return (
+      <article
+        key={project.id}
+        className={cn(cardSurface, 'pw-card pw-card--quiet pw-project-card pw-project-list-card')}
+      >
+        <span className="pw-project-list-icon" aria-hidden="true">
+          {project.iconAsset ? (
+            <img src={projectAssetUrl(project.iconAsset)} alt="" decoding="async" loading="lazy" />
+          ) : (
+            <Folder />
+          )}
+        </span>
+        <div className="pw-project-list-copy">
+          <div className="pw-project-list-title">
+            <h3>
+              <RouteLink
+                className="pw-project-card-link"
+                href={projectHref(project.id)}
+                onNavigate={onNavigate}
+              >
+                {project.title}
+              </RouteLink>
+            </h3>
+            {project.focused && <Badge>Your focus</Badge>}
+          </div>
+          {compact && <p className="pw-project-list-current">{compact.current}</p>}
+          <span className="pw-project-list-status">{compact?.status ?? project.stateLabel}</span>
         </div>
-        <p className="pw-project-list-purpose">{project.purpose || 'No purpose set.'}</p>
-        <span className="pw-project-list-status">{project.stateLabel}</span>
-      </div>
-      <div className="pw-project-list-action">
-        {project.disconnected ? (
-          <Button
-            className="pw-button"
-            disabled={!state.online || state.busyWorkId === project.id}
-            onClick={() => void controller.restore(project.id)}
-          >
-            {state.busyWorkId === project.id ? 'Reconnecting…' : 'Reconnect project'}
-          </Button>
-        ) : (
-          <Button
-            type="button"
-            className="pw-button pw-button--quiet"
-            disabled={focusBusy}
-            onClick={() => requestFocus(project)}
-          >
-            {project.focused ? 'Remove from focus' : 'Add to focus'}
-          </Button>
-        )}
-      </div>
-    </article>
-  );
+        <div className="pw-project-list-action">
+          {project.disconnected ? (
+            <Button
+              className="pw-button"
+              disabled={!state.online || state.busyWorkId === project.id}
+              onClick={() => void controller.restore(project.id)}
+            >
+              {state.busyWorkId === project.id ? 'Reconnecting…' : 'Reconnect project'}
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              className="pw-button pw-button--quiet"
+              disabled={focusBusy}
+              onClick={() => requestFocus(project)}
+            >
+              {project.focused ? 'Remove from focus' : 'Add to focus'}
+            </Button>
+          )}
+        </div>
+      </article>
+    );
+  };
   const loadingCards = Array.from({ length: 3 }, (_, index) => (
     <article key={index} className={cn(cardSurface, 'pw-card pw-card--quiet pw-project-list-card')}>
       <span className="pw-project-list-icon pw-loading-surface" aria-hidden="true" />
@@ -1763,6 +1782,13 @@ function ProjectNowProjectPage({
     view.recommendation.candidate?.source === 'work-item' &&
     view.primaryAction?.kind === 'start-work' &&
     view.primaryAction.workItemId === view.recommendation.candidate.id;
+  // A recommendation plus a generic "choose current work" primary would render
+  // two primary buttons. The recommendation carries the primary action; the
+  // Next sentence keeps its context above it and secondaries stay available.
+  const recommendationReplacesNext =
+    view?.recommendation.status === 'recommended' &&
+    !!view.recommendation.candidate &&
+    view.primaryAction?.kind === 'choose-current-work';
 
   return (
     <div className="pw-project-detail pw-project-now-page">
@@ -1920,6 +1946,13 @@ function ProjectNowProjectPage({
               </aside>
             )}
 
+            {recommendationReplacesNext && view.nextText && (
+              <div className="pw-now-next">
+                <span className="pw-small">Next</span>
+                <p>{view.nextText}</p>
+              </div>
+            )}
+
             {view.recommendation.status === 'recommended' && view.recommendation.candidate && (
               <section className="pw-now-recommendation" aria-label="Suggested next work">
                 <span className="pw-small">StateCarry suggests</span>
@@ -1967,7 +2000,22 @@ function ProjectNowProjectPage({
               </section>
             )}
 
-            {view.nextText && view.primaryAction && (
+            {recommendationReplacesNext && view.secondaryActions.length > 0 && (
+              <div className="pw-now-actions">
+                {view.secondaryActions.map((action) => (
+                  <Button
+                    key={`${action.kind}:${action.workItemId ?? ''}:${action.requestId ?? ''}`}
+                    className="pw-button pw-button--quiet"
+                    disabled={busy}
+                    onClick={() => void runAction(action)}
+                  >
+                    {action.label}
+                  </Button>
+                ))}
+              </div>
+            )}
+
+            {!recommendationReplacesNext && view.nextText && view.primaryAction && (
               <div className="pw-now-next">
                 <span className="pw-small">Next</span>
                 <p>{view.nextText}</p>

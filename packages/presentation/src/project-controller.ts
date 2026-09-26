@@ -2,6 +2,7 @@ import {
   workDecisionKinds,
   workingTreeGroupKey,
   type ProjectModelView,
+  type ProjectNow,
   type WorkDiscussionSync,
   type AnalysisCorrection,
   type ReleaseProjectView,
@@ -14,7 +15,12 @@ import {
 import type { AnalysisGateway } from './analysis';
 import { presentProjectAnalysis, analysisHandoffText } from './analysis';
 import type { AnalysisMemory, ProjectDrafts } from './project-drafts';
-import { presentProjectNow, type ProjectNowView } from './project-now';
+import {
+  presentProjectCompact,
+  presentProjectNow,
+  type ProjectCompactView,
+  type ProjectNowView,
+} from './project-now';
 import {
   presentProjects,
   presentRegistrations,
@@ -66,6 +72,7 @@ export type ProjectControllerState = {
   projectNow: Record<string, ProjectNowView | undefined>;
   projectNowLoading: Record<string, boolean>;
   projectNowInitializing: Record<string, boolean>;
+  projectCompacts: Record<string, ProjectCompactView | undefined>;
   releases: Record<string, ReleaseProjectView | undefined>;
   releaseLoading: Record<string, boolean>;
 };
@@ -105,6 +112,7 @@ export class ProjectController {
     projectNow: {},
     projectNowLoading: {},
     projectNowInitializing: {},
+    projectCompacts: {},
     releases: {},
     releaseLoading: {},
   };
@@ -119,6 +127,7 @@ export class ProjectController {
   private workingTreeAnalysisReads = new Map<string, Promise<WorkingTreeView | null>>();
   private projectNowReads = new Map<string, Promise<ProjectNowView | null>>();
   private projectNowModels = new Map<string, ProjectModelView>();
+  private compactFailed = new Set<string>();
   private durableDiscussionKeys = new Map<string, Set<string>>();
   private readAgain = false;
   private hasLoaded = false;
@@ -235,8 +244,13 @@ export class ProjectController {
   }
   private invalidateRead(disconnected = false, projectId: string | null = null) {
     this.readEpoch++;
-    if (projectId === null) this.allChanged = true;
-    else this.changedWorkIds.add(projectId);
+    if (projectId === null) {
+      this.allChanged = true;
+      this.compactFailed.clear();
+    } else {
+      this.changedWorkIds.add(projectId);
+      this.compactFailed.delete(projectId);
+    }
     const affectsOriginal = projectId === null || projectId === this.value.route.projectId;
     if (affectsOriginal) this.inspectionGeneration++;
     this.present({
@@ -590,8 +604,31 @@ export class ProjectController {
     this.durableDiscussionKeys.set(id, durable);
     this.persistEdits(id, this.readEdits(id));
   }
-  async readProjectNow(id: string): Promise<ProjectNowView | null> {
+  private setProjectNowView(id: string, model: ProjectModelView, now: ProjectNow) {
+    this.set({
+      projectNow: { ...this.value.projectNow, [id]: presentProjectNow(model, now) },
+      projectCompacts: { ...this.value.projectCompacts, [id]: presentProjectCompact(model, now) },
+    });
+  }
+  /** Background hydration for Home/Projects cards. Quiet: a failed read never
+   * raises a global error, and a missing first-run analysis is never started —
+   * only entering the project initializes it. */
+  private hydrateCompacts(changed: ReadonlySet<string> | null) {
+    if (!this.active || !this.value.online) return;
+    for (const entry of this.workspace.projects) {
+      if (entry.disconnectedAt) continue;
+      const id = entry.projectId;
+      if (this.projectNowReads.has(id) || this.compactFailed.has(id)) continue;
+      if (this.value.projectCompacts[id] && !(changed?.has(id) ?? false)) continue;
+      void this.readProjectNow(id, { quiet: true, initialize: false });
+    }
+  }
+  async readProjectNow(
+    id: string,
+    options: { quiet?: boolean; initialize?: boolean } = {},
+  ): Promise<ProjectNowView | null> {
     if (!this.active) return null;
+    const { quiet = false, initialize = true } = options;
     const existing = this.projectNowReads.get(id);
     if (existing) return existing;
     const generation = this.generation;
@@ -604,13 +641,13 @@ export class ProjectController {
         if (!this.active || generation !== this.generation) return null;
         this.projectNowModels.set(id, bundle.model);
         this.hydrateDurableDiscussions(id, bundle.model);
-        this.set({
-          projectNow: {
-            ...this.value.projectNow,
-            [id]: presentProjectNow(bundle.model, bundle.now),
-          },
-        });
+        this.setProjectNowView(id, bundle.model, bundle.now);
+        this.compactFailed.delete(id);
         if (!bundle.initialized) {
+          if (!initialize) {
+            this.set({ projectNowLoading: { ...this.value.projectNowLoading, [id]: false } });
+            return presentProjectNow(bundle.model, bundle.now);
+          }
           this.set({
             projectNowInitializing: { ...this.value.projectNowInitializing, [id]: true },
           });
@@ -623,20 +660,26 @@ export class ProjectController {
         const view = presentProjectNow(bundle.model, bundle.now);
         this.set({
           projectNow: { ...this.value.projectNow, [id]: view },
+          projectCompacts: {
+            ...this.value.projectCompacts,
+            [id]: presentProjectCompact(bundle.model, bundle.now),
+          },
           projectNowLoading: { ...this.value.projectNowLoading, [id]: false },
           projectNowInitializing: { ...this.value.projectNowInitializing, [id]: false },
-          error: null,
-          errorSource: null,
+          // A background card read succeeding is not the failed action
+          // succeeding; only non-quiet reads resolve a global error.
+          ...(quiet ? {} : { error: null, errorSource: null }),
         });
         return view;
       } catch (error) {
-        if (this.active && generation === this.generation)
+        if (this.active && generation === this.generation) {
           this.set({
             projectNowLoading: { ...this.value.projectNowLoading, [id]: false },
             projectNowInitializing: { ...this.value.projectNowInitializing, [id]: false },
-            error: projectError(error),
-            errorSource: 'action',
+            ...(quiet ? {} : { error: projectError(error), errorSource: 'action' as const }),
           });
+          if (quiet) this.compactFailed.add(id);
+        }
         return null;
       } finally {
         this.projectNowReads.delete(id);
@@ -916,6 +959,7 @@ export class ProjectController {
           this.workspace = workspace;
           this.hasLoaded = true;
           this.hasRegistrations = true;
+          const changedIds = this.allChanged ? null : new Set(this.changedWorkIds);
           this.hydratingWorkIds.clear();
           this.allChanged = false;
           this.changedWorkIds.clear();
@@ -943,9 +987,11 @@ export class ProjectController {
           if (route.page === 'project' && route.projectId) {
             if (!background) {
               await this.readProjectNow(route.projectId);
+              changedIds?.delete(route.projectId);
               void this.inspectWorkingTree(route.projectId);
             }
           }
+          this.hydrateCompacts(changedIds);
           if (
             this.value.route.page === 'original' &&
             !this.value.inspection &&

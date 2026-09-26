@@ -112,7 +112,7 @@ describe('ProjectNow presentation', () => {
     expect(view.otherWorkCount).toBe(1);
     expect(compact).toMatchObject({
       current: 'Choose current work',
-      status: 'Choose current work',
+      status: 'Work needs choosing',
     });
   });
 
