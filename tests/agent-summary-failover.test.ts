@@ -127,7 +127,7 @@ describe('agent summary usage-limit failover', () => {
     expect(openrouter.run).toHaveBeenCalledTimes(2);
 
     (provider as any).codexExhaustedUntil = 0;
-    codex.run = vi.fn(async () => ({ value: workingTreeValue, model: 'gpt-5.6-luna' }));
+    codex.run = vi.fn(async () => ({ value: workingTreeValue, model: 'gpt-6-luna' }));
     const result = await provider.analyzeWorkingTree(input());
     expect(result.groups[0].title).toBe('Current work');
     expect(codex.run).toHaveBeenCalledTimes(1);

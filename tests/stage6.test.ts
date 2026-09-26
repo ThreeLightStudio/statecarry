@@ -30,7 +30,7 @@ describe('stage 6 model policy and analysis', () => {
       settingsFromEnvironment({ model: 'gpt-6-astra', model_reasoning_effort: 'xhigh' }),
     );
     expect(settings).toMatchObject({
-      model: 'gpt-5.6-luna',
+      model: 'gpt-6-luna',
       summaryEffort: 'medium',
       checkEffort: 'medium',
     });
@@ -41,10 +41,21 @@ describe('stage 6 model policy and analysis', () => {
     ).toThrow('no model fallback');
     expect(() =>
       requireSupportedSettings(settings, [
-        { model: 'gpt-5.6-luna', supportedReasoningEfforts: [{ reasoningEffort: 'high' }] },
+        { model: 'gpt-6-luna', supportedReasoningEfforts: [{ reasoningEffort: 'high' }] },
       ]),
     ).toThrow('no effort fallback');
   });
+
+  it('keeps explicit STATECARRY model and effort overrides', () => {
+    expect(
+      settingsFromEnvironment({
+        STATECARRY_MODEL: 'gpt-6-astra',
+        STATECARRY_SUMMARY_EFFORT: 'high',
+        STATECARRY_CHECK_EFFORT: 'low',
+      }),
+    ).toEqual({ model: 'gpt-6-astra', summaryEffort: 'high', checkEffort: 'low' });
+  });
+
   it('admits only two concurrent model calls and releases queued work', async () => {
     const a = await acquireAnalysisSlot(),
       b = await acquireAnalysisSlot();
@@ -91,7 +102,7 @@ describe('stage 6 model policy and analysis', () => {
         vi.spyOn(a, 'preflight').mockResolvedValue(undefined);
         const run = vi
           .spyOn(a as any, 'run')
-          .mockResolvedValue({ value: output, model: 'gpt-5.6-luna' });
+          .mockResolvedValue({ value: output, model: 'gpt-6-luna' });
         await a.generate([source()], () => {});
         await a.generate([source()], () => {});
         expect(run).toHaveBeenCalledTimes(1);
@@ -105,7 +116,7 @@ describe('stage 6 model policy and analysis', () => {
         vi.spyOn(b, 'preflight').mockResolvedValue(undefined);
         const other = vi
           .spyOn(b as any, 'run')
-          .mockResolvedValue({ value: output, model: 'gpt-5.6-luna' });
+          .mockResolvedValue({ value: output, model: 'gpt-6-luna' });
         await b.generate([source()], () => {});
         await b.generate([source()], () => {});
         expect(other).toHaveBeenCalledOnce();
@@ -176,8 +187,8 @@ describe('stage 6 model policy and analysis', () => {
       wrong.claims[0].evidenceIds = ['unknown'];
       const run = vi
         .spyOn(provider as any, 'run')
-        .mockResolvedValueOnce({ value: wrong, model: 'gpt-5.6-luna' })
-        .mockResolvedValue({ value: output, model: 'gpt-5.6-luna' });
+        .mockResolvedValueOnce({ value: wrong, model: 'gpt-6-luna' })
+        .mockResolvedValue({ value: output, model: 'gpt-6-luna' });
       await provider.generate([source()], () => {});
       expect(run.mock.calls[1][0]).toContain('Unknown evidence');
       await provider.generate([source()], () => {});

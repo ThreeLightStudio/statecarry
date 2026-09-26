@@ -55,7 +55,7 @@ describe('agent summary provider delegation', () => {
     const h = harness();
     const provider = new AgentSummaryProvider('/tmp/statecarry-agent-test', {}, h.repo, {});
     expect(provider.capability().provider).toBe('codex');
-    expect(provider.configuration().model).toBe('gpt-5.6-luna');
+    expect(provider.configuration().model).toBe('gpt-6-luna');
     h.repo.put('agentSettings', {
       id: 'default',
       settings: {
