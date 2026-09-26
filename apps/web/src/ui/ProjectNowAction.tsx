@@ -937,6 +937,34 @@ function ScopeAction({
     }
   };
 
+  const keepSelectedChanges = async () => {
+    if (busy || !observation || !draft.confirmed || stale || !draft.scopeIds.length) return;
+    const keptScopeIds = new Set(draft.scopeIds);
+    setBusy(true);
+    setError('');
+    try {
+      await controller.projectDecision(project.id, {
+        action: 'keep',
+        basis: observation.basis,
+        scopeIds: [...keptScopeIds],
+      });
+      const nextDraft = {
+        ...draft,
+        scopeIds: draft.scopeIds.filter((id) => !keptScopeIds.has(id)),
+        basis: observation.basis,
+        confirmed: false,
+      };
+      writeScopeDraft(storageKey, nextDraft);
+      setDraft(nextDraft);
+      await controller.readProjectNow(project.id);
+      onBack();
+    } catch (cause) {
+      setError(projectError(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <section
       className="pw-decision-review"
@@ -1121,19 +1149,7 @@ function ScopeAction({
                 disabled={
                   busy || stale || !draft.confirmed || !draft.scopeIds.length || !inventoryReady
                 }
-                onClick={() =>
-                  void controller
-                    .projectDecision(project.id, {
-                      action: 'keep',
-                      basis: observation!.basis,
-                      scopeIds: draft.scopeIds,
-                    })
-                    .then(async () => {
-                      await controller.readProjectNow(project.id);
-                      onBack();
-                    })
-                    .catch((cause) => setError(projectError(cause)))
-                }
+                onClick={() => void keepSelectedChanges()}
               >
                 Leave selected changes and move on
               </Button>
@@ -1185,19 +1201,7 @@ function ScopeAction({
                     disabled={
                       busy || stale || !draft.confirmed || !draft.scopeIds.length || !inventoryReady
                     }
-                    onClick={() =>
-                      void controller
-                        .projectDecision(project.id, {
-                          action: 'keep',
-                          basis: observation.basis,
-                          scopeIds: draft.scopeIds,
-                        })
-                        .then(async () => {
-                          await controller.readProjectNow(project.id);
-                          onBack();
-                        })
-                        .catch((cause) => setError(projectError(cause)))
-                    }
+                    onClick={() => void keepSelectedChanges()}
                   >
                     Leave selected changes and move on
                   </Button>

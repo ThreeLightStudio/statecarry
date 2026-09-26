@@ -820,6 +820,11 @@ it('records selected changes as intentionally left without sending or completing
   const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
   try {
     await press(mounted.host, 'Continue work');
+    await typeField(
+      mounted.host,
+      '[aria-label="Review request"] textarea',
+      'Keep this request text after recording the scope decision.',
+    );
     await act(async () => {
       mounted.host.querySelector<HTMLInputElement>('.pw-decision-scopes input')!.click();
     });
@@ -835,6 +840,19 @@ it('records selected changes as intentionally left without sending or completing
     ).toMatchObject({ basis: 'scope-a', scopeIds: ['scope-a-1'] });
     expect(
       lifecycle.decisionGateway.mock.calls.some(([, command]) => command?.action === 'send'),
+    ).toBe(false);
+    expect(h.projectGateway.stopWork).not.toHaveBeenCalled();
+
+    await press(mounted.host, 'Continue work');
+    expect(
+      mounted.host.querySelector<HTMLTextAreaElement>('[aria-label="Review request"] textarea')
+        ?.value,
+    ).toBe('Keep this request text after recording the scope decision.');
+    expect(mounted.host.querySelector<HTMLInputElement>('.pw-decision-scopes input')?.checked).toBe(
+      false,
+    );
+    expect(
+      mounted.host.querySelector<HTMLInputElement>('.pw-decision-confirm input')?.checked,
     ).toBe(false);
   } finally {
     await mounted.unmount();
@@ -2776,6 +2794,16 @@ it('reviews and keeps stopped-work changes without restarting the selected work'
     } as ProjectNow,
   }));
   const lifecycle = nativeDecisionLifecycle(h, scopedDecision());
+  storage.setItem(
+    'statecarry.project-action.v3.alpha.work-a.verify',
+    JSON.stringify({
+      text: 'Keep the stopped-work note after recording this decision.',
+      doneWhen: 'Keep the saved completion wording.',
+      scopeIds: [],
+      basis: '',
+      confirmed: false,
+    }),
+  );
   h.projectGateway.stopWork = vi.fn(async () => structuredClone(data.model));
   h.projectGateway.resumeWork = vi.fn(async () => structuredClone(data.model));
   window.history.replaceState(null, '', '#/project/alpha');
@@ -2805,6 +2833,18 @@ it('reviews and keeps stopped-work changes without restarting the selected work'
       lifecycle.decisionGateway.mock.calls.some(([, command]) => command?.action === 'send'),
     ).toBe(false);
 
+    await press(mounted.host, 'Review remaining changes');
+    expect(mounted.host.querySelector<HTMLInputElement>('.pw-decision-scopes input')?.checked).toBe(
+      false,
+    );
+    expect(
+      mounted.host.querySelector<HTMLInputElement>('.pw-decision-confirm input')?.checked,
+    ).toBe(false);
+    expect(
+      JSON.parse(storage.getItem('statecarry.project-action.v3.alpha.work-a.verify')!).text,
+    ).toBe('Keep the stopped-work note after recording this decision.');
+
+    await press(mounted.host, 'Decide later');
     await press(mounted.host, 'Discuss this task');
     expect(mounted.host.querySelector('[aria-label="Task discussion"]')).not.toBeNull();
     expect(h.projectGateway.stopWork).not.toHaveBeenCalled();
