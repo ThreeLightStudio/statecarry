@@ -13,6 +13,8 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SQLiteRepository } from '../apps/server/src/adapters/sqlite';
 import { harness } from './helpers';
+import { registerProject } from './project-fixtures';
+
 const fault = vi.hoisted(() => ({ move: 0 }));
 vi.mock('node:fs', async (original) => {
   const fs = await original<typeof import('node:fs')>();
@@ -24,11 +26,13 @@ vi.mock('node:fs', async (original) => {
     },
   };
 });
+
 const roots: string[] = [];
 afterEach(() => {
   fault.move = 0;
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
+
 function fixture(version = 2) {
   const root = mkdtempSync(join(tmpdir(), 'statecarry-cutover-'));
   roots.push(root);
@@ -37,9 +41,14 @@ function fixture(version = 2) {
   const original = join(root, 'project');
   mkdirSync(original);
   writeFileSync(join(original, 'keep.txt'), 'SOURCE_KEEP');
+
   const db = new DatabaseSync(join(directory, 'statecarry.sqlite'));
+  const ownersTable = version === 3 ? 'project_owners' : 'work_owners';
   db.exec(
-    `CREATE TABLE schema_version(version INTEGER NOT NULL); INSERT INTO schema_version VALUES(${version}); CREATE TABLE work_owners(id TEXT PRIMARY KEY); CREATE TABLE entities(kind TEXT NOT NULL,id TEXT NOT NULL,owner_id TEXT REFERENCES work_owners(id),body TEXT NOT NULL,PRIMARY KEY(kind,id));`,
+    `CREATE TABLE schema_version(version INTEGER NOT NULL);
+    INSERT INTO schema_version VALUES(${version});
+    CREATE TABLE ${ownersTable}(id TEXT PRIMARY KEY);
+    CREATE TABLE entities(kind TEXT NOT NULL,id TEXT NOT NULL,owner_id TEXT REFERENCES ${ownersTable}(id),body TEXT NOT NULL,PRIMARY KEY(kind,id));`,
   );
   const at = '2026-09-21T00:00:00Z';
   const put = (kind: string, id: string, body: unknown) =>
@@ -48,199 +57,331 @@ function fixture(version = 2) {
     id: 'project-a',
     projectId: 'connection-a',
     title: 'Old title',
-    projectProfile: {
-      title: 'Registered project',
-      purpose: 'Keep purpose',
-      focused: true,
-      iconAsset: 'icon.png',
-      bannerAsset: 'banner.png',
+    projectProfile: { title: 'Registered project', purpose: 'Old purpose' },
+    createdAt: at,
+  });
+  put('connection', 'connection-a', { id: 'connection-a', workId: 'project-a', cwd: original });
+  put('projectAnalysis', 'analysis-a', {
+    id: 'analysis-a',
+    projectId: 'project-a',
+    text: 'OLD_ANALYSIS',
+  });
+  put('direction', 'direction-a', {
+    id: 'direction-a',
+    projectId: 'project-a',
+    text: 'OLD_DIRECTION',
+  });
+  put('workItem', 'task-a', { id: 'task-a', projectId: 'project-a', title: 'OLD_TASK' });
+  put('workDiscussion', 'discussion-a', {
+    id: 'discussion-a',
+    projectId: 'project-a',
+    text: 'OLD_DISCUSSION',
+  });
+  put('projectExecution', 'project-a', {
+    id: 'project-a',
+    projectId: 'project-a',
+    version: 1,
+    requests: ['execution-a'],
+    accepted: [],
+    comparisons: {},
+  });
+  put('continuation', 'execution-a', {
+    id: 'execution-a',
+    projectId: 'project-a',
+    requestId: 'request-a',
+    state: 'sent',
+    externalReport: 'OLD_EXTERNAL_REPORT',
+    execution: { status: 'completed', report: 'OLD_EXECUTION_OUTPUT' },
+  });
+  const authSetting = {
+    id: 'global',
+    settings: {
+      provider: 'openrouter',
+      openrouterApiKey: 'DUMMY_CREDENTIAL_SENTINEL',
+      openrouterModel: 'test/model',
     },
-    revision: 7,
-    createdAt: at,
-    resume: { private: 'OLD_ANALYSIS' },
-    goal: { text: 'OLD_GOAL' },
-    coordinationMode: 'none',
-  });
-  put('connection', 'connection-a', {
-    id: 'connection-a',
-    workId: 'project-a',
-    title: 'Registered project',
-    cwd: original,
-    threadIds: ['thread-a'],
-    startTurnIds: { 'thread-a': 'turn-a' },
-    recordRanges: { 'thread-a': { start: { turnId: 'turn-a', itemId: 'item-a' } } },
-    discover: true,
-    revision: 3,
-    createdAt: at,
-    removedAt: at,
-  });
-  put('workItem', 'old-work', { id: 'old-work', projectId: 'project-a', title: 'OLD_WORK' });
-  put('releasePolicy', 'old-policy', { id: 'old-policy', projectId: 'project-a' });
-  put('source', 'old-source', { id: 'old-source', text: 'OLD_SOURCE_COPY' });
-  for (const name of ['analysis', 'analysis-cache']) {
+  };
+  put('agentSettings', 'global', authSetting);
+
+  for (const name of [
+    'analysis',
+    'analysis-cache',
+    'analysis-feedback',
+    'explanation-candidates',
+  ]) {
     mkdirSync(join(directory, name));
     writeFileSync(join(directory, name, 'old.json'), 'OLD_CACHE');
   }
-  writeFileSync(join(directory, 'isolation-verification.json'), 'AUTH_SETTINGS_KEEP');
-  return { root, directory, original, db, put };
+  for (const name of ['analysis-metrics.jsonl', 'observations.jsonl'])
+    writeFileSync(join(directory, name), 'OLD_LOG');
+  mkdirSync(join(directory, 'assets', 'projects'), { recursive: true });
+  writeFileSync(join(directory, 'assets', 'projects', 'old-image.png'), 'OLD_PROJECT_ASSET');
+  writeFileSync(
+    join(directory, 'browser-state.json'),
+    JSON.stringify({
+      entries: {
+        'statecarry.appearance.theme.v1': 'dark',
+        'statecarry.project-drafts.v3.project-a': 'OLD_DRAFT',
+        'statecarry.project-action.v3.project-a': 'OLD_ACTION',
+      },
+    }),
+  );
+  writeFileSync(join(directory, 'keep-settings.json'), 'APP_SETTINGS_KEEP');
+  return { root, directory, original, db, put, authSetting };
 }
-describe('Public Beta registration-only cutover', () => {
-  it('clears terminal external execution records and preserves new data when committed cleanup resumes', () => {
-    const f = fixture();
-    f.put('continuation', 'terminal', { state: 'sent', execution: { status: 'completed' } });
-    f.db.close();
-    let repo = new SQLiteRepository(f.directory);
-    const h = harness(repo);
-    h.core.projectModel.createWork(
-      'project-a',
-      { title: 'New work after cutover' },
-      'new-work-after-cutover',
-    );
-    expect(repo.get('project', 'project-a')?.coordinationMode).toBe('none');
-    repo.close();
-    mkdirSync(join(f.directory, '.beta-v3-transition'));
-    writeFileSync(join(f.directory, '.beta-v3-transition', 'obsolete'), 'OLD_CONTENT');
-    repo = new SQLiteRepository(f.directory);
-    try {
-      expect(repo.list('workItem')[0].title).toBe('New work after cutover');
-      expect(existsSync(join(f.directory, '.beta-v3-transition'))).toBe(false);
-    } finally {
-      repo.close();
-    }
-  });
 
-  it.each([1, 2])(
-    'imports only registration settings from version %i and keeps fresh state after restart',
+describe('Public Beta one-time project-data reset', () => {
+  it.each([1, 2, 3])(
+    'resets schema version %i while preserving app settings and source data',
     (version) => {
       const f = fixture(version);
       f.db.close();
+
       let repo = new SQLiteRepository(f.directory);
       try {
-        expect(repo.db.prepare('SELECT version FROM schema_version').get()).toEqual({ version: 3 });
-        expect(repo.list('project')).toHaveLength(1);
-        expect(repo.get('project', 'project-a')).toMatchObject({
-          id: 'project-a',
-          connectionId: 'connection-a',
-          title: 'Registered project',
-          cwd: f.original,
-          purposes: [{ text: 'Keep purpose', confirmed: true }],
-          focused: true,
-          iconAsset: 'icon.png',
-          bannerAsset: 'banner.png',
-          lifecycle: 'disconnected',
-          revision: 8,
-        });
-        expect(repo.get('connection', 'connection-a')).toMatchObject({
-          projectId: 'project-a',
-          threadIds: ['thread-a'],
-          startTurnIds: { 'thread-a': 'turn-a' },
-          recordRanges: { 'thread-a': { start: { turnId: 'turn-a', itemId: 'item-a' } } },
-          discover: true,
-        });
-        expect(
-          repo.db
-            .prepare("SELECT kind FROM entities WHERE kind NOT IN ('project','connection','link')")
-            .all(),
-        ).toEqual([]);
-        expect(JSON.stringify(repo.db.prepare('SELECT body FROM entities').all())).not.toMatch(
-          /OLD_ANALYSIS|OLD_WORK|OLD_SOURCE_COPY|OLD_GOAL/,
-        );
-        expect(existsSync(join(f.directory, 'analysis-cache'))).toBe(false);
-        expect(existsSync(join(f.directory, '.beta-v3-transition'))).toBe(false);
-        expect(readFileSync(join(f.original, 'keep.txt'), 'utf8')).toBe('SOURCE_KEEP');
-        expect(readFileSync(join(f.directory, 'isolation-verification.json'), 'utf8')).toBe(
-          'AUTH_SETTINGS_KEEP',
-        );
-        const h = harness(repo);
-        h.core.projectModel.createWork('project-a', { title: 'New durable work' }, 'new-work');
-        mkdirSync(join(f.directory, 'analysis-cache'));
-        writeFileSync(join(f.directory, 'analysis-cache', 'new.json'), 'NEW_CACHE');
-        repo.close();
-        repo = new SQLiteRepository(f.directory);
-        expect(repo.list('workItem').map((item) => item.title)).toEqual(['New durable work']);
-        expect(readFileSync(join(f.directory, 'analysis-cache', 'new.json'), 'utf8')).toBe(
-          'NEW_CACHE',
-        );
+        expect(repo.db.prepare('SELECT version FROM schema_version').get()).toEqual({ version: 4 });
+        expect(repo.db.prepare('SELECT kind,id,body FROM entities').all()).toEqual([
+          { kind: 'agentSettings', id: 'global', body: JSON.stringify(f.authSetting) },
+        ]);
         expect(repo.db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+        for (const name of [
+          'analysis',
+          'analysis-cache',
+          'analysis-feedback',
+          'explanation-candidates',
+          'analysis-metrics.jsonl',
+          'observations.jsonl',
+          'assets/projects',
+        ])
+          expect(existsSync(join(f.directory, name))).toBe(false);
+        expect(JSON.parse(readFileSync(join(f.directory, 'browser-state.json'), 'utf8'))).toEqual({
+          entries: { 'statecarry.appearance.theme.v1': 'dark' },
+        });
+        expect(readFileSync(join(f.directory, 'keep-settings.json'), 'utf8')).toBe(
+          'APP_SETTINGS_KEEP',
+        );
+        expect(readFileSync(join(f.original, 'keep.txt'), 'utf8')).toBe('SOURCE_KEEP');
+        expect(existsSync(join(f.directory, '.beta-v4-transition'))).toBe(false);
+
+        const h = harness(repo);
+        const project = registerProject(h, { cwd: f.original });
+        h.core.projectModel.createWork(
+          project.receipt.projectId,
+          { title: 'Fresh work after reset' },
+          'fresh-work',
+        );
+      } finally {
+        repo.close();
+      }
+
+      repo = new SQLiteRepository(f.directory);
+      try {
+        expect(repo.list('workItem').map((item) => item.title)).toEqual(['Fresh work after reset']);
+        expect(repo.get('agentSettings', 'global')).toEqual(f.authSetting);
+        expect(readFileSync(join(f.original, 'keep.txt'), 'utf8')).toBe('SOURCE_KEEP');
       } finally {
         repo.close();
       }
     },
   );
+
+  it.each(['completed', 'failed', 'interrupted'])(
+    'allows known terminal external execution state %s to reset',
+    (status) => {
+      const f = fixture();
+      f.put('continuation', 'terminal', { state: 'sent', execution: { status } });
+      f.db.close();
+      const repo = new SQLiteRepository(f.directory);
+      try {
+        expect(repo.list('project')).toEqual([]);
+        expect(repo.get('agentSettings', 'global')).toEqual(f.authSetting);
+      } finally {
+        repo.close();
+      }
+    },
+  );
+
   it.each([
-    ['job', { status: 'checking' }],
-    ['explanationJob', { status: 'generating' }],
-    ['questionExecution', { status: 'result-unknown' }],
-    ['handoff', { state: 'dispatching' }],
-    ['continuation', { state: 'sent' }],
-    ['continuation', { state: 'result-unknown' }],
-  ])('blocks unresolved %s before changing data or caches', (kind, body) => {
+    ['job', 'queued'],
+    ['explanationJob', 'waiting'],
+    ['explanationJob', 'queued'],
+    ['questionExecution', 'queued'],
+  ])('resets safely before %s state %s is dispatched', (kind, state) => {
     const f = fixture();
-    f.put(kind as string, 'pending', body);
-    const before = f.db.prepare('SELECT * FROM entities').all();
+    f.put(kind, 'not-dispatched', { status: state });
     f.db.close();
+
+    const repo = new SQLiteRepository(f.directory);
+    try {
+      expect(repo.list('project')).toEqual([]);
+      expect(repo.get('agentSettings', 'global')).toEqual(f.authSetting);
+    } finally {
+      repo.close();
+    }
+  });
+
+  it.each([
+    ['job', 'summarizing'],
+    ['job', 'checking'],
+    ['job', 'result-unknown'],
+    ['explanationJob', 'generating'],
+    ['explanationJob', 'repairing'],
+    ['explanationJob', 'checking'],
+    ['explanationJob', 'result-unknown'],
+    ['questionExecution', 'generating'],
+    ['questionExecution', 'repairing'],
+    ['questionExecution', 'checking'],
+    ['questionExecution', 'result-unknown'],
+    ['handoff', 'dispatching'],
+    ['handoff', 'result-unknown'],
+    ['continuation', 'dispatching'],
+    ['continuation', 'opening'],
+    ['continuation', 'result-unknown'],
+  ])('blocks reset for unresolved %s state %s', (kind, state) => {
+    const f = fixture();
+    f.put(
+      kind,
+      'pending',
+      kind === 'handoff' || kind === 'continuation' ? { state } : { status: state },
+    );
+    const before = f.db.prepare('SELECT * FROM entities ORDER BY kind,id').all();
+    f.db.close();
+
     expect(() => new SQLiteRepository(f.directory)).toThrow(`${kind}:pending`);
     const read = new DatabaseSync(join(f.directory, 'statecarry.sqlite'), { readOnly: true });
     try {
-      expect(read.prepare('SELECT * FROM entities').all()).toEqual(before);
+      expect(read.prepare('SELECT * FROM entities ORDER BY kind,id').all()).toEqual(before);
       expect(read.prepare('SELECT version FROM schema_version').get()).toEqual({ version: 2 });
     } finally {
       read.close();
     }
     expect(readFileSync(join(f.directory, 'analysis-cache', 'old.json'), 'utf8')).toBe('OLD_CACHE');
+    expect(existsSync(join(f.directory, 'assets', 'projects', 'old-image.png'))).toBe(true);
     expect(existsSync(join(f.directory, 'writer.lock'))).toBe(false);
   });
-  it('rolls back the database and already moved cache when the next move fails', () => {
-    const f = fixture();
-    const before = f.db.prepare('SELECT * FROM entities').all();
+
+  it.each([undefined, 'running', 'waiting', 'unknown'])(
+    'blocks a sent continuation with execution status %s even if it has a report',
+    (status) => {
+      const f = fixture();
+      f.put('continuation', 'pending', {
+        state: 'sent',
+        execution: status ? { status } : {},
+        externalReport: 'A report alone does not prove execution ended.',
+      });
+      f.db.close();
+
+      expect(() => new SQLiteRepository(f.directory)).toThrow('continuation:pending');
+      expect(readFileSync(join(f.directory, 'analysis-cache', 'old.json'), 'utf8')).toBe(
+        'OLD_CACHE',
+      );
+      expect(existsSync(join(f.directory, 'assets', 'projects', 'old-image.png'))).toBe(true);
+    },
+  );
+
+  it.each([1, 2])('restores a pre-commit v3 cache quarantine from schema %i first', (version) => {
+    const f = fixture(version);
+    f.put('job', 'pending', { status: 'summarizing' });
     f.db.close();
-    fault.move = 2;
-    expect(() => new SQLiteRepository(f.directory)).toThrow('injected cache move failure');
+    const legacy = join(f.directory, '.beta-v3-transition');
+    mkdirSync(legacy);
+    renameSync(join(f.directory, 'analysis'), join(legacy, 'analysis'));
+    writeFileSync(join(legacy, 'statecarry.sqlite'), 'OLD_DATABASE_SNAPSHOT');
+
+    expect(() => new SQLiteRepository(f.directory)).toThrow('job:pending');
+    expect(readFileSync(join(f.directory, 'analysis', 'old.json'), 'utf8')).toBe('OLD_CACHE');
+    expect(existsSync(join(f.directory, '.beta-v3-transition'))).toBe(false);
     const read = new DatabaseSync(join(f.directory, 'statecarry.sqlite'), { readOnly: true });
     try {
-      expect(read.prepare('SELECT * FROM entities').all()).toEqual(before);
+      expect(read.prepare('SELECT version FROM schema_version').get()).toEqual({ version });
     } finally {
       read.close();
     }
-    for (const name of ['analysis', 'analysis-cache'])
-      expect(readFileSync(join(f.directory, name, 'old.json'), 'utf8')).toBe('OLD_CACHE');
+  });
+
+  it('discards a committed v3 quarantine before checking pending execution state', () => {
+    const f = fixture(3);
+    f.put('job', 'pending', { status: 'summarizing' });
+    f.db.close();
+    const legacy = join(f.directory, '.beta-v3-transition');
+    mkdirSync(legacy);
+    renameSync(join(f.directory, 'analysis'), join(legacy, 'analysis'));
+    writeFileSync(join(legacy, 'statecarry.sqlite'), 'OLD_DATABASE_SNAPSHOT');
+
+    expect(() => new SQLiteRepository(f.directory)).toThrow('job:pending');
+    expect(existsSync(join(f.directory, 'analysis'))).toBe(false);
+    expect(existsSync(join(f.directory, '.beta-v3-transition'))).toBe(false);
+    const read = new DatabaseSync(join(f.directory, 'statecarry.sqlite'), { readOnly: true });
+    try {
+      expect(read.prepare('SELECT version FROM schema_version').get()).toEqual({ version: 3 });
+    } finally {
+      read.close();
+    }
+  });
+
+  it('rolls back the reset and restores moved content if quarantine fails', () => {
+    const f = fixture();
+    const before = f.db.prepare('SELECT * FROM entities ORDER BY kind,id').all();
+    f.db.close();
+    fault.move = 2;
+
+    expect(() => new SQLiteRepository(f.directory)).toThrow('injected cache move failure');
+    const read = new DatabaseSync(join(f.directory, 'statecarry.sqlite'), { readOnly: true });
+    try {
+      expect(read.prepare('SELECT * FROM entities ORDER BY kind,id').all()).toEqual(before);
+      expect(read.prepare('SELECT version FROM schema_version').get()).toEqual({ version: 2 });
+    } finally {
+      read.close();
+    }
+    expect(readFileSync(join(f.directory, 'analysis', 'old.json'), 'utf8')).toBe('OLD_CACHE');
+    expect(readFileSync(join(f.directory, 'analysis-cache', 'old.json'), 'utf8')).toBe('OLD_CACHE');
+    expect(existsSync(join(f.directory, 'assets', 'projects', 'old-image.png'))).toBe(true);
     const repo = new SQLiteRepository(f.directory);
     repo.close();
   });
-  it('recovers cache movement interrupted before the database transaction committed', () => {
+
+  it('completes cleanup after commit without losing data created after reset', () => {
     const f = fixture();
     f.db.close();
-    mkdirSync(join(f.directory, '.beta-v3-transition'));
-    renameSync(join(f.directory, 'analysis'), join(f.directory, '.beta-v3-transition', 'analysis'));
-    const repo = new SQLiteRepository(f.directory);
+    let repo = new SQLiteRepository(f.directory);
+    const h = harness(repo);
+    const project = registerProject(h, { cwd: f.original });
+    h.core.projectModel.createWork(
+      project.receipt.projectId,
+      { title: 'Fresh work' },
+      'fresh-work',
+    );
+    repo.close();
+
+    mkdirSync(join(f.directory, '.beta-v4-transition'));
+    writeFileSync(join(f.directory, '.beta-v4-transition', 'obsolete'), 'OLD_CONTENT');
+    const state = join(f.directory, '.beta-v4-transition', 'browser-state.next');
+    writeFileSync(
+      state,
+      JSON.stringify({ entries: { 'statecarry.appearance.theme.v1': 'light' } }),
+    );
+    repo = new SQLiteRepository(f.directory);
     try {
-      expect(repo.list('project')).toHaveLength(1);
-      expect(existsSync(join(f.directory, '.beta-v3-transition'))).toBe(false);
+      expect(repo.list('workItem').map((item) => item.title)).toEqual(['Fresh work']);
+      expect(JSON.parse(readFileSync(join(f.directory, 'browser-state.json'), 'utf8'))).toEqual({
+        entries: { 'statecarry.appearance.theme.v1': 'light' },
+      });
+      expect(existsSync(join(f.directory, '.beta-v4-transition'))).toBe(false);
     } finally {
       repo.close();
     }
   });
-  it('keeps duplicate registrations and unavailable folders without re-registering or merging them', () => {
+
+  it('recovers a pre-commit moved cache before attempting the one-time reset', () => {
     const f = fixture();
-    const at = '2026-09-21T00:00:00Z';
-    f.put('work', 'project-b', {
-      id: 'project-b',
-      projectId: 'connection-b',
-      title: 'Second',
-      createdAt: at,
-    });
-    f.put('connection', 'connection-b', {
-      id: 'connection-b',
-      workId: 'project-b',
-      title: 'Second',
-      cwd: f.original,
-      createdAt: at,
-    });
     f.db.close();
-    rmSync(f.original, { recursive: true });
+    mkdirSync(join(f.directory, '.beta-v4-transition'));
+    renameSync(join(f.directory, 'analysis'), join(f.directory, '.beta-v4-transition', 'analysis'));
     const repo = new SQLiteRepository(f.directory);
     try {
-      expect(repo.list('project').map((p) => p.id)).toEqual(['project-a', 'project-b']);
+      expect(repo.list('project')).toEqual([]);
+      expect(existsSync(join(f.directory, 'analysis'))).toBe(false);
+      expect(existsSync(join(f.directory, '.beta-v4-transition'))).toBe(false);
     } finally {
       repo.close();
     }

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DomainError, observationSchema } from '@statecarry/contracts';
 import { OpenRouterSummary } from '../apps/server/src/adapters/openrouter-summary';
+import type { AttemptMeta } from '@statecarry/core';
 
 function jsonResponse(status: number, body: unknown, headers: Record<string, string> = {}) {
   return {
@@ -53,12 +54,15 @@ const schema = observationSchema;
 type RunFn = (
   prompt: string,
   schema: unknown,
-  onRemote: () => void,
+  onRemote: (meta: AttemptMeta) => void,
   phase: string,
   instructions?: string,
 ) => Promise<{ value: unknown; model: string }>;
-const runOnce = async (s: OpenRouterSummary, prompt = 'hello') =>
-  (s as unknown as { run: RunFn }).run(prompt, schema, () => {}, 'resume');
+const runOnce = async (
+  s: OpenRouterSummary,
+  prompt = 'hello',
+  onRemote: (meta: AttemptMeta) => void = () => {},
+) => (s as unknown as { run: RunFn }).run(prompt, schema, onRemote, 'resume');
 
 describe('OpenRouter summary provider', () => {
   it('reports a missing key as failed capability without network calls', () => {
@@ -141,6 +145,27 @@ describe('OpenRouter summary provider', () => {
     expect(s.metrics[0]?.provider).toBe('openrouter');
     expect(s.metrics[0]?.outcome).toBe('completed');
     expect(s.capability().state).toBe('ready');
+  });
+
+  it('records OpenRouter provider metadata before dispatch so failed HTTP attempts remain unresolved', async () => {
+    let recorded: AttemptMeta | null = null;
+    const { impl } = fetchMock(() => {
+      expect(recorded).toMatchObject({ provider: 'openrouter', phase: 'resume' });
+      throw new Error('connection closed after dispatch');
+    });
+    const s = summary(impl);
+
+    await expect(runOnce(s, 'hello', (meta) => (recorded = meta))).rejects.toThrow(
+      'connection closed after dispatch',
+    );
+    expect(recorded).toMatchObject({
+      pid: null,
+      threadId: null,
+      turnId: null,
+      phase: 'resume',
+      provider: 'openrouter',
+    });
+    await expect(s.resolve(recorded)).resolves.toBe('unknown');
   });
 
   it('recovers from a 429 with a retry and records the limit state', async () => {

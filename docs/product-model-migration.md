@@ -1,8 +1,8 @@
 # Public Beta native project model
 
-Implementation baseline: database version 3, 2026-09-22. The application reads only the native
-project model. The only reader of version 1/2 registrations is the startup cutover in
-`apps/server/src/adapters/beta-cutover.ts`.
+Implementation baseline: database version 4, 2026-09-27. The application reads only the native
+project model. The startup cutover in `apps/server/src/adapters/beta-cutover.ts` performs the
+one-time public beta project-data reset for supported database versions 1, 2, and 3.
 
 ## Ownership
 
@@ -39,33 +39,30 @@ part of the client contract. Initialization/connection failure is an explicit re
 Task discussions are persisted on the server by `workItemId`, including tasks written by the user
 without a generated proposal. Browsers store only unsent input and transient view state under
 `statecarry.project-drafts.v3.` and `statecarry.project-action.v3.`. Old application draft namespaces
-are removed; response-language and app settings are preserved. No browser-selected work or saved
-answer is imported into the native model.
+are removed. Project response-language preferences reset with the project registration. No
+browser-selected work or saved answer is imported into the native model.
 
-## One-time registration-only transition
+## One-time public beta project-data reset
 
-SQLite initialization performs the transition before ordinary reads or background work. Fresh
-installations start at version 3. Version 1 and 2 go directly to version 3 without running the former
-version 1-to-2 cleanup.
+SQLite initialization performs the reset before ordinary reads and background work. Fresh
+installations start at version 4. Existing versions 1, 2, and 3 go directly to version 4 without
+running the former version 1-to-2 cleanup.
 
-Preserved: project and connection IDs, names, purpose, folder, Focus, disconnected status, icon/banner
-references, selected conversations and read boundaries, discovery/coordination settings, and app/auth
-settings outside the content database. Duplicate registrations keep their own identities. Missing
-project folders do not cause registrations to be dropped.
+The next beta update clears all StateCarry project registrations and project-owned records,
+including analyses, observations, direction, work, discussions, execution state, and copied source
+content. It also removes StateCarry-owned analysis caches, logs, and copied project images. Users
+register their projects again after the update. The app-wide analysis provider and its credentials,
+the appearance theme, original project files and Git metadata, and external Codex conversations are
+preserved. The reset runs once; new registrations and project data are retained on later starts.
 
-Cleared: old analysis, observations, directions, work choices, discussions, execution and release
-records, copied source data, and application content caches. Original project files and original
-Codex conversations are never changed by this transition.
+The database transaction, exact-path content quarantine, and version-4 commit marker cover
+interruption recovery. Before commit, quarantined content is restored; after commit, it is removed.
+External operations that are still running or have unknown dispatch results block the reset with an
+identified error. The reset neither resends nor cancels them. Completed, failed, and interrupted
+operations with a known terminal result do not block it.
 
-A database transaction, a temporary database copy, cache quarantine and the version-3 commit marker
-cover interruption recovery. Before commit, moved caches are restored; after commit, quarantined
-content is removed. Restarting a version-3 installation never resets its new content. External
-operations still running or with unknown dispatch results block the transition and are identified in
-the error. The transition neither resends nor cancels them. Completed/failed/interrupted operations
-with a known terminal result do not block it.
-
-The manual re-registration reset tool is retired. Its preservation, execution-protection and recovery
-checks now live in `tests/beta-cutover.test.ts`.
+The reset behavior, settings preservation, source-file boundary, execution protection, and recovery
+cases are covered in `tests/beta-cutover.test.ts`.
 
 ## Verification
 
@@ -105,8 +102,8 @@ fixture were used in the native desktop window to check empty first launch, proj
 Korean analysis before selection, explicit work selection, re-entry, application restart and a new
 proposal alongside the preserved current task. The HTTP/SQLite/UI integration test additionally
 checks English/Korean generation with project response-language settings and execution with a test session provider.
-No release was published and the existing user data directory was not migrated during validation;
-its registration-only transition runs when the new server first opens it.
+No release was published and no existing user data directory was migrated during that historical
+validation. The version-4 reset is covered by the current isolated beta-cutover fixtures.
 
 Scope follow-up verified 2026-09-22: 662 tests across 81 files pass. Focused coverage includes a
 large tracked diff, per-file expansion, unread content changes, stable read identity, exact selected
