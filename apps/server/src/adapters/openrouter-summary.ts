@@ -196,6 +196,10 @@ export class OpenRouterSummary extends AnalysisRecipes implements SummaryProvide
             phase,
             withoutResponseFormat,
           );
+          // Persist the provider before handing the request to fetch. Once the
+          // HTTP attempt begins, a connection error cannot prove the service
+          // did not receive it, so recovery must treat the result as unknown.
+          onRemote({ pid: null, threadId: requestId, turnId: null, phase, provider: 'openrouter' });
           const response = await this.fetchImpl(`${OPENROUTER_API_BASE}/chat/completions`, {
             method: 'POST',
             headers: this.headers(),

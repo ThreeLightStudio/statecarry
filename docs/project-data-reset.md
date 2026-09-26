@@ -1,15 +1,19 @@
-# Public Beta data transition
+# Public Beta data reset
 
-The manual project re-registration reset tool has been removed. Startup now performs the version-3
-registration-only transition before the server starts ordinary reads or background work.
+The next StateCarry beta update resets existing project data once, on the first launch after the
+update. Users need to register their projects again and start with a fresh StateCarry workspace.
 
-See [the native project model and transition contract](product-model-migration.md) for ownership,
-preserved settings, removed content, external-execution protection and interruption recovery.
+The reset removes project registrations and connections, analyses, observations, directions, work,
+discussions, execution records, project-specific browser drafts and action state, analysis caches,
+analysis logs, and copied project images. The reset preserves app-wide analysis settings and
+credentials, the appearance theme, original project files and Git metadata, and external Codex
+conversations. New projects and records created after the reset remain available on later launches.
 
-The transition preserves registration IDs, connection settings and app/auth settings, and leaves
-original project files and Codex conversations untouched. It runs once for database versions 1/2.
-Version-3 restarts preserve all newly created analysis, tasks, discussions and executions.
+An unresolved external execution blocks the reset with an error. StateCarry does not cancel or
+resend the operation. A known completed, failed, or interrupted operation does not block it.
 
-Do not delete the transition quarantine while startup reports a recovery error. Resolve the identified
-external operation or filesystem problem and restart; the version marker determines whether caches
-must be restored or obsolete content can be removed. The updater never resends or cancels execution.
+Startup recovery uses the database version marker and a quarantine limited to StateCarry-owned
+paths. If startup stops before the database commit, moved content is restored. If startup stops
+after the commit, the reset completes on the next launch. See
+[the native project model transition contract](product-model-migration.md) and
+[`tests/beta-cutover.test.ts`](../tests/beta-cutover.test.ts).

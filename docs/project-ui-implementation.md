@@ -1,6 +1,6 @@
 # Current architecture
 
-The final native model and version-3 cutover are documented in [product-model-migration.md](product-model-migration.md). The notes below describe the earlier UI implementation; its old storage and compatibility paths have been retired.
+The final native model and version-4 beta reset are documented in [product-model-migration.md](product-model-migration.md). The notes below describe the earlier UI implementation; its old storage and compatibility paths have been retired.
 
 # Project-oriented UI implementation
 
