@@ -4,7 +4,7 @@ import { effortSchema, type AnalysisSettings, DomainError } from '@statecarry/co
 export const PROMPT_VERSION = 'statecarry-06.23';
 const settingsSchema = z
   .object({
-    model: z.string().min(1).default('gpt-5.6-luna'),
+    model: z.string().min(1).default('gpt-6-luna'),
     summaryEffort: effortSchema.default('medium'),
     checkEffort: effortSchema.default('medium'),
   })
