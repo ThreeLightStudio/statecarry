@@ -1,8 +1,10 @@
 import {
   DomainError,
+  projectConflictCategory,
   projectExecutionCommandSchema,
   workDecisionKinds,
   type ProjectActionState,
+  type ProjectConflict,
   type ProjectExecutionWorkspace,
   type ProjectExecutionContext,
   type SessionRun,
@@ -174,11 +176,59 @@ export class ProjectExecutions {
     }
   }
   private record(id: string) {
-    return {
+    const record = {
       ...empty(id),
       ...this.core.repo.get('projectScope', id),
       ...this.core.repo.get('projectExecution', id),
     };
+    return {
+      ...record,
+      policyConflict: record.policyConflict
+        ? { ...record.policyConflict, category: projectConflictCategory(record.policyConflict) }
+        : null,
+    };
+  }
+
+  directionConflictKey(
+    id: string,
+    conflict: ProjectConflict | null = this.record(id).policyConflict,
+  ) {
+    if (!conflict || projectConflictCategory(conflict) !== 'purpose-direction') return null;
+    const model = this.core.projectModel.view(id);
+    const purposes = model.project.purposes
+      .filter((purpose) => purpose.confirmed)
+      .map((purpose) => purpose.text)
+      .sort((left, right) => left.localeCompare(right));
+    const direction =
+      model.directions.find((item) => item.state === 'active' && item.primary) ??
+      model.directions.find((item) => item.state === 'active') ??
+      null;
+    return this.core.ids.hash([
+      'purpose-direction-conflict',
+      conflict.id ?? '',
+      conflict.description,
+      conflict.source,
+      JSON.stringify(purposes),
+      direction?.id ?? '',
+      direction?.text ?? '',
+    ]);
+  }
+
+  hasDirectionConflictOverride(
+    id: string,
+    conflict: ProjectConflict | null = this.record(id).policyConflict,
+  ) {
+    const conflictKey = this.directionConflictKey(id, conflict);
+    if (!conflictKey) return false;
+    return this.core.repo
+      .list('workDecision')
+      .some(
+        (decision) =>
+          decision.projectId === id &&
+          decision.state === 'valid' &&
+          decision.kind === workDecisionKinds.continueDirectionConflict &&
+          decision.value.conflictKey === conflictKey,
+      );
   }
   private save(id: string, update: (value: ProjectActionState) => ProjectActionState) {
     this.core.repo.transaction(() => {
@@ -304,14 +354,22 @@ export class ProjectExecutions {
       context.scopeIds.some((key) => scope.scopes.find((s) => s.id === key)?.layer !== 'staged')
     )
       throw new DomainError('VALIDATION', 'Only staged changes can be unstaged.');
+    const conflict = this.record(id).policyConflict;
     if (
-      this.record(id).policyConflict?.status === 'open' &&
+      conflict?.status === 'open' &&
       !['verify', 'direction', 'policy'].includes(context.operation)
-    )
-      throw new DomainError(
-        'VALIDATION',
-        'Resolve the recorded policy conflict before sending this work.',
-      );
+    ) {
+      const directionOverride =
+        projectConflictCategory(conflict) === 'purpose-direction' &&
+        this.hasDirectionConflictOverride(id, conflict);
+      if (!directionOverride)
+        throw new DomainError(
+          'VALIDATION',
+          projectConflictCategory(conflict) === 'purpose-direction'
+            ? 'Review the current direction before preparing this work.'
+            : 'Resolve the recorded project policy conflict before preparing work.',
+        );
+    }
     return scope;
   }
   requestText(id: string, context: ProjectExecutionContext) {
@@ -454,13 +512,23 @@ export class ProjectExecutions {
       case 'conflict':
         this.save(id, (r) => ({
           ...r,
-          policyConflict: { description: input.description, source: input.source, status: 'open' },
+          policyConflict: {
+            id: this.core.ids.next(),
+            category: input.category,
+            description: input.description,
+            source: input.source,
+            status: 'open',
+          },
         }));
         break;
       case 'resolve-conflict': {
         const request = this.request(id, input.requestId);
+        const conflict = this.record(id).policyConflict;
         if (
           request.target.payload.projectContext?.operation !== 'policy' ||
+          !conflict ||
+          projectConflictCategory(conflict) !== 'project-policy' ||
+          conflict.status !== 'open' ||
           this.inFlight(request) ||
           !this.record(id).comparisons[input.requestId] ||
           (!request.externalReport && request.execution?.status !== 'completed') ||
@@ -580,11 +648,23 @@ export class ProjectExecutions {
         break;
       }
       case 'resolve-direction': {
+        const conflict = this.record(id).policyConflict;
+        if (
+          conflict?.status === 'open' &&
+          projectConflictCategory(conflict) !== 'purpose-direction'
+        )
+          throw new DomainError(
+            'VALIDATION',
+            'Review and resolve the project policy conflict before changing its direction.',
+          );
         this.core.projectModel.setDirection(id, input.text);
         this.save(id, (r) => ({
           ...r,
           direction: { text: input.text, status: 'confirmed', at: this.core.clock.now() },
-          policyConflict: r.policyConflict ? { ...r.policyConflict, status: 'resolved' } : null,
+          policyConflict:
+            r.policyConflict && projectConflictCategory(r.policyConflict) === 'purpose-direction'
+              ? { ...r.policyConflict, status: 'resolved' }
+              : r.policyConflict,
         }));
         break;
       }

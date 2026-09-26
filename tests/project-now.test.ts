@@ -920,6 +920,7 @@ describe('ProjectNow resolver', () => {
         corrections: {},
         direction: null,
         policyConflict: {
+          category: 'purpose-direction',
           description: 'Showing every state by default increases return-time reading cost.',
           source: 'project-purpose',
           status: 'open',
@@ -935,8 +936,9 @@ describe('ProjectNow resolver', () => {
       currentWorkId: 'a',
       notice: { level: 'immediate', kind: 'direction-conflict' },
       next: { kind: 'review-direction' },
-      secondaryActions: [{ kind: 'continue-despite-direction-conflict', workItemId: 'a' }],
+      secondaryActions: [{ kind: 'continue-despite-direction-conflict' }],
     });
+    expect(blocked.secondaryActions[0]).not.toHaveProperty('workItemId');
     h.core.projectModel.continueDirectionConflict(projectId);
     expect(h.core.now.resolve(projectId)).toMatchObject({
       currentWorkId: 'a',

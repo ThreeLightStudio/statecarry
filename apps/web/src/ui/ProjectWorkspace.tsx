@@ -1669,6 +1669,7 @@ function ProjectPage(props: ProjectProps & { dirtyWorkPreview: DirtyWorkPreviewS
 
 function projectNowHeading(view: ProjectNowView): string {
   if (view.work) return view.work.title;
+  if (view.primaryAction?.kind === 'review-project-policy') return 'Review project policy';
   if (view.primaryAction?.kind === 'review-release') return 'Review release and delivery';
   if (view.primaryAction?.kind === 'choose-next-work') return 'Choose what comes next';
   if (view.state === 'idle') return 'Nothing to do right now';
@@ -1711,6 +1712,8 @@ function projectNowActionEntryMode(
     case 'review-direction':
     case 'define-direction':
       return 'direction';
+    case 'review-project-policy':
+      return 'policy';
     case 'choose-next-work':
       return 'new-work';
     case 'review-remaining-changes':
@@ -1781,7 +1784,8 @@ function ProjectNowProjectPage({
     requestId: string | null,
     releaseId: string | null = null,
   ) => {
-    const targetWorkId = workItemId ?? view?.work?.id ?? null;
+    const targetWorkId =
+      kind === 'review-project-policy' ? null : (workItemId ?? view?.work?.id ?? null);
     setActionEntry({
       kind,
       selectionKey: targetWorkId,
@@ -1931,10 +1935,16 @@ function ProjectNowProjectPage({
           </Button>
           <div className="pw-now-mode-context">
             <span className="pw-small">
-              {actionEntry?.mode === 'release' ? 'Release & delivery' : 'Current work'}
+              {actionEntry?.mode === 'release'
+                ? 'Release & delivery'
+                : actionEntry?.mode === 'policy'
+                  ? 'Project policy'
+                  : 'Current work'}
             </span>
             <strong>
-              {actionEntry?.mode === 'release' ? project.title : projectNowHeading(view)}
+              {actionEntry?.mode === 'release' || actionEntry?.mode === 'policy'
+                ? project.title
+                : projectNowHeading(view)}
             </strong>
           </div>
           {actionEntry ? (
@@ -1954,9 +1964,6 @@ function ProjectNowProjectPage({
               onBack={() => setMode('default')}
               onVerify={() =>
                 setActionEntry((entry) => (entry ? { ...entry, mode: 'verify' } : entry))
-              }
-              onPolicy={() =>
-                setActionEntry((entry) => (entry ? { ...entry, mode: 'policy' } : entry))
               }
             />
           ) : (

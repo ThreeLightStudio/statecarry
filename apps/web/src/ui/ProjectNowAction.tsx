@@ -41,7 +41,6 @@ type Props = {
   selectionKey: string | null;
   onBack: () => void;
   onVerify: () => void;
-  onPolicy: () => void;
 };
 
 function ActionError({ value }: { value: string }) {
@@ -93,10 +92,15 @@ function DirectionAction({
   data,
   view,
   onBack,
-  onPolicy,
-}: Omit<Props, 'edits' | 'actionKind' | 'mode' | 'requestId' | 'selectionKey' | 'onVerify'>) {
+}: Omit<
+  Props,
+  'edits' | 'actionKind' | 'mode' | 'requestId' | 'selectionKey' | 'onVerify' | 'onPolicy'
+>) {
   const conflict =
-    data?.record.policyConflict?.status === 'open' ? data.record.policyConflict : null;
+    data?.record.policyConflict?.status === 'open' &&
+    data.record.policyConflict.category === 'purpose-direction'
+      ? data.record.policyConflict
+      : null;
   const suggestedDirection = view.bootstrap.directionSuggestion?.text ?? '';
   const savedGoal =
     !view.bootstrap.directionDeferred && project.goalConfirmed ? project.goal.trim() || null : null;
@@ -234,7 +238,7 @@ function DirectionAction({
     <section className="pw-decision-direction" aria-label="Review project direction">
       {conflict ? (
         <div className="pw-decision-uncertain">
-          <h3>The direction conflicts with a recorded policy</h3>
+          <h3>The current direction conflicts with the project purpose</h3>
           <p>{conflict.description}</p>
           <p className="pw-small">Source: {conflict.source}</p>
         </div>
@@ -266,11 +270,6 @@ function DirectionAction({
               ? 'Save direction'
               : 'Use this direction'}
         </Button>
-        {conflict && (
-          <Button variant="outline" disabled={busy} onClick={onPolicy}>
-            Review a policy change
-          </Button>
-        )}
         {!conflict && !view.direction && (
           <Button variant="ghost" disabled={busy} onClick={() => void deferDirection()}>
             No current direction
@@ -756,8 +755,9 @@ function ScopeAction({
 }) {
   const work = view.work;
   const remainingOnly = mode === 'remaining';
+  const projectPolicy = mode === 'policy';
   const draftKey = (operation: DecisionOperation) =>
-    `statecarry.project-action.v3.${project.id}.${work?.id ?? 'none'}.${operation}`;
+    `statecarry.project-action.v3.${project.id}.${operation === 'policy' ? 'project' : (work?.id ?? 'none')}.${operation}`;
   const defaultDraft = (operation: DecisionOperation): ScopeDraft => ({
     text:
       operation === 'verify'
@@ -810,21 +810,38 @@ function ScopeAction({
   }, [controller, data, project.id, project.outputLanguage]);
 
   const observation = data?.record.observation;
+  const policyDescription = data?.record.policyConflict?.description;
   useEffect(() => {
     if (!observation || draft.basis) return;
     setDraft((old) => ({ ...old, basis: observation.basis, confirmed: false }));
   }, [draft.basis, observation]);
 
+  useEffect(() => {
+    if (!projectPolicy || !policyDescription) return;
+    const genericText = 'Address the recorded policy conflict: Review the project policy conflict.';
+    setDraft((old) =>
+      old.text === genericText
+        ? {
+            ...old,
+            text: `Address the recorded policy conflict: ${policyDescription}`,
+            confirmed: false,
+          }
+        : old,
+    );
+  }, [policyDescription, projectPolicy]);
+
   const activeRequest =
-    !remainingOnly && work && data
-      ? [...data.requests]
-          .reverse()
-          .find(
-            (request) =>
-              request.target.payload.projectContext?.workItemId === work.id &&
-              !data.record.accepted.includes(request.id) &&
-              !data.record.closed?.includes(request.id),
-          )
+    !remainingOnly && data
+      ? [...data.requests].reverse().find((request) => {
+          const context = request.target.payload.projectContext;
+          return (
+            (projectPolicy
+              ? context?.operation === 'policy'
+              : !!work && context?.workItemId === work.id) &&
+            !data.record.accepted.includes(request.id) &&
+            !data.record.closed?.includes(request.id)
+          );
+        })
       : null;
 
   if (activeRequest)
@@ -838,7 +855,7 @@ function ScopeAction({
       />
     );
 
-  if (!data || !work) return <p role="status">Reading saved project state…</p>;
+  if (!data || (!work && !projectPolicy)) return <p role="status">Reading saved project state…</p>;
 
   const keptIds = new Set(data.record.kept.flatMap((item) => item.scopeIds));
   const scopes = observation?.scopes ?? [];
@@ -860,7 +877,7 @@ function ScopeAction({
     revert: 'Review discarding changes',
     unstage: 'Review unstaging changes',
     direction: 'Review direction',
-    policy: 'Review policy change',
+    policy: 'Review project policy change',
   }[operation];
   const chooseOperation = (next: DecisionOperation) => {
     setOperation(next);
@@ -924,7 +941,7 @@ function ScopeAction({
           basis: draft.basis,
           scopeIds: verification ? [] : draft.scopeIds,
           operation,
-          workItemId: work.id,
+          ...(operation === 'policy' ? {} : { workItemId: work!.id }),
         },
         text: draft.text.trim(),
         doneWhen: draft.doneWhen.trim(),
@@ -968,16 +985,28 @@ function ScopeAction({
   return (
     <section
       className="pw-decision-review"
-      aria-label={remainingOnly ? 'Review remaining changes' : 'Review request'}
+      aria-label={
+        remainingOnly
+          ? 'Review remaining changes'
+          : projectPolicy
+            ? 'Review project policy request'
+            : 'Review request'
+      }
     >
       <h3>{remainingOnly ? 'Review remaining changes' : operationLabel}</h3>
+      {projectPolicy && (
+        <p>
+          This request applies to {project.title}. StateCarry will prepare it for your review; it
+          will not be sent unless you choose Send.
+        </p>
+      )}
       {remainingOnly && (
         <p>
           This work remains stopped. Review the project changes here, or keep selected changes and
           move on without restarting the work.
         </p>
       )}
-      {!remainingOnly && (
+      {!remainingOnly && work && !projectPolicy && (
         <div className="pw-actions" aria-label="Request type">
           {operation !== 'verify' && (
             <Button variant="outline" disabled={busy} onClick={() => chooseOperation('verify')}>
@@ -991,7 +1020,7 @@ function ScopeAction({
           )}
         </div>
       )}
-      {!remainingOnly && verification && (
+      {!remainingOnly && work && verification && (
         <p>
           Run the reviewed checks for this task. Existing changes do not need to be included. Report
           the results without implementing fixes; normal build and test artifacts may be produced.
@@ -1172,41 +1201,47 @@ function ScopeAction({
                   }
                   onClick={() => void prepare()}
                 >
-                  Prepare request for Codex
+                  {projectPolicy ? 'Prepare project policy request' : 'Prepare request for Codex'}
                 </Button>
                 <Button variant="ghost" onClick={onBack}>
                   Decide later
                 </Button>
               </div>
-              <details className="pw-details">
-                <summary>More options</summary>
-                <div className="pw-actions">
-                  {operation !== 'commit' && (
-                    <Button variant="ghost" onClick={() => chooseOperation('commit')}>
-                      Review a commit
+              {work && !projectPolicy && (
+                <details className="pw-details">
+                  <summary>More options</summary>
+                  <div className="pw-actions">
+                    {operation !== 'commit' && (
+                      <Button variant="ghost" onClick={() => chooseOperation('commit')}>
+                        Review a commit
+                      </Button>
+                    )}
+                    {operation !== 'revert' && (
+                      <Button variant="ghost" onClick={() => chooseOperation('revert')}>
+                        Review discarding changes
+                      </Button>
+                    )}
+                    {operation !== 'unstage' && (
+                      <Button variant="ghost" onClick={() => chooseOperation('unstage')}>
+                        Review unstaging changes
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      disabled={
+                        busy ||
+                        stale ||
+                        !draft.confirmed ||
+                        !draft.scopeIds.length ||
+                        !inventoryReady
+                      }
+                      onClick={() => void keepSelectedChanges()}
+                    >
+                      Leave selected changes and move on
                     </Button>
-                  )}
-                  {operation !== 'revert' && (
-                    <Button variant="ghost" onClick={() => chooseOperation('revert')}>
-                      Review discarding changes
-                    </Button>
-                  )}
-                  {operation !== 'unstage' && (
-                    <Button variant="ghost" onClick={() => chooseOperation('unstage')}>
-                      Review unstaging changes
-                    </Button>
-                  )}
-                  <Button
-                    variant="ghost"
-                    disabled={
-                      busy || stale || !draft.confirmed || !draft.scopeIds.length || !inventoryReady
-                    }
-                    onClick={() => void keepSelectedChanges()}
-                  >
-                    Leave selected changes and move on
-                  </Button>
-                </div>
-              </details>
+                  </div>
+                </details>
+              )}
             </>
           )}
         </>
@@ -2098,7 +2133,6 @@ export function ProjectNowActionMode(props: Props) {
         data={props.data}
         view={props.view}
         onBack={props.onBack}
-        onPolicy={props.onPolicy}
       />
     );
   if (props.mode === 'review')

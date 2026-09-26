@@ -2,6 +2,7 @@ import {
   classifyWorkProposalMatches,
   isUnlinkedWorkProposalMatch,
   isOpenWork,
+  projectConflictCategory,
   selectedCurrentWorkId,
   workDecisionKinds,
   type Continuation,
@@ -313,22 +314,33 @@ export class ProjectNowResolver {
 
   private directionConflict(projectId: string): ProjectNowNotice | null {
     const conflict = this.core.repo.get('projectScope', projectId)?.policyConflict;
-    if (!conflict || conflict.status !== 'open') return null;
-    const key = this.core.ids.hash(['direction-conflict', conflict.description, conflict.source]);
-    const override = this.core.repo
-      .list('workDecision')
-      .some(
-        (decision) =>
-          decision.projectId === projectId &&
-          decision.state === 'valid' &&
-          decision.kind === workDecisionKinds.continueDirectionConflict &&
-          decision.value.conflictKey === key,
-      );
-    if (override) return null;
+    if (
+      !conflict ||
+      conflict.status !== 'open' ||
+      projectConflictCategory(conflict) !== 'purpose-direction' ||
+      this.core.executions.hasDirectionConflictOverride(projectId, conflict)
+    )
+      return null;
     return {
       level: 'immediate',
       kind: 'direction-conflict',
-      text: 'The current direction conflicts with a recorded project constraint.',
+      text: 'The current direction conflicts with the project purpose.',
+      reason: conflict.description,
+    };
+  }
+
+  private policyConflict(projectId: string): ProjectNowNotice | null {
+    const conflict = this.core.repo.get('projectScope', projectId)?.policyConflict;
+    if (
+      !conflict ||
+      conflict.status !== 'open' ||
+      projectConflictCategory(conflict) !== 'project-policy'
+    )
+      return null;
+    return {
+      level: 'immediate',
+      kind: 'project-policy-conflict',
+      text: 'Resolve this project policy conflict before preparing work.',
       reason: conflict.description,
     };
   }
@@ -757,11 +769,35 @@ export class ProjectNowResolver {
       };
 
     const conflict = this.directionConflict(projectId);
+    const policyConflict = this.policyConflict(projectId);
     const currentExecution = current ? this.executionForWork(projectId, current.id) : null;
     const activeExecutionWaiting =
       current?.state === 'active' &&
       !!currentExecution &&
       ['checking', 'running', 'waiting', 'unknown'].includes(currentExecution.status);
+    if (policyConflict)
+      return {
+        projectId,
+        primaryDirectionId: primaryDirection?.id ?? null,
+        currentWorkId: current?.id ?? null,
+        currentWorkSelection: selection.selection,
+        execution: current ? currentExecution : projectExecution,
+        state: current ? nowState(current) : 'needs-policy-review',
+        currentState: current
+          ? `Current work: ${current.title}.`
+          : 'A project policy conflict needs review before work can be prepared.',
+        uncertainty: policyConflict.reason,
+        next: { kind: 'review-project-policy', text: 'Review the project policy conflict.' },
+        secondaryActions: [],
+        notice: policyConflict,
+        otherWorkCount,
+        otherWorkCounts,
+        otherWorkCandidates,
+        recommendation: noRecommendation(current ? 'current-retained' : 'not-applicable'),
+        bootstrap,
+        freshness,
+        proposalMatches: matches,
+      };
     const recommendation = this.workRecommendation(
       model,
       current,
@@ -830,15 +866,12 @@ export class ProjectNowResolver {
           kind: 'review-direction',
           text: 'Review whether the current direction should continue.',
         },
-        secondaryActions: current
-          ? [
-              {
-                kind: 'continue-despite-direction-conflict',
-                workItemId: current.id,
-                text: 'Continue the current work anyway.',
-              },
-            ]
-          : [],
+        secondaryActions: [
+          {
+            kind: 'continue-despite-direction-conflict',
+            text: current ? 'Continue the current work anyway.' : 'Continue anyway.',
+          },
+        ],
         notice,
         otherWorkCount,
         otherWorkCounts,

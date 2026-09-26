@@ -1836,7 +1836,78 @@ it('defines the next durable ProjectRecord directly instead of reopening the gen
   }
 });
 
-it('lets the user continue through an unchanged direction conflict without hiding the current work', async () => {
+it('prepares a project policy request without a current work item or automatic send', async () => {
+  const h = projectUiFixture([projectEntry('alpha')]);
+  const project = bundle();
+  project.model.workItems = [];
+  project.model.decisions = [];
+  h.projectGateway.now = vi.fn(async () => ({
+    initialized: true,
+    model: structuredClone(project.model),
+    now: {
+      ...project.current('work-a'),
+      currentWorkId: null,
+      currentWorkSelection: null,
+      state: 'needs-policy-review' as const,
+      currentState: 'A project policy conflict needs review before work can be prepared.',
+      uncertainty: 'The project must keep saved data local.',
+      next: { kind: 'review-project-policy' as const, text: 'Review the project policy conflict.' },
+      secondaryActions: [],
+      notice: {
+        level: 'immediate' as const,
+        kind: 'project-policy-conflict' as const,
+        text: 'Resolve this project policy conflict before preparing work.',
+        reason: 'The project must keep saved data local.',
+      },
+      otherWorkCount: 0,
+      otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
+      otherWorkCandidates: [],
+    },
+  }));
+  const policyDecision = scopedDecision();
+  policyDecision.record.policyConflict = {
+    category: 'project-policy',
+    description: 'The project must keep saved data local.',
+    source: 'Project privacy policy',
+    status: 'open',
+  };
+  const lifecycle = nativeDecisionLifecycle(h, policyDecision);
+  window.history.replaceState(null, '', '#/project/alpha');
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
+  try {
+    await press(mounted.host, 'Review policy change');
+    await settle();
+    await settle();
+    expect(mounted.host.textContent).toContain('Project policy');
+    expect(mounted.host.textContent).toContain('Project alpha');
+    expect(mounted.host.textContent).toContain('This request applies to Project alpha.');
+    const confirmation = mounted.host.querySelector<HTMLInputElement>(
+      '.pw-decision-confirm input',
+    )!;
+    await act(async () => confirmation.click());
+    await press(mounted.host, 'Prepare project policy request');
+
+    const prepare = lifecycle.decisionGateway.mock.calls.find(
+      ([, command]) => command?.action === 'prepare',
+    )?.[1] as Extract<ProjectExecutionCommand, { action: 'prepare' }> | undefined;
+    expect(prepare).toMatchObject({
+      action: 'prepare',
+      context: { basis: 'scope-a', scopeIds: [], operation: 'policy' },
+      text: expect.stringContaining('The project must keep saved data local.'),
+    });
+    expect(prepare?.context).not.toHaveProperty('workItemId');
+    expect(h.projectGateway.createWork).not.toHaveBeenCalled();
+    expect(h.projectGateway.selectWork).not.toHaveBeenCalled();
+    expect(
+      lifecycle.decisionGateway.mock.calls.some(([, command]) => command?.action === 'send'),
+    ).toBe(false);
+    expect(mounted.host.textContent).toContain('Send to a new Codex conversation');
+  } finally {
+    await mounted.unmount();
+  }
+});
+
+it('lets the user review a purpose-direction conflict and continue without hiding current work', async () => {
   const h = projectUiFixture([projectEntry('alpha')]);
   const data = bundle();
   let overridden = false;
@@ -1857,14 +1928,13 @@ it('lets the user continue through an unchanged direction conflict without hidin
           secondaryActions: [
             {
               kind: 'continue-despite-direction-conflict' as const,
-              workItemId: 'work-a',
               text: 'Continue the current work anyway.',
             },
           ],
           notice: {
             level: 'immediate' as const,
             kind: 'direction-conflict' as const,
-            text: 'The current direction conflicts with a recorded project constraint.',
+            text: 'The current direction conflicts with the project purpose.',
             reason: 'Showing more state may increase return-time reading cost.',
           },
         },
@@ -1875,6 +1945,7 @@ it('lets the user continue through an unchanged direction conflict without hidin
   });
   const conflictDecision = decision();
   conflictDecision.record.policyConflict = {
+    category: 'purpose-direction',
     description: 'Showing more state may increase return-time reading cost.',
     source: 'project-purpose',
     status: 'open',
@@ -1894,47 +1965,9 @@ it('lets the user continue through an unchanged direction conflict without hidin
     await settle();
     expect(mounted.host.querySelector('[aria-label="Current work action"]')).toBeTruthy();
     expect(mounted.host.querySelector('[aria-label="Current project decision"]')).toBeNull();
-    expect(mounted.host.textContent).toContain('The direction conflicts with a recorded policy');
-    await press(mounted.host, 'Review a policy change');
-    expect(mounted.host.querySelector('[aria-label="Review request"]')?.textContent).toContain(
-      'Review policy change',
+    expect(mounted.host.textContent).toContain(
+      'The current direction conflicts with the project purpose',
     );
-    expect(
-      mounted.host.querySelector<HTMLTextAreaElement>('[aria-label="Review request"] textarea')
-        ?.value,
-    ).toContain('Showing more state may increase return-time reading cost.');
-    const policyConfirmation = mounted.host.querySelector<HTMLInputElement>(
-      '[aria-label="Review request"] .pw-decision-confirm input',
-    );
-    expect(policyConfirmation).toBeTruthy();
-    await act(async () => {
-      policyConfirmation!.click();
-    });
-    await settle();
-    await press(mounted.host, 'Prepare request for Codex');
-    expect(vi.mocked(h.projectGateway.execution).mock.calls.at(-1)?.[1]).toMatchObject({
-      action: 'prepare',
-      context: { basis: 'scope-a', scopeIds: [], operation: 'policy', workItemId: 'work-a' },
-      text: expect.stringContaining('Showing more state may increase return-time reading cost.'),
-      threadId: null,
-    });
-    await press(mounted.host, 'Decide later');
-    await press(mounted.host, 'Review direction');
-    await settle();
-    await settle();
-    await typeField(
-      mounted.host,
-      '[aria-label="Review project direction"] textarea',
-      'Keep return context concise.',
-    );
-    await press(mounted.host, 'Save a different direction');
-    expect(vi.mocked(h.projectGateway.execution).mock.calls.at(-1)?.[1]).toEqual({
-      action: 'resolve-direction',
-      text: 'Keep return context concise.',
-    });
-    await press(mounted.host, 'Review direction');
-    await settle();
-    await settle();
     await press(mounted.host, 'Back to current work');
     await press(mounted.host, 'Continue anyway');
     expect(h.projectGateway.continueDirectionConflict).toHaveBeenCalledWith('alpha', 7);

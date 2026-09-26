@@ -790,6 +790,13 @@ export class Projects {
       'project-settings',
       command,
       (work, connection) => {
+        const previousPurposes = work.purposes
+          .filter((purpose) => purpose.confirmed)
+          .map((purpose) => purpose.text)
+          .sort((left, right) => left.localeCompare(right));
+        const nextPurposes = profile.purpose ? [profile.purpose.trim()] : [];
+        if (JSON.stringify(previousPurposes) !== JSON.stringify(nextPurposes))
+          this.core.projectModel.invalidateDirectionConflictOverrides(projectId);
         if (profile.focused && !this.profile(work).focused) {
           const focused = this.core.repo
             .list('project')

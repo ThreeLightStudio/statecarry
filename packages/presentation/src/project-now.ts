@@ -134,6 +134,8 @@ function actionLabel(kind: ProjectNowAction['kind']) {
       return 'Start work';
     case 'review-work-plan':
       return 'Re-check work';
+    case 'review-project-policy':
+      return 'Review policy change';
     case 'choose-current-work':
       return 'Choose current work';
     case 'choose-next-work':
@@ -175,6 +177,8 @@ function noticeTitle(notice: ProjectNowNotice) {
       return 'Result ready';
     case 'direction-conflict':
       return 'Direction needs review';
+    case 'project-policy-conflict':
+      return 'Project policy needs review';
     case 'integration-needed':
       return 'Integration needs attention';
     case 'release-ready':
@@ -420,6 +424,8 @@ function compactStatus(now: ProjectNow) {
       return 'Disconnected';
     case 'needs-direction':
       return 'Direction needed';
+    case 'needs-policy-review':
+      return 'Project policy needs review';
     case 'choose-work':
       return 'Work needs choosing';
     case 'choose-next-work':
@@ -445,6 +451,7 @@ function compactCurrent(model: ProjectModelView, now: ProjectNow) {
   const work = currentWork(model, now);
   if (work) return compactWhitespace(work.title);
   if (now.next?.kind === 'define-direction') return 'Define the current direction';
+  if (now.next?.kind === 'review-project-policy') return 'Review project policy';
   if (now.next?.kind === 'choose-current-work') return 'Choose current work';
   if (now.next?.kind === 'choose-next-work') return 'Decide the next work';
   if (now.state === 'idle') return 'No current work';

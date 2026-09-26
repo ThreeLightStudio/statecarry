@@ -336,6 +336,13 @@ If current direction clearly conflicts with the project's purpose:
 - remember that explicit override so the same evidence does not repeatedly interrupt the user;
 - reopen the question only when materially new evidence appears.
 
+This exception is project-scoped and tied to the recorded purpose, active primary direction and
+conflict evidence. It does not resolve a project policy conflict or bypass review, verification,
+scope checks or explicit policy resolution. A recorded project policy conflict continues to block
+work preparation until a policy request has been reviewed against the current project and the user
+explicitly confirms the resolution. Policy requests belong to the project and do not require a
+current Work item. Older conflict records without a category keep their blocking policy meaning.
+
 ### Product availability and maintenance
 
 Work needed to keep the product usable or deliverable can outrank direction work.

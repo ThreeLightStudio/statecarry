@@ -36,6 +36,21 @@ export type ScopeFile = ScopeFileSelection & {
   detail: 'ready' | 'unread' | 'unavailable';
   limitation: string | null;
 };
+export const projectConflictCategorySchema = z.enum(['purpose-direction', 'project-policy']);
+export type ProjectConflictCategory = z.infer<typeof projectConflictCategorySchema>;
+export type ProjectConflict = {
+  /** Older persisted records have no id or category and are treated as project policy conflicts. */
+  id?: string;
+  category?: ProjectConflictCategory;
+  description: string;
+  source: string;
+  status: 'open' | 'resolved';
+};
+export function projectConflictCategory(
+  conflict: { category?: unknown } | null | undefined,
+): ProjectConflictCategory {
+  return conflict?.category === 'purpose-direction' ? 'purpose-direction' : 'project-policy';
+}
 export type SessionQuestion = {
   id: string;
   kind: 'command' | 'file-change' | 'permissions' | 'question';
@@ -69,7 +84,7 @@ export type ProjectScopeRecord = {
   expandedFiles?: ScopeFileSelection[];
   kept: Array<{ id: string; scopeIds: string[]; scopes: ChangeScope[]; at: string }>;
   corrections: Record<string, string>;
-  policyConflict: { description: string; source: string; status: 'open' | 'resolved' } | null;
+  policyConflict: ProjectConflict | null;
 };
 export type ProjectExecutionRecord = {
   id: string;
@@ -117,7 +132,14 @@ export const projectExecutionCommandSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('correct'), key: text, text }).strict(),
   z.object({ action: z.literal('direction'), text, finish: z.boolean() }).strict(),
   z.object({ action: z.literal('defer-direction') }).strict(),
-  z.object({ action: z.literal('conflict'), description: text, source: text }).strict(),
+  z
+    .object({
+      action: z.literal('conflict'),
+      category: projectConflictCategorySchema.default('project-policy'),
+      description: text,
+      source: text,
+    })
+    .strict(),
   z.object({ action: z.literal('resolve-conflict'), requestId: text }).strict(),
   z
     .object({

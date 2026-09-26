@@ -271,6 +271,7 @@ export type ProjectNowAction = {
     | 'resume-work'
     | 'start-work'
     | 'review-work-plan'
+    | 'review-project-policy'
     | 'choose-current-work'
     | 'choose-next-work'
     | 'define-direction'
@@ -308,6 +309,7 @@ export type ProjectNowNotice = {
   kind:
     | 'result-ready'
     | 'direction-conflict'
+    | 'project-policy-conflict'
     | 'integration-needed'
     | 'release-ready'
     | 'delivery-problem'
@@ -423,6 +425,7 @@ export type ProjectNow = {
   state:
     | 'disconnected'
     | 'needs-direction'
+    | 'needs-policy-review'
     | 'choose-work'
     | 'choose-next-work'
     | 'active'

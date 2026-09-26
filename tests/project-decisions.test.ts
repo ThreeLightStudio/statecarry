@@ -1,3 +1,6 @@
+import { once } from 'node:events';
+import { HttpProjectGateway } from '../apps/web/src/adapters/project-gateway';
+import { ChangeEvents, createHttpServer } from '../apps/server/src/http';
 import { describe, expect, it, vi } from 'vitest';
 import { StateCarry, type SessionExecutor } from '@statecarry/core';
 import type {
@@ -9,7 +12,7 @@ import type {
 import { harness } from './helpers';
 import { registerProject } from './project-fixtures';
 
-function fixture(supported = true) {
+function fixture(supported = true, includeWork = true) {
   const h = harness();
   const id = registerProject(h).receipt.projectId;
   const scopes: ChangeScope[] = [
@@ -76,15 +79,16 @@ function fixture(supported = true) {
       }),
     },
   );
-  core.projectModel.createWork(
-    id,
-    {
-      title: 'Review selected changes',
-      completionCondition: 'The check is reported with its limits.',
-    },
-    'execution-work',
-  );
-  const workItemId = core.projectModel.view(id).workItems[0].id;
+  if (includeWork)
+    core.projectModel.createWork(
+      id,
+      {
+        title: 'Review selected changes',
+        completionCondition: 'The check is reported with its limits.',
+      },
+      'execution-work',
+    );
+  const workItemId = core.projectModel.view(id).workItems[0]?.id ?? null;
   const command = (input: ProjectExecutionCommand) =>
     core.executions.command(id, input, core.executions.view(id).record.version);
   const prepare = (
@@ -97,7 +101,7 @@ function fixture(supported = true) {
         operation,
         basis: scope.basis,
         scopeIds,
-        ...(operation === 'policy' ? {} : { workItemId }),
+        ...(operation === 'policy' || !workItemId ? {} : { workItemId }),
       },
       text: 'Check only the selected change.',
       doneWhen: 'The check is reported with its limits.',
@@ -338,22 +342,125 @@ describe('project decision loop', () => {
       code: 'CAPABILITY_UNSUPPORTED',
     });
   });
-  it('records conflict and requires an explicit direction or checked policy resolution', async () => {
+  it('keeps project policy conflicts blocked despite a saved direction exception', async () => {
     const f = fixture();
+    f.core.projectModel.setDirection(f.id, 'Improve the export workflow.');
     await f.command({
       action: 'conflict',
+      category: 'purpose-direction',
+      description: 'The current direction conflicts with the project purpose.',
+      source: 'project purpose and active direction',
+    });
+    f.core.projectModel.continueDirectionConflict(f.id);
+    expect(
+      f.h.repo
+        .list('workDecision')
+        .some((decision) => decision.kind === 'continue-direction-conflict'),
+    ).toBe(true);
+    await f.command({
+      action: 'conflict',
+      category: 'project-policy',
       description: 'The new storage conflicts with local-only policy.',
       source: 'docs/policy.md',
     });
     await expect(f.prepare('continue')).rejects.toMatchObject({ code: 'VALIDATION' });
-    await f.prepare('policy');
-    const view = await f.command({ action: 'resolve-direction', text: 'Keep all storage local.' });
-    expect(view.record.policyConflict?.status).toBe('resolved');
-    expect(
-      f.core.projectModel
-        .directions(f.id)
-        .find((direction) => direction.state === 'active' && direction.primary)?.text,
-    ).toBe('Keep all storage local.');
+    expect(f.core.executions.view(f.id).record.policyConflict).toMatchObject({
+      category: 'project-policy',
+      status: 'open',
+    });
+    await expect(
+      f.command({ action: 'resolve-direction', text: 'Keep all storage local.' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+    await f.command({ action: 'direction', text: 'Keep all storage local.', finish: false });
+    expect(f.core.now.resolve(f.id).notice).toMatchObject({ kind: 'project-policy-conflict' });
+    await expect(f.prepare('continue')).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('reads legacy conflict records as blocking project policy conflicts', async () => {
+    const f = fixture();
+    f.h.repo.put('projectScope', {
+      id: f.id,
+      projectId: f.id,
+      version: 1,
+      kept: [],
+      corrections: {},
+      policyConflict: {
+        description: 'The project must keep its saved data local.',
+        source: 'legacy project record',
+        status: 'open',
+      },
+    });
+    expect(f.core.executions.view(f.id).record.policyConflict).toMatchObject({
+      category: 'project-policy',
+      description: 'The project must keep its saved data local.',
+    });
+    expect(f.core.now.resolve(f.id)).toMatchObject({
+      next: { kind: 'review-project-policy' },
+      notice: { kind: 'project-policy-conflict' },
+    });
+    await expect(f.prepare('continue')).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('allows an explicit project-scoped purpose-direction exception and expires it when evidence changes', async () => {
+    const f = fixture();
+    f.core.projectModel.setDirection(f.id, 'Improve the export workflow.');
+    await f.command({ action: 'observe', outputLanguage: 'en' });
+    await f.command({
+      action: 'conflict',
+      category: 'purpose-direction',
+      description: 'The current direction conflicts with the project purpose.',
+      source: 'project purpose and active direction',
+    });
+    expect(f.core.now.resolve(f.id)).toMatchObject({
+      notice: { kind: 'direction-conflict', level: 'immediate' },
+      next: { kind: 'review-direction' },
+      secondaryActions: [{ kind: 'continue-despite-direction-conflict' }],
+    });
+
+    f.core.projectModel.continueDirectionConflict(f.id);
+    const exception = f.h.repo
+      .list('workDecision')
+      .find((decision) => decision.kind === 'continue-direction-conflict');
+    expect(exception).toMatchObject({ workItemId: null, state: 'valid' });
+    expect(f.core.executions.view(f.id).record.policyConflict).toMatchObject({
+      category: 'purpose-direction',
+      status: 'open',
+    });
+    const prepared = await f.prepare('continue');
+    expect(prepared.requests[0].state).toBe('prepared');
+    expect(f.session.create).not.toHaveBeenCalled();
+    expect(f.session.send).not.toHaveBeenCalled();
+
+    const project = f.core.project(f.id);
+    f.core.projects.settings(f.id, {
+      requestId: 'rename-project-with-same-purpose',
+      expectedRevision: project.revision,
+      payload: {
+        title: `${project.title} renamed`,
+        purpose: project.purposes[0]?.text ?? '',
+        responseLanguage: 'en',
+        focused: project.focused,
+        iconAsset: project.iconAsset,
+        bannerAsset: project.bannerAsset,
+      },
+    });
+    expect(f.core.now.resolve(f.id).notice).toBeNull();
+
+    const renamed = f.core.project(f.id);
+    f.core.projects.settings(f.id, {
+      requestId: 'change-project-purpose',
+      expectedRevision: renamed.revision,
+      payload: {
+        title: renamed.title,
+        purpose: 'Keep exports easy to resume.',
+        responseLanguage: 'en',
+        focused: renamed.focused,
+        iconAsset: renamed.iconAsset,
+        bannerAsset: renamed.bannerAsset,
+      },
+    });
+    expect(f.core.now.resolve(f.id).notice).toMatchObject({ kind: 'direction-conflict' });
+    await expect(f.prepare('continue')).rejects.toMatchObject({ code: 'VALIDATION' });
   });
   it('records an explicit no-direction choice and clears it when a direction is later saved', async () => {
     const f = fixture();
@@ -735,5 +842,63 @@ describe('project decision loop', () => {
     expect(next.requests).toHaveLength(2);
     expect(next.requests[1].id).not.toBe(request.id);
     expect(next.record.accepted).toEqual([]);
+  });
+
+  it('prepares a no-work project policy request through the HTTP gateway without sending it', async () => {
+    const f = fixture(true, false);
+    const server = createHttpServer(f.core, new ChangeEvents(), '/tmp/no-web', 0);
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('No server address');
+    const nativeFetch = globalThis.fetch.bind(globalThis);
+    const origin = `http://127.0.0.1:${address.port}`;
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+      return nativeFetch(new URL(String(input), origin), init);
+    });
+    const gateway = new HttpProjectGateway();
+    try {
+      expect(f.core.projectModel.view(f.id).workItems).toEqual([]);
+      const initial = await gateway.execution(f.id);
+      const conflicted = await gateway.execution(
+        f.id,
+        {
+          action: 'conflict',
+          category: 'project-policy',
+          description: 'The project must keep saved data local.',
+          source: 'Project privacy policy',
+        },
+        initial.record.version,
+      );
+      const observed = await gateway.execution(
+        f.id,
+        { action: 'observe', outputLanguage: 'en' },
+        conflicted.record.version,
+      );
+      const prepared = await gateway.execution(
+        f.id,
+        {
+          action: 'prepare',
+          context: { basis: observed.record.observation!.basis, scopeIds: [], operation: 'policy' },
+          text: 'Review how saved data stays on this device.',
+          doneWhen: 'The policy change is compared with the current project for confirmation.',
+          threadId: null,
+        },
+        observed.record.version,
+      );
+
+      expect(prepared.requests[0]).toMatchObject({
+        state: 'prepared',
+        target: { payload: { projectContext: { operation: 'policy' } } },
+      });
+      expect(prepared.requests[0].target.payload.projectContext).not.toHaveProperty('workItemId');
+      expect(f.core.projectModel.view(f.id).workItems).toEqual([]);
+      expect(f.session.create).not.toHaveBeenCalled();
+      expect(f.session.send).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });

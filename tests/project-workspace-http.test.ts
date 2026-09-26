@@ -348,6 +348,7 @@ describe('project workspace HTTP contract', () => {
           corrections: {},
           direction: null,
           policyConflict: {
+            category: 'purpose-direction',
             description: 'Showing more state by default increases return-time reading cost.',
             source: 'project-purpose',
             status: 'open',
