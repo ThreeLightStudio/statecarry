@@ -979,11 +979,15 @@
 .pw-now-notice--quiet {
   @apply text-muted-foreground;
 }
-.pw-now-notice--attention {
-  @apply border-l-2 pl-4;
+.pw-now-notice--attention > div > strong,
+.pw-now-notice--immediate > div > strong {
+  @apply inline-flex items-center gap-2;
 }
-.pw-now-notice--immediate {
-  @apply border-l-4 pl-4;
+.pw-now-notice--attention .pw-now-notice-icon {
+  color: var(--status-warning);
+}
+.pw-now-notice--immediate .pw-now-notice-icon {
+  color: var(--status-error);
 }
 .pw-now-notice > .pw-button--quiet {
   @apply w-fit px-0;

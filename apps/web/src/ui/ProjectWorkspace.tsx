@@ -43,6 +43,7 @@ import {
   PanelLeftOpen,
   RotateCw,
   Settings as SettingsIcon,
+  TriangleAlert,
 } from 'lucide-react';
 import './project-workspace.css';
 import { WorkDiscussion } from './WorkDiscussion';
@@ -1879,7 +1880,12 @@ function ProjectNowProjectPage({
                 aria-label={view.notice.title}
               >
                 <div>
-                  <strong>{view.notice.title}</strong>
+                  <strong>
+                    {view.notice.level !== 'quiet' && (
+                      <TriangleAlert size={16} aria-hidden="true" className="pw-now-notice-icon" />
+                    )}
+                    {view.notice.title}
+                  </strong>
                   <p>{view.notice.text}</p>
                   {view.notice.reason && <span className="pw-small">{view.notice.reason}</span>}
                 </div>
