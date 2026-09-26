@@ -15,6 +15,9 @@ type Packet = { id?: string | number; method: string; params: Record<string, any
 /** User execution has its own transport, separate from tool-free analysis. */
 export class CodexSessionExecutor implements SessionExecutor {
   private rpc: CodexRpc;
+  /** Threads started or successfully resumed on the current RPC connection. */
+  private attached = new Set<string>();
+  /** Threads whose events and approval requests this executor owns. */
   private owned = new Set<string>();
   private pending = new Map<string, { packet: Packet; question: SessionQuestion }>();
   private runs = new Map<string, SessionRun>();
@@ -32,6 +35,7 @@ export class CodexSessionExecutor implements SessionExecutor {
     });
     rpc.on('disconnect', () => {
       this.pending.clear();
+      this.attached.clear();
       this.owned.clear();
       for (const [id, run] of this.runs)
         if (run.status === 'running' || run.status === 'waiting')
@@ -55,23 +59,25 @@ export class CodexSessionExecutor implements SessionExecutor {
     if (typeof threadId !== 'string')
       throw new DomainError('RESULT_UNKNOWN', 'Codex did not return a conversation ID.');
     this.owned.add(threadId);
+    this.attached.add(threadId);
     this.verifiedAt = new Date().toISOString();
     return { threadId };
   }
   async send(input: SessionSendInput): Promise<SessionSendResult> {
-    const alreadyOwned = this.owned.has(input.threadId);
     const readOnly = input.operation === 'direction';
     if (input.operation === 'verify' && !input.cwd)
       throw new DomainError('VALIDATION', 'Choose a project folder before running checks.');
-    if (!alreadyOwned) {
+    if (!this.attached.has(input.threadId)) {
       this.owned.add(input.threadId);
       try {
         await this.rpc.request('thread/resume', {
           threadId: input.threadId,
           ...(input.cwd ? { cwd: input.cwd } : {}),
         });
+        this.attached.add(input.threadId);
       } catch (error) {
         this.owned.delete(input.threadId);
+        this.attached.delete(input.threadId);
         throw error;
       }
     }
@@ -148,9 +154,10 @@ export class CodexSessionExecutor implements SessionExecutor {
         error: 'The execution ID is unknown. Check the Codex conversation before sending again.',
         questions: [],
       };
-    if (!this.owned.has(threadId)) {
+    if (!this.attached.has(threadId)) {
       this.owned.add(threadId);
       await this.rpc.request('thread/resume', { threadId });
+      this.attached.add(threadId);
     }
     const result = await this.rpc.request('thread/read', { threadId, includeTurns: true });
     const turns = result.thread?.turns ?? [];
