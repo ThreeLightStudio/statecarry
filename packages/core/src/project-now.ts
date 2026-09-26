@@ -781,7 +781,7 @@ export class ProjectNowResolver {
         primaryDirectionId: primaryDirection?.id ?? null,
         currentWorkId: current?.id ?? null,
         currentWorkSelection: selection.selection,
-        execution: current ? currentExecution : projectExecution,
+        execution: currentExecution ?? projectExecution,
         state: current ? nowState(current) : 'needs-policy-review',
         currentState: current
           ? `Current work: ${current.title}.`

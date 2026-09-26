@@ -816,7 +816,7 @@ describe('ProjectNow resolver', () => {
   });
 
   it.each(['running', 'completed'] as const)(
-    'keeps selected Work B and its %s execution visible during a policy conflict',
+    "keeps selected Work B while showing Work A's %s execution during a policy conflict",
     async (status) => {
       const h = harness();
       const { receipt } = registerProject(h, { goal: 'Improve project return.' });
@@ -828,21 +828,21 @@ describe('ProjectNow resolver', () => {
       observe(h, projectId);
 
       h.repo.put('workDecision', {
-        id: 'execution-b',
+        id: 'execution-a',
         projectId,
-        workItemId: 'b',
+        workItemId: 'a',
         kind: workDecisionKinds.executionForWork,
-        value: { requestId: 'request-b' },
+        value: { requestId: 'request-a' },
         basis: [],
         state: 'valid',
         decidedAt: AT,
       });
-      const request = resultRequest(projectId, 'request-b');
+      const request = resultRequest(projectId, 'request-a');
       h.repo.put('continuation', {
         ...request,
         execution: {
           status,
-          report: status === 'completed' ? 'Work B result is ready.' : '',
+          report: status === 'completed' ? 'Work A result is ready.' : '',
           error: null,
           questions: [],
         },
@@ -862,7 +862,7 @@ describe('ProjectNow resolver', () => {
       expect(h.core.now.resolve(projectId)).toMatchObject({
         currentWorkId: 'b',
         currentWorkSelection: 'user',
-        execution: { workItemId: 'b', requestId: 'request-b', status },
+        execution: { workItemId: 'a', requestId: 'request-a', status },
         next: { kind: 'review-project-policy' },
         notice: { kind: 'project-policy-conflict' },
       });
@@ -874,7 +874,10 @@ describe('ProjectNow resolver', () => {
         workItemId: 'b',
         state: 'valid',
       });
-      expect(h.repo.get('continuation', 'request-b')?.execution?.status).toBe(status);
+      expect(h.repo.get('continuation', 'request-a')).toMatchObject({
+        state: 'sent',
+        execution: { status },
+      });
     },
   );
 
