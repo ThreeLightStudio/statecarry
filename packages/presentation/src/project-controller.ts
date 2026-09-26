@@ -14,7 +14,12 @@ import {
 } from '@statecarry/contracts';
 import type { AnalysisGateway } from './analysis';
 import { presentProjectAnalysis, analysisHandoffText } from './analysis';
-import type { AnalysisMemory, ProjectDrafts } from './project-drafts';
+import {
+  projectNowUiMemoryKey,
+  type AnalysisMemory,
+  type ProjectDrafts,
+  type ProjectNowUiMemory,
+} from './project-drafts';
 import {
   presentProjectCompact,
   presentProjectNow,
@@ -303,13 +308,14 @@ export class ProjectController {
               void this.inspectWorkingTree(change.projectId);
             return;
           }
-          if (
-            change.topic === 'overview' &&
-            change.projectId &&
-            this.value.route.page === 'project' &&
-            change.projectId === this.value.route.projectId
-          )
+          if (change.topic === 'execution' && change.projectId) {
+            if (
+              this.value.route.page !== 'project' ||
+              this.value.route.projectId !== change.projectId
+            )
+              void this.readProjectNow(change.projectId, { quiet: true, initialize: false });
             return;
+          }
           this.scheduleRead();
           return;
         }
@@ -1290,7 +1296,42 @@ export class ProjectController {
     });
   }
   recordScroll(id: string, scroll: number) {
-    this.edit(id, (old) => ({ ...old, scroll: Math.max(0, scroll) }));
+    const value = Math.max(0, scroll);
+    this.edit(id, (old) => ({ ...old, scroll: value }));
+  }
+  recordProjectNowUi(id: string, value: ProjectNowUiMemory) {
+    const key = projectNowUiMemoryKey(value);
+    this.edit(id, (old) => {
+      const memories = old.projectNowUiByIdentity ?? (old.projectNowUi ? [old.projectNowUi] : []);
+      return {
+        ...old,
+        projectNowUi: value,
+        projectNowUiByIdentity: [
+          ...memories.filter((memory) => projectNowUiMemoryKey(memory) !== key),
+          value,
+        ].slice(-50),
+      };
+    });
+  }
+  forgetProjectNowUi(id: string, key: string) {
+    this.edit(id, (old) => {
+      const memories = (
+        old.projectNowUiByIdentity ?? (old.projectNowUi ? [old.projectNowUi] : [])
+      ).filter((memory) => projectNowUiMemoryKey(memory) !== key);
+      const currentMatches = old.projectNowUi && projectNowUiMemoryKey(old.projectNowUi) === key;
+      const latest = memories.at(-1);
+      const next: ProjectDrafts = {
+        ...old,
+        projectNowUiByIdentity: memories,
+        ...(!currentMatches && old.projectNowUi
+          ? { projectNowUi: old.projectNowUi }
+          : latest
+            ? { projectNowUi: latest }
+            : {}),
+      };
+      if (currentMatches && !latest) delete next.projectNowUi;
+      return next;
+    });
   }
   expand(id: string, key: string, open: boolean) {
     this.edit(id, (old) => ({

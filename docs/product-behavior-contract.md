@@ -336,6 +336,19 @@ If current direction clearly conflicts with the project's purpose:
 - remember that explicit override so the same evidence does not repeatedly interrupt the user;
 - reopen the question only when materially new evidence appears.
 
+This exception is project-scoped and tied to the recorded purpose, active primary direction and
+conflict evidence. It does not resolve a project policy conflict or bypass review, verification,
+scope checks or explicit policy resolution. A recorded project policy conflict continues to block
+work preparation until a policy request has been reviewed against the current project and the user
+explicitly confirms the resolution. Policy requests belong to the project and do not require a
+current Work item. Older conflict records without a category keep their blocking policy meaning.
+
+An unresolved conflict cannot be replaced by a different conflict; resolve it through its
+matching route first. Re-recording the same open conflict preserves its identity. A policy
+request is tied to the conflict present when it was prepared. If that conflict changes, the
+old request cannot be sent, compared, reviewed, accepted, or used to resolve the new conflict.
+Legacy policy requests without that binding cannot act on an open conflict.
+
 ### Product availability and maintenance
 
 Work needed to keep the product usable or deliverable can outrank direction work.
@@ -750,6 +763,9 @@ A draft or discussion deserves stronger restoration than a passively opened deta
 After a long absence, reopen the current Work at its base view and provide a small cue such as `Last
 time you were reviewing changes` with a `Continue review` action. Do not automatically reopen an old
 deep inspection screen.
+
+StateCarry treats 30 minutes away from a Project screen as a long absence. Draft text and discussion
+history remain saved; reopening a detailed action screen requires the user to choose its resume cue.
 
 ## 19. Notification strength
 

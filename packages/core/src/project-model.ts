@@ -7,6 +7,7 @@ import {
   workDiscussionRecordSchema,
   workDiscussionSyncSchema,
   workDecisionKinds,
+  projectConflictCategory,
   workItemCreateSchema,
   workItemSchema,
   type Direction,
@@ -55,6 +56,7 @@ export class ProjectModel {
     )
       return this.view(projectId);
     this.core.repo.transaction(() => {
+      this.invalidateDirectionConflictOverrides(projectId);
       for (const decision of this.core.repo.list('workDecision'))
         if (
           decision.projectId === projectId &&
@@ -112,11 +114,22 @@ export class ProjectModel {
       );
   }
 
+  invalidateDirectionConflictOverrides(projectId: string) {
+    for (const decision of this.core.repo.list('workDecision'))
+      if (
+        decision.projectId === projectId &&
+        decision.kind === workDecisionKinds.continueDirectionConflict &&
+        decision.state === 'valid'
+      )
+        this.core.repo.put('workDecision', { ...decision, state: 'needs-review' });
+  }
+
   deferDirection(projectId: string, emit = true): ProjectModelView {
     this.project(projectId);
     if (this.directionDeferred(projectId)) return this.view(projectId);
     const now = this.core.clock.now();
     this.core.repo.transaction(() => {
+      this.invalidateDirectionConflictOverrides(projectId);
       for (const direction of this.core.repo.list('direction'))
         if (direction.projectId === projectId && direction.state === 'active')
           this.core.repo.put('direction', {
@@ -561,13 +574,15 @@ export class ProjectModel {
   continueDirectionConflict(projectId: string): ProjectModelView {
     this.project(projectId);
     const conflict = this.core.repo.get('projectScope', projectId)?.policyConflict;
-    if (!conflict || conflict.status !== 'open')
+    if (
+      !conflict ||
+      conflict.status !== 'open' ||
+      projectConflictCategory(conflict) !== 'purpose-direction'
+    )
       throw new DomainError('VALIDATION', 'There is no current direction conflict to override.');
-    const conflictKey = this.core.ids.hash([
-      'direction-conflict',
-      conflict.description,
-      conflict.source,
-    ]);
+    const conflictKey = this.core.executions.directionConflictKey(projectId, conflict);
+    if (!conflictKey)
+      throw new DomainError('VALIDATION', 'There is no current direction conflict to override.');
     const existing = this.core.repo
       .list('workDecision')
       .find(
@@ -578,21 +593,10 @@ export class ProjectModel {
           decision.value.conflictKey === conflictKey,
       );
     if (existing) return this.view(projectId);
-    const current = this.core.repo
-      .list('workDecision')
-      .filter(
-        (decision) =>
-          decision.projectId === projectId &&
-          decision.state === 'valid' &&
-          decision.kind === workDecisionKinds.selectCurrentWork,
-      )
-      .filter((decision) => selectedCurrentWorkId(decision) !== null)
-      .sort((a, b) => b.decidedAt.localeCompare(a.decidedAt))[0];
-    const workItemId = current ? selectedCurrentWorkId(current) : null;
     this.core.repo.put('workDecision', {
       id: this.core.ids.hash(['continue-direction-conflict', projectId, conflictKey]),
       projectId,
-      workItemId,
+      workItemId: null,
       kind: workDecisionKinds.continueDirectionConflict,
       value: { conflictKey },
       basis: [conflictKey],

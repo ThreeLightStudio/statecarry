@@ -42,7 +42,14 @@ export class ChangeEvents extends EventEmitter {
   }
   changed(
     projectId: string | null,
-    topic?: 'profile' | 'sources' | 'observation' | 'working-tree-analysis' | 'overview' | 'agent',
+    topic?:
+      | 'profile'
+      | 'sources'
+      | 'observation'
+      | 'working-tree-analysis'
+      | 'overview'
+      | 'agent'
+      | 'execution',
   ) {
     this.emit('change', { projectId, ...(topic ? { topic } : {}) });
   }

@@ -265,15 +265,21 @@ export type ProjectNowAction = {
     | 'review-result'
     | 'review-completion'
     | 'review-work'
+    | 'discuss-work'
+    | 'review-remaining-changes'
     | 'continue-work'
     | 'resume-work'
     | 'start-work'
     | 'review-work-plan'
+    | 'review-project-policy'
     | 'choose-current-work'
     | 'choose-next-work'
     | 'define-direction'
     | 'review-release'
     | 'stop-work'
+    | 'check-execution'
+    | 'open-request'
+    | 'respond-to-request'
     | 'continue-despite-direction-conflict';
   workItemId?: string;
   requestId?: string;
@@ -283,11 +289,27 @@ export type ProjectNowAction = {
   confidence?: 'high' | 'medium' | 'low';
 };
 
+export type ProjectNowExecution = {
+  workItemId: string;
+  requestId: string;
+  status:
+    | 'checking'
+    | 'running'
+    | 'waiting'
+    | 'unknown'
+    | 'reported'
+    | 'completed'
+    | 'failed'
+    | 'interrupted';
+  actions: ProjectNowAction[];
+};
+
 export type ProjectNowNotice = {
   level: 'quiet' | 'attention' | 'immediate';
   kind:
     | 'result-ready'
     | 'direction-conflict'
+    | 'project-policy-conflict'
     | 'integration-needed'
     | 'release-ready'
     | 'delivery-problem'
@@ -398,9 +420,12 @@ export type ProjectNow = {
   currentWorkId: string | null;
   /** Only a valid explicit user decision can set the current work. */
   currentWorkSelection: 'user' | null;
+  /** An execution status derived from a request mapped to Work; never persists a Work transition. */
+  execution?: ProjectNowExecution | null;
   state:
     | 'disconnected'
     | 'needs-direction'
+    | 'needs-policy-review'
     | 'choose-work'
     | 'choose-next-work'
     | 'active'

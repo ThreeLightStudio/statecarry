@@ -680,6 +680,74 @@ describe('project-oriented presentation and return memory', () => {
       vi.useRealTimers();
     }
   });
+  it('updates a background result for another project without moving the selected work or reloading everything', async () => {
+    vi.useFakeTimers();
+    const h = setup();
+    let changed!: Parameters<NonNullable<AnalysisGateway['subscribe']>>[0];
+    h.analysis.subscribe = (listener) => {
+      changed = listener;
+      return () => {};
+    };
+    const controller = h.controller();
+    try {
+      await controller.start({ page: 'project', projectId: 'b' });
+      const nowCallsBeforeResult = vi.mocked(h.gateway.now).mock.calls.length;
+      expect(controller.getSnapshot().route).toMatchObject({ page: 'project', projectId: 'b' });
+
+      changed({ projectId: 'a', topic: 'execution' });
+      await vi.advanceTimersByTimeAsync(1000);
+
+      expect(h.gateway.now).toHaveBeenCalledWith('a');
+      expect(vi.mocked(h.gateway.now).mock.calls.length).toBe(nowCallsBeforeResult + 1);
+      expect(h.gateway.list).toHaveBeenCalledTimes(1);
+      expect(controller.getSnapshot().route).toMatchObject({ page: 'project', projectId: 'b' });
+      expect(controller.getSnapshot().projectNow.a).toBeDefined();
+      expect(h.analysis.refresh).not.toHaveBeenCalled();
+    } finally {
+      controller.stop();
+      vi.useRealTimers();
+    }
+  });
+  it('refreshes the current discussion basis when its project overview changes', async () => {
+    vi.useFakeTimers();
+    const h = setup();
+    let changed!: Parameters<NonNullable<AnalysisGateway['subscribe']>>[0];
+    h.analysis.subscribe = (listener) => {
+      changed = listener;
+      return () => {};
+    };
+    const controller = h.controller();
+    try {
+      await controller.start({ page: 'project', projectId: 'a' });
+      controller.openTaskDiscussion('a', 'first');
+      controller.editTaskDiscussionInput('a', 'first', 'Keep this question with Work A.');
+
+      const discussion = () =>
+        controller.getSnapshot().edits.a.taskDiscussions?.find(([key]) => key === 'first')?.[1];
+      expect(controller.getSnapshot().projects.find((project) => project.id === 'a')?.version).toBe(
+        'v1',
+      );
+      expect(discussion()?.version).toBe('v1');
+
+      h.rows().projects.find((entry) => entry.projectId === 'a')!.analysis!.version = 'v2';
+      changed({ projectId: 'a', topic: 'overview' });
+      await vi.advanceTimersByTimeAsync(150);
+
+      expect(controller.getSnapshot().projects.find((project) => project.id === 'a')?.version).toBe(
+        'v2',
+      );
+      expect(discussion()).toMatchObject({
+        version: 'v1',
+        input: 'Keep this question with Work A.',
+      });
+      expect(discussion()?.version).not.toBe(
+        controller.getSnapshot().projects.find((project) => project.id === 'a')?.version,
+      );
+    } finally {
+      controller.stop();
+      vi.useRealTimers();
+    }
+  });
   it('keeps original inspection open across unrelated changes but withdraws it immediately for its own project', async () => {
     vi.useFakeTimers();
     const h = setup();

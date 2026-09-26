@@ -12,7 +12,13 @@ export type { AnalysisWork, AnalysisCandidate, AnalysisCorrection } from '@state
 export type AnalysisChangeNotice = {
   projectId: string | null;
   kind?: 'collection-settled';
-  topic?: 'profile' | 'sources' | 'observation' | 'working-tree-analysis' | 'overview';
+  topic?:
+    | 'profile'
+    | 'sources'
+    | 'observation'
+    | 'working-tree-analysis'
+    | 'overview'
+    | 'execution';
 };
 export interface AnalysisGateway {
   /** Optional change stream. It updates a displayed brief but never starts analysis. */

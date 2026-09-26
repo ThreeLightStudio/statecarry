@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -181,4 +181,112 @@ it('loads a selected large file through Core, keeps its basis, and rechecks it b
   expect(() =>
     core.executions.validate(id, { basis, scopeIds: [selected], operation: 'commit' }),
   ).toThrow('scope is not current');
+});
+
+it('persists real kept scopes across Core reentry and reopens only changed or new scopes', async () => {
+  const { cwd, git } = repository();
+  const original = Array.from({ length: 40 }, (_, index) => `line ${index}`);
+  original[1] = 'the kept change';
+  const initialContent = `${original.join('\n')}\n`;
+  writeFileSync(join(cwd, 'shared.txt'), initialContent);
+  const indexBefore = git('diff', '--cached');
+  const h = harness();
+  const id = registerProject(h, { cwd }).receipt.projectId;
+  const createCore = () =>
+    new StateCarry(
+      h.repo,
+      h.reader,
+      h.summary,
+      h.navigator,
+      h.core.clock,
+      h.core.ids,
+      h.core.events,
+      h.core.sessionExecutor,
+      {
+        scope: inspectChangeScope,
+        inspect: () => ({
+          cwd,
+          root: cwd,
+          branch: 'main',
+          commit: 'head',
+          dirty: true,
+          status: 'checked',
+          checkedAt: h.core.clock.now(),
+          changedPaths: ['shared.txt'],
+          limitations: [],
+          fileFingerprint: 'files',
+        }),
+      },
+    );
+  const command = async (
+    core: ReturnType<typeof createCore>,
+    value:
+      | { action: 'observe'; outputLanguage: 'en' }
+      | { action: 'keep'; basis: string; scopeIds: string[] },
+  ) => core.executions.command(id, value, core.executions.view(id).record.version);
+
+  let core = createCore();
+  core.projectModel.setDirection(id, 'Improve the project return experience.');
+  core.projectModel.createWork(
+    id,
+    { title: 'Review project changes', completionCondition: 'The changes are checked.' },
+    'scope-work',
+  );
+  const workItemId = core.projectModel.view(id).workItems[0]!.id;
+  const observed = await command(core, { action: 'observe', outputLanguage: 'en' });
+  const keptScope = observed.record.observation!.scopes.find(
+    (scope) => scope.path === 'shared.txt',
+  )!;
+  expect(keptScope).toBeDefined();
+  await command(core, {
+    action: 'keep',
+    basis: observed.record.observation!.basis,
+    scopeIds: [keptScope.id],
+  });
+  expect(readFileSync(join(cwd, 'shared.txt'), 'utf8')).toBe(initialContent);
+  expect(git('diff', '--cached')).toBe(indexBefore);
+
+  core = createCore();
+  expect(core.now.resolve(id)).toMatchObject({
+    currentWorkId: workItemId,
+    state: 'active',
+    next: { kind: 'continue-work', workItemId },
+  });
+  expect(core.executions.view(id).record.kept[0]?.scopeIds).toEqual([keptScope.id]);
+
+  writeFileSync(join(cwd, 'unrelated.txt'), 'an unrelated change\n');
+  const withUnrelated = await command(core, { action: 'observe', outputLanguage: 'en' });
+  const currentScopes = withUnrelated.record.observation!.scopes;
+  expect(currentScopes.find((scope) => scope.path === 'shared.txt')?.id).toBe(keptScope.id);
+  const unrelatedScope = currentScopes.find((scope) => scope.path === 'unrelated.txt')!;
+  expect(unrelatedScope.id).not.toBe(keptScope.id);
+  expect(withUnrelated.record.kept[0]?.scopeIds).toEqual([keptScope.id]);
+  expect(core.now.resolve(id)).toMatchObject({
+    currentWorkId: workItemId,
+    state: 'active',
+    next: { kind: 'continue-work', workItemId },
+  });
+
+  core.projectModel.stopWork(id, workItemId);
+  expect(core.now.resolve(id).next?.kind).toBe('review-remaining-changes');
+
+  const changedContent = [...original];
+  changedContent[1] = 'the same scope changed again';
+  writeFileSync(join(cwd, 'shared.txt'), `${changedContent.join('\n')}\n`);
+  const reentered = createCore();
+  const afterSameScopeChange = await command(reentered, {
+    action: 'observe',
+    outputLanguage: 'en',
+  });
+  const changedScope = afterSameScopeChange.record.observation!.scopes.find(
+    (scope) => scope.path === 'shared.txt',
+  )!;
+  expect(changedScope.id).not.toBe(keptScope.id);
+  expect(afterSameScopeChange.record.kept[0]?.scopeIds).toEqual([keptScope.id]);
+  expect(reentered.now.resolve(id)).toMatchObject({
+    currentWorkId: workItemId,
+    state: 'stopped',
+    next: { kind: 'review-remaining-changes' },
+  });
+  expect(git('diff', '--cached')).toBe(indexBefore);
 });

@@ -1,10 +1,13 @@
 import {
   DomainError,
+  projectConflictCategory,
   projectExecutionCommandSchema,
   workDecisionKinds,
   type ProjectActionState,
+  type ProjectConflict,
   type ProjectExecutionWorkspace,
   type ProjectExecutionContext,
+  type SessionRun,
   type ScopeObservation,
   type Continuation,
 } from '@statecarry/contracts';
@@ -23,13 +26,248 @@ const empty = (id: string): ProjectActionState => ({
 });
 
 export class ProjectExecutions {
+  private executionSyncs = new Map<
+    string,
+    { generation: number; promise: Promise<SessionRun | null> }
+  >();
+  private executionSyncGenerations = new Map<string, number>();
+
   constructor(private core: StateCarry) {}
+
+  private inFlight(request: Continuation) {
+    return (
+      ['dispatching', 'sent', 'result-unknown'].includes(request.state) &&
+      !['completed', 'failed', 'interrupted'].includes(request.execution?.status ?? '')
+    );
+  }
+
+  private executionKey(projectId: string, requestId: string) {
+    return JSON.stringify([projectId, requestId]);
+  }
+
+  private advanceExecutionSync(projectId: string, requestId: string) {
+    const key = this.executionKey(projectId, requestId);
+    const generation = (this.executionSyncGenerations.get(key) ?? 0) + 1;
+    this.executionSyncGenerations.set(key, generation);
+  }
+
+  cancelPendingExecutionSyncs() {
+    for (const [key, sync] of this.executionSyncs)
+      this.executionSyncGenerations.set(key, sync.generation + 1);
+  }
+
+  async sync(projectId: string, requestId: string, force = false): Promise<SessionRun | null> {
+    const request = this.request(projectId, requestId);
+    const terminal = ['completed', 'failed', 'interrupted'].includes(
+      request.execution?.status ?? '',
+    );
+    if (!force && (terminal || !['dispatching', 'sent', 'result-unknown'].includes(request.state)))
+      return request.execution ?? null;
+
+    if (!request.threadId || !this.core.sessionExecutor.read) {
+      const current = this.core.repo.get('continuation', requestId);
+      if (!current || current.projectId !== projectId) return null;
+      const previous = current.execution;
+      const wasTerminal = ['completed', 'failed', 'interrupted'].includes(previous?.status ?? '');
+      const execution: SessionRun = {
+        status: wasTerminal ? previous!.status : 'unknown',
+        report: previous?.report ?? '',
+        ...(previous?.checks ? { checks: previous.checks } : {}),
+        ...(current.turnId ? { turnId: current.turnId } : {}),
+        error: wasTerminal
+          ? (previous?.error ?? null)
+          : 'StateCarry cannot check this Codex request. Check the conversation before sending it again.',
+        questions: wasTerminal ? (previous?.questions ?? []) : [],
+      };
+      if (!wasTerminal) {
+        if (JSON.stringify(previous ?? null) !== JSON.stringify(execution)) {
+          this.core.repo.put('continuation', {
+            ...current,
+            execution,
+            updatedAt: this.core.clock.now(),
+          });
+          this.core.events.changed(projectId, 'execution');
+        }
+        throw new DomainError(
+          'SOURCE_UNAVAILABLE',
+          'StateCarry could not confirm whether this request is still running. The request was not sent again.',
+          503,
+        );
+      }
+      return execution;
+    }
+
+    const key = this.executionKey(projectId, requestId);
+    const generation = this.executionSyncGenerations.get(key) ?? 0;
+    const existing = this.executionSyncs.get(key);
+    if (existing?.generation === generation) return existing.promise;
+
+    const promise = (async () => {
+      let execution: SessionRun;
+      try {
+        execution = await this.core.sessionExecutor.read!(
+          request.threadId!,
+          request.turnId,
+          request.id,
+        );
+      } catch {
+        if ((this.executionSyncGenerations.get(key) ?? 0) !== generation) return null;
+        const current = this.core.repo.get('continuation', requestId);
+        if (!current || current.projectId !== projectId) return null;
+        const previous = current.execution;
+        const wasTerminal = ['completed', 'failed', 'interrupted'].includes(previous?.status ?? '');
+        const execution: SessionRun = {
+          status: wasTerminal ? previous!.status : 'unknown',
+          report: previous?.report ?? '',
+          ...(previous?.checks ? { checks: previous.checks } : {}),
+          ...(current.turnId ? { turnId: current.turnId } : {}),
+          error: wasTerminal
+            ? (previous?.error ?? null)
+            : 'StateCarry could not check this Codex request. Check the conversation before sending it again.',
+          questions: wasTerminal ? (previous?.questions ?? []) : [],
+        };
+        if (JSON.stringify(previous ?? null) !== JSON.stringify(execution)) {
+          this.core.repo.put('continuation', {
+            ...current,
+            execution,
+            updatedAt: this.core.clock.now(),
+          });
+          this.core.events.changed(projectId, 'execution');
+        }
+        throw new DomainError(
+          'SOURCE_UNAVAILABLE',
+          wasTerminal
+            ? 'StateCarry could not refresh this execution report.'
+            : 'StateCarry could not confirm whether this request is still running. The request was not sent again.',
+          503,
+        );
+      }
+      if ((this.executionSyncGenerations.get(key) ?? 0) !== generation) return null;
+      const current = this.core.repo.get('continuation', requestId);
+      if (!current || current.projectId !== projectId) return null;
+      const previous = current.execution;
+      const keepKnownTerminal =
+        ['completed', 'failed', 'interrupted'].includes(previous?.status ?? '') &&
+        !['completed', 'failed', 'interrupted'].includes(execution.status);
+      const saved = keepKnownTerminal ? previous! : execution;
+      const nextTurnId = execution.turnId ?? current.turnId;
+      const nextState = execution.turnId ? 'sent' : current.state;
+      const changed =
+        JSON.stringify(previous ?? null) !== JSON.stringify(saved) ||
+        nextTurnId !== current.turnId ||
+        nextState !== current.state ||
+        current.error !== null;
+      if (!changed) return saved;
+      this.core.repo.put('continuation', {
+        ...current,
+        execution: saved,
+        ...(execution.turnId ? { turnId: nextTurnId, state: nextState } : {}),
+        error: null,
+        updatedAt: this.core.clock.now(),
+      });
+      this.core.events.changed(projectId, 'execution');
+      return saved;
+    })();
+    this.executionSyncs.set(key, { generation, promise });
+    try {
+      return await promise;
+    } finally {
+      if (this.executionSyncs.get(key)?.promise === promise) this.executionSyncs.delete(key);
+    }
+  }
   private record(id: string) {
-    return {
+    const record = {
       ...empty(id),
       ...this.core.repo.get('projectScope', id),
       ...this.core.repo.get('projectExecution', id),
     };
+    return {
+      ...record,
+      policyConflict: record.policyConflict
+        ? { ...record.policyConflict, category: projectConflictCategory(record.policyConflict) }
+        : null,
+    };
+  }
+
+  private activePolicyConflictBasis(id: string, conflict = this.record(id).policyConflict) {
+    if (
+      !conflict ||
+      conflict.status !== 'open' ||
+      projectConflictCategory(conflict) !== 'project-policy'
+    )
+      return null;
+    return this.core.ids.hash([
+      'project-policy-conflict',
+      conflict.id ?? '',
+      conflict.description,
+      conflict.source,
+    ]);
+  }
+
+  private bindPolicyConflictBasis(id: string, context: ProjectExecutionContext) {
+    const cleanContext = { ...context };
+    delete cleanContext.policyConflictBasis;
+    if (context.operation !== 'policy') return cleanContext;
+    const policyConflictBasis = this.activePolicyConflictBasis(id);
+    if (!policyConflictBasis)
+      throw new DomainError(
+        'VALIDATION',
+        'Record an open project policy conflict before preparing its review.',
+      );
+    return { ...cleanContext, policyConflictBasis };
+  }
+
+  private validatePolicyConflictBasis(id: string, context: ProjectExecutionContext) {
+    if (context.operation !== 'policy') return;
+    const currentBasis = this.activePolicyConflictBasis(id);
+    if (!currentBasis || context.policyConflictBasis !== currentBasis)
+      throw new DomainError(
+        'REVISION_CONFLICT',
+        'The project policy conflict changed. Review the current conflict before continuing.',
+        409,
+      );
+  }
+
+  directionConflictKey(
+    id: string,
+    conflict: ProjectConflict | null = this.record(id).policyConflict,
+  ) {
+    if (!conflict || projectConflictCategory(conflict) !== 'purpose-direction') return null;
+    const model = this.core.projectModel.view(id);
+    const purposes = model.project.purposes
+      .filter((purpose) => purpose.confirmed)
+      .map((purpose) => purpose.text)
+      .sort((left, right) => left.localeCompare(right));
+    const direction =
+      model.directions.find((item) => item.state === 'active' && item.primary) ??
+      model.directions.find((item) => item.state === 'active') ??
+      null;
+    return this.core.ids.hash([
+      'purpose-direction-conflict',
+      conflict.id ?? '',
+      conflict.description,
+      conflict.source,
+      JSON.stringify(purposes),
+      direction?.id ?? '',
+      direction?.text ?? '',
+    ]);
+  }
+
+  hasDirectionConflictOverride(
+    id: string,
+    conflict: ProjectConflict | null = this.record(id).policyConflict,
+  ) {
+    const conflictKey = this.directionConflictKey(id, conflict);
+    if (!conflictKey) return false;
+    return this.core.repo
+      .list('workDecision')
+      .some(
+        (decision) =>
+          decision.projectId === id &&
+          decision.state === 'valid' &&
+          decision.kind === workDecisionKinds.continueDirectionConflict &&
+          decision.value.conflictKey === conflictKey,
+      );
   }
   private save(id: string, update: (value: ProjectActionState) => ProjectActionState) {
     this.core.repo.transaction(() => {
@@ -119,6 +357,7 @@ export class ProjectExecutions {
     return {
       record,
       workspace,
+      policyConflictBasis: this.activePolicyConflictBasis(id),
       scopeCurrent:
         !!record.observation &&
         record.observedWorkspaceBasis === this.core.projects.latestObservation(id)?.semanticKey,
@@ -143,6 +382,7 @@ export class ProjectExecutions {
         'The change scope is not current. Check the project and review the scope again.',
         409,
       );
+    this.validatePolicyConflictBasis(id, context);
     if (context.scopeIds.some((key) => !scope.scopes.some((item) => item.id === key)))
       throw new DomainError(
         'VALIDATION',
@@ -155,14 +395,22 @@ export class ProjectExecutions {
       context.scopeIds.some((key) => scope.scopes.find((s) => s.id === key)?.layer !== 'staged')
     )
       throw new DomainError('VALIDATION', 'Only staged changes can be unstaged.');
+    const conflict = this.record(id).policyConflict;
     if (
-      this.record(id).policyConflict?.status === 'open' &&
+      conflict?.status === 'open' &&
       !['verify', 'direction', 'policy'].includes(context.operation)
-    )
-      throw new DomainError(
-        'VALIDATION',
-        'Resolve the recorded policy conflict before sending this work.',
-      );
+    ) {
+      const directionOverride =
+        projectConflictCategory(conflict) === 'purpose-direction' &&
+        this.hasDirectionConflictOverride(id, conflict);
+      if (!directionOverride)
+        throw new DomainError(
+          'VALIDATION',
+          projectConflictCategory(conflict) === 'purpose-direction'
+            ? 'Review the current direction before preparing this work.'
+            : 'Resolve the recorded project policy conflict before preparing work.',
+        );
+    }
     return scope;
   }
   requestText(id: string, context: ProjectExecutionContext) {
@@ -203,8 +451,8 @@ export class ProjectExecutions {
     return this.core.continuations.get(id, requestId);
   }
   async command(id: string, raw: unknown, expectedVersion: number) {
-    this.cwd(id);
     const input = projectExecutionCommandSchema.parse(raw);
+    if (input.action !== 'sync') this.cwd(id);
     const independent = [
       'observe',
       'analyze',
@@ -222,8 +470,7 @@ export class ProjectExecutions {
       );
     const language: 'en' | 'ko' =
       ('outputLanguage' in input ? input.outputLanguage : undefined) ??
-      this.core.project(id).responseLanguage ??
-      'en';
+      (input.action === 'sync' ? 'en' : (this.core.project(id).responseLanguage ?? 'en'));
     switch (input.action) {
       case 'observe': {
         await this.core.projects.observe(id, language, undefined, false);
@@ -304,15 +551,47 @@ export class ProjectExecutions {
         this.core.projectModel.deferDirection(id);
         break;
       case 'conflict':
-        this.save(id, (r) => ({
-          ...r,
-          policyConflict: { description: input.description, source: input.source, status: 'open' },
-        }));
+        {
+          const current = this.record(id).policyConflict;
+          const sameOpenConflict =
+            current?.status === 'open' &&
+            projectConflictCategory(current) === input.category &&
+            current.description === input.description &&
+            current.source === input.source;
+          if (current?.status === 'open' && !sameOpenConflict)
+            throw new DomainError(
+              'VALIDATION',
+              'Resolve the current conflict before recording another one.',
+            );
+          const conflictId = sameOpenConflict && current?.id ? current.id : this.core.ids.next();
+          this.save(id, (r) => ({
+            ...r,
+            policyConflict: {
+              id: conflictId,
+              category: input.category,
+              description: input.description,
+              source: input.source,
+              status: 'open',
+            },
+          }));
+        }
         break;
       case 'resolve-conflict': {
         const request = this.request(id, input.requestId);
+        const context = request.target.payload.projectContext;
+        if (context?.operation !== 'policy')
+          throw new DomainError(
+            'VALIDATION',
+            'This request was not prepared for a project policy conflict.',
+          );
+        this.validatePolicyConflictBasis(id, context);
+        const conflict = this.record(id).policyConflict;
         if (
           request.target.payload.projectContext?.operation !== 'policy' ||
+          !conflict ||
+          projectConflictCategory(conflict) !== 'project-policy' ||
+          conflict.status !== 'open' ||
+          this.inFlight(request) ||
           !this.record(id).comparisons[input.requestId] ||
           (!request.externalReport && request.execution?.status !== 'completed') ||
           this.record(id).comparisons[input.requestId]?.basis !== this.scope(id).basis
@@ -328,29 +607,25 @@ export class ProjectExecutions {
         break;
       }
       case 'prepare': {
+        const context = this.bindPolicyConflictBasis(id, input.context);
         if (!input.context.workItemId && !['direction', 'policy'].includes(input.context.operation))
           throw new DomainError('VALIDATION', 'Choose a task before preparing its execution.');
-        if (input.context.workItemId) {
-          const item = this.core.repo.get('workItem', input.context.workItemId);
+        if (context.workItemId) {
+          const item = this.core.repo.get('workItem', context.workItemId);
           if (!item || item.projectId !== id)
             throw new DomainError('NOT_FOUND', 'The selected work is no longer available.', 404);
         }
         if (
           this.record(id).requests.some((key) => {
             const r = this.core.repo.get('continuation', key);
-            return (
-              r &&
-              !r.externalReport &&
-              ['dispatching', 'result-unknown', 'sent'].includes(r.state) &&
-              !['completed', 'failed', 'interrupted'].includes(r.execution?.status ?? '')
-            );
+            return r && this.inFlight(r);
           })
         )
           throw new DomainError(
             'VALIDATION',
             'Check the existing execution before preparing another request.',
           );
-        this.validate(id, input.context);
+        this.validate(id, context);
         const work = this.core.project(id);
         const request = this.core.continuations.prepare(id, {
           requestId: this.core.ids.next(),
@@ -359,7 +634,7 @@ export class ProjectExecutions {
             targetMode: input.threadId ? 'existing-session' : 'new-session',
             threadId: input.threadId,
             payload: {
-              projectContext: input.context,
+              projectContext: context,
               goal:
                 this.core.projectModel
                   .directions(id)
@@ -374,19 +649,14 @@ export class ProjectExecutions {
             },
           },
         });
-        if (input.context.workItemId)
+        if (context.workItemId)
           this.core.repo.put('workDecision', {
-            id: this.core.ids.hash([
-              'execution-for-work',
-              id,
-              input.context.workItemId,
-              request.id,
-            ]),
+            id: this.core.ids.hash(['execution-for-work', id, context.workItemId, request.id]),
             projectId: id,
-            workItemId: input.context.workItemId,
+            workItemId: context.workItemId,
             kind: workDecisionKinds.executionForWork,
             value: { requestId: request.id },
-            basis: [input.context.basis],
+            basis: [context.basis],
             state: 'valid',
             decidedAt: this.core.clock.now(),
           });
@@ -396,10 +666,11 @@ export class ProjectExecutions {
       case 'close-request': {
         const request = this.request(id, input.requestId);
         if (
-          request.state !== 'prepared' &&
-          !request.externalReport &&
-          !['completed', 'failed', 'interrupted'].includes(request.execution?.status ?? '') &&
-          request.state !== 'failed'
+          this.inFlight(request) ||
+          (request.state !== 'prepared' &&
+            !request.externalReport &&
+            !['completed', 'failed', 'interrupted'].includes(request.execution?.status ?? '') &&
+            request.state !== 'failed')
         )
           throw new DomainError(
             'VALIDATION',
@@ -410,6 +681,15 @@ export class ProjectExecutions {
       }
       case 'record-result': {
         const request = this.request(id, input.requestId);
+        if (
+          this.inFlight(request) ||
+          this.record(id).accepted.includes(request.id) ||
+          this.record(id).closed?.includes(request.id)
+        )
+          throw new DomainError(
+            'VALIDATION',
+            'Check or stop the current execution before recording an external result.',
+          );
         this.core.repo.put('continuation', {
           ...request,
           externalReport: input.report,
@@ -426,17 +706,35 @@ export class ProjectExecutions {
         break;
       }
       case 'resolve-direction': {
+        const conflict = this.record(id).policyConflict;
+        if (
+          conflict?.status === 'open' &&
+          projectConflictCategory(conflict) !== 'purpose-direction'
+        )
+          throw new DomainError(
+            'VALIDATION',
+            'Review and resolve the project policy conflict before changing its direction.',
+          );
         this.core.projectModel.setDirection(id, input.text);
         this.save(id, (r) => ({
           ...r,
           direction: { text: input.text, status: 'confirmed', at: this.core.clock.now() },
-          policyConflict: r.policyConflict ? { ...r.policyConflict, status: 'resolved' } : null,
+          policyConflict:
+            r.policyConflict && projectConflictCategory(r.policyConflict) === 'purpose-direction'
+              ? { ...r.policyConflict, status: 'resolved' }
+              : r.policyConflict,
         }));
         break;
       }
       case 'send': {
         const request = this.request(id, input.requestId);
-        if (this.record(id).closed?.includes(request.id) || request.externalReport)
+        const context = request.target.payload.projectContext;
+        if (context?.operation === 'policy') this.validatePolicyConflictBasis(id, context);
+        if (
+          this.record(id).closed?.includes(request.id) ||
+          this.record(id).accepted.includes(request.id) ||
+          request.externalReport
+        )
           throw new DomainError(
             'VALIDATION',
             'This request has already been reviewed. Prepare a new request before sending.',
@@ -449,49 +747,64 @@ export class ProjectExecutions {
         break;
       }
       case 'sync': {
-        const request = this.request(id, input.requestId);
-        if (request.threadId && this.core.sessionExecutor.read) {
-          const execution = await this.core.sessionExecutor.read(
-            request.threadId,
-            request.turnId,
-            request.id,
-          );
-          this.core.repo.put('continuation', {
-            ...this.request(id, input.requestId),
-            execution,
-            ...(execution.turnId ? { turnId: execution.turnId, state: 'sent' as const } : {}),
-            updatedAt: this.core.clock.now(),
-          });
-        }
+        await this.sync(id, input.requestId, true);
         break;
       }
       case 'answer': {
         const request = this.request(id, input.requestId);
+        if (!this.inFlight(request) || request.execution?.status !== 'waiting')
+          throw new DomainError(
+            'REVISION_CONFLICT',
+            'The request no longer needs input. Check its current status before responding.',
+            409,
+          );
         if (!request.threadId || !this.core.sessionExecutor.answer)
           throw new DomainError(
             'CAPABILITY_UNSUPPORTED',
             'This execution cannot receive input here.',
           );
+        this.advanceExecutionSync(id, input.requestId);
         await this.core.sessionExecutor.answer(
           request.threadId,
           input.questionId,
           input.accept,
           input.answers,
         );
+        this.core.events.changed(id, 'execution');
+        await this.sync(id, input.requestId, true).catch(() => {});
         break;
       }
       case 'interrupt': {
         const request = this.request(id, input.requestId);
+        if (
+          !this.inFlight(request) ||
+          !['running', 'waiting'].includes(request.execution?.status ?? '')
+        )
+          throw new DomainError(
+            'REVISION_CONFLICT',
+            'The request is not confirmed as running. Check its current status before stopping it.',
+            409,
+          );
         if (!request.threadId || !request.turnId || !this.core.sessionExecutor.interrupt)
           throw new DomainError(
             'CAPABILITY_UNSUPPORTED',
             'The execution could not be identified for stopping.',
           );
+        this.advanceExecutionSync(id, input.requestId);
         await this.core.sessionExecutor.interrupt(request.threadId, request.turnId);
+        this.core.events.changed(id, 'execution');
+        await this.sync(id, input.requestId, true).catch(() => {});
         break;
       }
       case 'compare': {
         const request = this.request(id, input.requestId);
+        const context = request.target.payload.projectContext;
+        if (context?.operation === 'policy') this.validatePolicyConflictBasis(id, context);
+        if (this.inFlight(request))
+          throw new DomainError(
+            'VALIDATION',
+            'Wait for the execution to finish before comparing its result with the current project.',
+          );
         await this.core.projects.observe(id, language, undefined, false);
         const observation = this.scope(id);
         if (
@@ -523,8 +836,11 @@ export class ProjectExecutions {
       }
       case 'accept': {
         const request = this.request(id, input.requestId);
+        const context = request.target.payload.projectContext;
+        if (context?.operation === 'policy') this.validatePolicyConflictBasis(id, context);
         const comparison = this.record(id).comparisons[input.requestId];
         if (
+          this.inFlight(request) ||
           !comparison ||
           comparison.basis !== this.scope(id).basis ||
           (!request.externalReport && request.execution?.status !== 'completed')

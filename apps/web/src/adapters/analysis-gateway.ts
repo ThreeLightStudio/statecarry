@@ -29,15 +29,21 @@ export class HttpAnalysisGateway implements AnalysisGateway {
         ) {
           const topic =
             'topic' in value &&
-            ['profile', 'sources', 'observation', 'working-tree-analysis', 'overview'].includes(
-              String(value.topic),
-            )
+            [
+              'profile',
+              'sources',
+              'observation',
+              'working-tree-analysis',
+              'overview',
+              'execution',
+            ].includes(String(value.topic))
               ? (value.topic as
                   | 'profile'
                   | 'sources'
                   | 'observation'
                   | 'working-tree-analysis'
-                  | 'overview')
+                  | 'overview'
+                  | 'execution')
               : undefined;
           listener({
             projectId: value.projectId,

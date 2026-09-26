@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -20,6 +21,9 @@ import {
   type PresentedProjectAction,
   type RecordRange,
   type ProjectDrafts,
+  type ProjectNowUiActionEntry,
+  type ProjectNowUiMemory,
+  projectNowUiMemoryKey,
   type WorkingTreeView,
   type AgentProvider,
   type AgentSettingsView,
@@ -427,9 +431,8 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
   useEffect(() => {
     if (route.page !== 'project' || !project) return;
     const id = project.id;
-    let scroll = controller.getSnapshot().edits[id]?.scroll ?? 0;
+    let scroll = window.scrollY;
     let pending: ReturnType<typeof setTimeout> | null = null;
-    const frame = requestAnimationFrame(() => window.scrollTo(0, scroll));
     // Scroll events fire per frame; persisting each one would re-render the
     // whole workspace and write storage far more often than a saved scroll
     // position is ever read back.
@@ -444,7 +447,6 @@ export function ProjectWorkspace({ controller, onNavigate }: WorkspaceProps) {
     };
     window.addEventListener('scroll', record, { passive: true });
     return () => {
-      cancelAnimationFrame(frame);
       window.removeEventListener('scroll', record);
       if (pending !== null) clearTimeout(pending);
       controller.recordScroll(id, scroll);
@@ -1664,11 +1666,25 @@ function WorkingTreeCard({
 }
 
 function ProjectPage(props: ProjectProps & { dirtyWorkPreview: DirtyWorkPreviewScenario }) {
-  return <ProjectNowProjectPage {...props} />;
+  const workId = props.state.projectNow[props.project.id]?.work?.id ?? 'project';
+  const [restoreTargetWorkId, setRestoreTargetWorkId] = useState<string | null>(null);
+  const onRestoreTargetConsumed = useCallback((selectedWorkId: string) => {
+    setRestoreTargetWorkId((current) => (current === selectedWorkId ? null : current));
+  }, []);
+  return (
+    <ProjectNowProjectPage
+      key={`${props.project.id}:${workId}`}
+      {...props}
+      restoreTargetWorkId={restoreTargetWorkId === workId ? restoreTargetWorkId : null}
+      onWorkSelection={setRestoreTargetWorkId}
+      onRestoreTargetConsumed={onRestoreTargetConsumed}
+    />
+  );
 }
 
 function projectNowHeading(view: ProjectNowView): string {
   if (view.work) return view.work.title;
+  if (view.primaryAction?.kind === 'review-project-policy') return 'Review project policy';
   if (view.primaryAction?.kind === 'review-release') return 'Review release and delivery';
   if (view.primaryAction?.kind === 'choose-next-work') return 'Choose what comes next';
   if (view.state === 'idle') return 'Nothing to do right now';
@@ -1680,36 +1696,28 @@ function projectNowHeading(view: ProjectNowView): string {
   return 'Current project state';
 }
 
-type ProjectNowActionEntry = {
-  kind: PresentedProjectAction['kind'];
-  selectionKey: string | null;
-  requestId: string | null;
-  releaseId: string | null;
-  mode:
-    | 'continue'
-    | 'verify'
-    | 'policy'
-    | 'review'
-    | 'direction'
-    | 'result'
-    | 'new-work'
-    | 'release';
-};
-
 function projectNowActionEntryMode(
   kind: PresentedProjectAction['kind'],
-): ProjectNowActionEntry['mode'] {
+): ProjectNowUiActionEntry['mode'] {
   switch (kind) {
     case 'continue-work':
     case 'resume-work':
       return 'continue';
     case 'review-result':
+    case 'open-request':
+    case 'respond-to-request':
       return 'result';
     case 'review-direction':
     case 'define-direction':
       return 'direction';
+    case 'review-project-policy':
+      return 'policy';
     case 'choose-next-work':
       return 'new-work';
+    case 'review-remaining-changes':
+      return 'remaining';
+    case 'discuss-work':
+      return 'review';
     case 'review-release':
       return 'release';
     case 'review-work':
@@ -1720,9 +1728,162 @@ function projectNowActionEntryMode(
     case 'start-work':
     case 'choose-current-work':
     case 'stop-work':
+    case 'check-execution':
     case 'continue-despite-direction-conflict':
       throw new Error(`Project action ${kind} is handled before action-mode entry.`);
   }
+}
+
+const projectNowLongAbsenceMs = 30 * 60 * 1000;
+
+function projectNowContextBasis(
+  project: ProjectView,
+  state: WorkspaceState,
+  workingTree: WorkingTreeView | undefined,
+) {
+  const decision = state.decisions[project.id];
+  return JSON.stringify({
+    project: project.version,
+    workingTree: workingTree?.discussionBasis ?? null,
+    observation: decision?.record.observation?.basis ?? null,
+    policy: decision?.policyConflictBasis ?? null,
+  });
+}
+
+function projectNowResumeTargetIsCurrent(
+  memory: ProjectNowUiMemory,
+  project: ProjectView,
+  view: ProjectNowView,
+  state: WorkspaceState,
+) {
+  const entry = memory.actionEntry;
+  if (!entry || project.disconnected || view.project.disconnected) return false;
+  if (memory.projectId !== project.id) return false;
+  if (
+    projectNowUiMemoryKey(memory).startsWith('work:') &&
+    (!view.work || memory.selectedWorkId !== view.work.id)
+  )
+    return false;
+
+  const decision = state.decisions[project.id];
+  if (entry.mode === 'policy') {
+    if (
+      entry.kind !== 'review-project-policy' ||
+      decision?.record.policyConflict?.status !== 'open' ||
+      !decision.policyConflictBasis ||
+      memory.policyConflictBasis !== decision.policyConflictBasis
+    )
+      return false;
+  }
+
+  const request = entry.requestId
+    ? decision?.requests.find((item) => item.id === entry.requestId)
+    : undefined;
+  if (entry.requestId && !request) return false;
+  const requestContext = request?.target.payload.projectContext;
+  if (
+    requestContext?.operation === 'policy' &&
+    (!decision?.policyConflictBasis ||
+      requestContext.policyConflictBasis !== decision.policyConflictBasis)
+  )
+    return false;
+
+  const targetWorkExists =
+    !entry.selectionKey ||
+    view.work?.id === entry.selectionKey ||
+    view.otherWork.some((item) => item.id === entry.selectionKey) ||
+    requestContext?.workItemId === entry.selectionKey;
+  if (!targetWorkExists) return false;
+
+  const actions = [
+    ...(view.primaryAction ? [view.primaryAction] : []),
+    ...view.secondaryActions,
+    ...(view.execution?.actions ?? []),
+  ];
+  const actionIsAvailable = actions.some((action) => {
+    const kindMatches =
+      action.kind === entry.kind ||
+      (entry.kind === 'review-result' &&
+        (action.kind === 'open-request' || action.kind === 'respond-to-request'));
+    return (
+      kindMatches &&
+      (!entry.selectionKey || !action.workItemId || action.workItemId === entry.selectionKey) &&
+      (!entry.requestId || action.requestId === entry.requestId) &&
+      (!entry.releaseId || action.releaseId === entry.releaseId)
+    );
+  });
+  const noticeIsAvailable =
+    (entry.kind === 'review-result' &&
+      view.notice?.kind === 'result-ready' &&
+      !!entry.requestId &&
+      view.notice.requestId === entry.requestId) ||
+    (entry.kind === 'review-release' &&
+      !!entry.releaseId &&
+      view.notice?.releaseId === entry.releaseId);
+  const directionIsAvailable = entry.kind === 'define-direction' && view.state !== 'disconnected';
+  return actionIsAvailable || noticeIsAvailable || directionIsAvailable;
+}
+
+function projectNowResumeText(memory: ProjectNowUiMemory) {
+  if (memory.activity === 'discussion') return 'Last time, you were discussing this work.';
+  switch (memory.actionEntry?.mode) {
+    case 'verify':
+      return 'Last time, you were checking current behavior.';
+    case 'remaining':
+      return 'Last time, you were reviewing changes.';
+    case 'direction':
+      return 'Last time, you were changing the project direction.';
+    case 'new-work':
+      return 'Last time, you were choosing what to work on next.';
+    case 'policy':
+      return 'Last time, you were reviewing project policy.';
+    case 'release':
+      return 'Last time, you were reviewing a release.';
+    case 'result':
+      return 'Last time, you were reviewing a result.';
+    default:
+      return 'Last time, you were reviewing this work.';
+  }
+}
+
+function projectNowResumeButton(memory: ProjectNowUiMemory) {
+  if (memory.activity === 'discussion') return 'Continue discussion';
+  if (memory.actionEntry?.mode === 'verify') return 'Continue behavior check';
+  if (memory.actionEntry?.mode === 'remaining') return 'Continue review';
+  if (memory.actionEntry?.mode === 'direction') return 'Continue changing direction';
+  if (memory.actionEntry?.mode === 'new-work') return 'Continue choosing work';
+  if (memory.actionEntry?.mode === 'policy') return 'Continue policy review';
+  if (memory.actionEntry?.mode === 'release') return 'Continue release review';
+  if (memory.actionEntry?.mode === 'result') return 'Continue result review';
+  return 'Continue work';
+}
+
+function projectNowUiMatchesCurrentWork(memory: ProjectNowUiMemory, view: ProjectNowView) {
+  const identity = projectNowUiMemoryKey(memory);
+  if (identity.startsWith('work:')) return !!view.work && memory.selectedWorkId === view.work.id;
+  if (identity === 'project:overview') return !view.work;
+  return true;
+}
+
+function projectNowUiMemoriesForView(
+  edits: ProjectDrafts,
+  view: ProjectNowView,
+  restoreTargetWorkId: string | null,
+) {
+  const memories = new Map<string, ProjectNowUiMemory>();
+  for (const memory of [...(edits.projectNowUiByIdentity ?? []), edits.projectNowUi]) {
+    if (!memory || !projectNowUiMatchesCurrentWork(memory, view)) continue;
+    const identity = projectNowUiMemoryKey(memory);
+    const previous = memories.get(identity);
+    if (!previous || memory.lastViewedAt > previous.lastViewedAt) memories.set(identity, memory);
+  }
+  const targetIdentity = restoreTargetWorkId ? `work:${restoreTargetWorkId}` : null;
+  return [...memories.values()].sort((left, right) => {
+    const leftIsTarget = projectNowUiMemoryKey(left) === targetIdentity;
+    const rightIsTarget = projectNowUiMemoryKey(right) === targetIdentity;
+    if (leftIsTarget !== rightIsTarget) return leftIsTarget ? -1 : 1;
+    return right.lastViewedAt - left.lastViewedAt;
+  });
 }
 
 function ProjectNowProjectPage({
@@ -1731,7 +1892,15 @@ function ProjectNowProjectPage({
   controller,
   onNavigate,
   dirtyWorkPreview,
-}: ProjectProps & { dirtyWorkPreview: DirtyWorkPreviewScenario }) {
+  restoreTargetWorkId,
+  onWorkSelection,
+  onRestoreTargetConsumed,
+}: ProjectProps & {
+  dirtyWorkPreview: DirtyWorkPreviewScenario;
+  restoreTargetWorkId: string | null;
+  onWorkSelection: (workId: string) => void;
+  onRestoreTargetConsumed: (workId: string) => void;
+}) {
   const view = state.projectNow[project.id];
   const loading = state.projectNowLoading[project.id] ?? false;
   const initializing = state.projectNowInitializing[project.id] ?? false;
@@ -1741,9 +1910,257 @@ function ProjectNowProjectPage({
   const workingTreeLoading = state.workingTreeLoading[project.id] ?? false;
   const workingTreeAnalysisLoading = state.workingTreeAnalysisLoading[project.id] ?? false;
   const [mode, setMode] = useState<'default' | 'action'>('default');
-  const [actionEntry, setActionEntry] = useState<ProjectNowActionEntry | null>(null);
+  const [actionEntry, setActionEntry] = useState<ProjectNowUiActionEntry | null>(null);
+  const [nestedDiscussionOpen, setNestedDiscussionOpen] = useState(false);
   const [otherOpen, setOtherOpen] = useState(false);
+  const [projectContextOpen, setProjectContextOpen] = useState(false);
+  const [resumeCandidate, setResumeCandidate] = useState<ProjectNowUiMemory | null>(null);
+  const [resumeError, setResumeError] = useState('');
+  const [resumeBusy, setResumeBusy] = useState(false);
+  const [restoreReady, setRestoreReady] = useState(false);
+  const [restoredScroll, setRestoredScroll] = useState(0);
+  const [checkingExecution, setCheckingExecution] = useState(false);
+  const [executionCheckError, setExecutionCheckError] = useState('');
   const requestedNow = useRef(false);
+  const pageMounted = useRef(false);
+  const restoreStarted = useRef(false);
+  const restorationWritable = useRef(false);
+  const latestMemory = useRef<ProjectNowUiMemory | null>(null);
+
+  const makeUiMemory = (lastViewedAt: number): ProjectNowUiMemory => {
+    const screenActionEntry =
+      mode === 'action' ? actionEntry : (resumeCandidate?.actionEntry ?? null);
+    const projectScopedAction =
+      screenActionEntry &&
+      ['policy', 'release', 'direction', 'new-work'].includes(screenActionEntry.mode);
+    return {
+      projectId: project.id,
+      lastViewedAt,
+      screen: mode === 'action' ? 'action' : 'base',
+      activity:
+        resumeCandidate?.activity ??
+        (mode === 'action'
+          ? nestedDiscussionOpen
+            ? 'discussion'
+            : 'action'
+          : otherOpen || projectContextOpen
+            ? 'details'
+            : 'base'),
+      resumePending: !!resumeCandidate,
+      actionEntry: screenActionEntry,
+      selectedWorkId: projectScopedAction ? null : (view?.work?.id ?? null),
+      basis: resumeCandidate?.basis ?? projectNowContextBasis(project, state, workingTree),
+      policyConflictBasis:
+        resumeCandidate?.policyConflictBasis ??
+        state.decisions[project.id]?.policyConflictBasis ??
+        null,
+      otherWorkOpen: otherOpen,
+      projectContextOpen,
+      scroll: window.scrollY,
+    };
+  };
+  if (restoreReady && view) latestMemory.current = makeUiMemory(Date.now());
+
+  useEffect(() => {
+    pageMounted.current = true;
+    return () => {
+      pageMounted.current = false;
+      if (latestMemory.current)
+        controller.recordProjectNowUi(project.id, {
+          ...latestMemory.current,
+          lastViewedAt: Date.now(),
+        });
+    };
+  }, [controller, project.id]);
+
+  useEffect(() => {
+    if (restoreStarted.current || loading || !view) return;
+    restoreStarted.current = true;
+    void (async () => {
+      const candidates = projectNowUiMemoriesForView(edits, view, restoreTargetWorkId);
+      if (!candidates.length) {
+        restorationWritable.current = true;
+        if (pageMounted.current) {
+          const hasScreenMemory = !!edits.projectNowUi || !!edits.projectNowUiByIdentity?.length;
+          setRestoredScroll(hasScreenMemory ? 0 : (state.edits[project.id]?.scroll ?? 0));
+          setRestoreReady(true);
+          if (restoreTargetWorkId === view.work?.id) onRestoreTargetConsumed(restoreTargetWorkId);
+        }
+        return;
+      }
+      if (state.error || !state.online) {
+        if (pageMounted.current) setRestoreReady(true);
+        return;
+      }
+
+      if (candidates.some((memory) => memory.actionEntry && memory.activity !== 'discussion')) {
+        try {
+          await controller.projectDecision(project.id);
+          if (candidates.some((memory) => memory.actionEntry?.mode === 'release'))
+            await controller.readRelease(project.id);
+        } catch {
+          if (pageMounted.current) setRestoreReady(true);
+          return;
+        }
+      }
+      if (!pageMounted.current) return;
+
+      const latest = controller.getSnapshot();
+      const latestView = latest.projectNow[project.id];
+      const latestProject = latest.projects.find((item) => item.id === project.id) ?? project;
+      const validCandidates = candidates.filter((memory) => {
+        if (!memory.actionEntry) return true;
+        const current =
+          !!latestView &&
+          projectNowResumeTargetIsCurrent(memory, latestProject, latestView, latest);
+        if (!current) controller.forgetProjectNowUi(project.id, projectNowUiMemoryKey(memory));
+        return current;
+      });
+      const memory = validCandidates[0];
+      if (!memory) {
+        setOtherOpen(false);
+        setProjectContextOpen(false);
+        setRestoredScroll(0);
+        restorationWritable.current = true;
+        setRestoreReady(true);
+        if (restoreTargetWorkId === view.work?.id) onRestoreTargetConsumed(restoreTargetWorkId);
+        return;
+      }
+      const now = Date.now();
+      const elapsed = now - memory.lastViewedAt;
+      const recentlyAway = elapsed >= 0 && elapsed <= projectNowLongAbsenceMs;
+      const basisMatches =
+        memory.basis ===
+        projectNowContextBasis(latestProject, latest, latest.workingTrees[project.id]);
+      const hasRecoverableDraft =
+        memory.actionEntry &&
+        ['continue', 'remaining', 'verify', 'policy'].includes(memory.actionEntry.mode);
+      const canRestoreDeepAction =
+        basisMatches || hasRecoverableDraft || memory.activity === 'discussion';
+
+      if (memory.resumePending && memory.actionEntry) {
+        setResumeCandidate(memory);
+      } else if (
+        memory.screen === 'action' &&
+        recentlyAway &&
+        memory.actionEntry &&
+        canRestoreDeepAction
+      ) {
+        setActionEntry(memory.actionEntry);
+        setMode('action');
+        setNestedDiscussionOpen(memory.activity === 'discussion');
+        setOtherOpen(memory.otherWorkOpen);
+        setProjectContextOpen(memory.projectContextOpen);
+        setRestoredScroll(memory.scroll);
+      } else if (
+        (memory.activity === 'action' || memory.activity === 'discussion') &&
+        memory.actionEntry
+      ) {
+        setResumeCandidate({ ...memory, screen: 'base', resumePending: true });
+      } else if (
+        memory.screen === 'base' &&
+        !memory.resumePending &&
+        memory.selectedWorkId === (latestView?.work?.id ?? null) &&
+        (memory.activity === 'base' || memory.activity === 'details') &&
+        recentlyAway &&
+        basisMatches
+      ) {
+        setOtherOpen(memory.otherWorkOpen);
+        setProjectContextOpen(memory.projectContextOpen);
+        setRestoredScroll(memory.scroll);
+      } else {
+        setNestedDiscussionOpen(false);
+        setOtherOpen(false);
+        setProjectContextOpen(false);
+        setRestoredScroll(0);
+      }
+      restorationWritable.current = true;
+      setRestoreReady(true);
+      if (restoreTargetWorkId === view.work?.id) onRestoreTargetConsumed(restoreTargetWorkId);
+    })();
+  }, [
+    controller,
+    loading,
+    onRestoreTargetConsumed,
+    project.id,
+    project.version,
+    restoreTargetWorkId,
+    state.error,
+    state.online,
+    view,
+  ]);
+
+  useEffect(() => {
+    if (!restoreReady || !restorationWritable.current || !view || state.error || !state.online)
+      return;
+    controller.recordProjectNowUi(project.id, makeUiMemory(Date.now()));
+  }, [
+    actionEntry,
+    controller,
+    mode,
+    otherOpen,
+    project.id,
+    project.version,
+    projectContextOpen,
+    restoreReady,
+    state.decisions[project.id]?.record.observation?.basis,
+    state.decisions[project.id]?.policyConflictBasis,
+    state.error,
+    state.online,
+    view?.work?.id,
+    workingTree?.discussionBasis,
+    resumeCandidate,
+  ]);
+
+  useEffect(() => {
+    if (restoreReady) window.scrollTo(0, restoredScroll);
+  }, [restoreReady, restoredScroll]);
+
+  useEffect(() => {
+    let hiddenAt: number | null = null;
+    const onScroll = () => {
+      if (latestMemory.current)
+        latestMemory.current = { ...latestMemory.current, scroll: window.scrollY };
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now();
+        if (latestMemory.current) {
+          latestMemory.current = {
+            ...latestMemory.current,
+            lastViewedAt: hiddenAt,
+            scroll: window.scrollY,
+          };
+          controller.recordProjectNowUi(project.id, latestMemory.current);
+        }
+      } else if (hiddenAt !== null) {
+        const elapsed = Date.now() - hiddenAt;
+        hiddenAt = null;
+        if (elapsed > projectNowLongAbsenceMs && latestMemory.current) {
+          const memory = latestMemory.current;
+          if (
+            memory.screen === 'action' &&
+            (memory.activity === 'action' || memory.activity === 'discussion')
+          ) {
+            const pending = { ...memory, screen: 'base' as const, resumePending: true };
+            latestMemory.current = pending;
+            setResumeCandidate(pending);
+          } else setResumeCandidate(null);
+          setMode('default');
+          setActionEntry(null);
+          setOtherOpen(false);
+          setProjectContextOpen(false);
+          setRestoredScroll(0);
+        }
+      }
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [controller, project.id]);
 
   useEffect(() => {
     if (!view && !loading && !state.error && !requestedNow.current) {
@@ -1752,21 +2169,106 @@ function ProjectNowProjectPage({
     }
   }, [controller, loading, project.id, state.error, view]);
 
+  useEffect(() => {
+    if (view?.state !== 'waiting' || !view.work || state.decisions[project.id]) return;
+    void controller.projectDecision(project.id).catch(() => {});
+  }, [controller, project.id, state.decisions, view?.state, view?.work?.id]);
+
+  const selectWorkItem = (workItemId: string) => {
+    const identity = `work:${workItemId}`;
+    const savedMemory = [
+      ...(edits.projectNowUiByIdentity ?? []),
+      ...(edits.projectNowUi ? [edits.projectNowUi] : []),
+    ].find((memory) => projectNowUiMemoryKey(memory) === identity);
+    const memory: ProjectNowUiMemory = savedMemory
+      ? savedMemory
+      : {
+          projectId: project.id,
+          lastViewedAt: Date.now(),
+          screen: 'base',
+          activity: 'base',
+          resumePending: false,
+          actionEntry: null,
+          selectedWorkId: workItemId,
+          basis: projectNowContextBasis(project, state, workingTree),
+          policyConflictBasis: state.decisions[project.id]?.policyConflictBasis ?? null,
+          otherWorkOpen: false,
+          projectContextOpen: false,
+          scroll: 0,
+        };
+    controller.recordProjectNowUi(project.id, memory);
+    onWorkSelection(workItemId);
+    return controller.selectWorkItem(project.id, workItemId);
+  };
+
   const openActionMode = (
     kind: PresentedProjectAction['kind'],
     workItemId: string | null,
     requestId: string | null,
     releaseId: string | null = null,
   ) => {
-    const targetWorkId = workItemId ?? view?.work?.id ?? null;
-    setActionEntry({
-      kind,
-      selectionKey: targetWorkId,
-      requestId,
-      releaseId,
-      mode: projectNowActionEntryMode(kind),
-    });
+    const mode = projectNowActionEntryMode(kind);
+    const projectScopedAction = ['policy', 'release', 'direction', 'new-work'].includes(mode);
+    const targetWorkId = projectScopedAction ? null : (workItemId ?? view?.work?.id ?? null);
+    setActionEntry({ kind, selectionKey: targetWorkId, requestId, releaseId, mode });
+    setNestedDiscussionOpen(kind === 'discuss-work');
+    setResumeCandidate(null);
+    setResumeError('');
     setMode('action');
+  };
+
+  const closeActionMode = () => {
+    if (actionEntry && ['policy', 'release', 'direction', 'new-work'].includes(actionEntry.mode))
+      controller.forgetProjectNowUi(project.id, projectNowUiMemoryKey(makeUiMemory(Date.now())));
+    setMode('default');
+    setActionEntry(null);
+    setNestedDiscussionOpen(false);
+    setResumeCandidate(null);
+    setResumeError('');
+  };
+
+  const resumeSavedAction = async () => {
+    if (!resumeCandidate?.actionEntry || resumeBusy) return;
+    setResumeBusy(true);
+    setResumeError('');
+    try {
+      const freshView = await controller.readProjectNow(project.id, {
+        quiet: true,
+        initialize: false,
+      });
+      if (!freshView) throw new Error('Project state unavailable');
+      if (resumeCandidate.activity !== 'discussion') {
+        await controller.projectDecision(project.id);
+        if (resumeCandidate.actionEntry.mode === 'release')
+          await controller.readRelease(project.id);
+      }
+      const freshState = controller.getSnapshot();
+      const currentProject = freshState.projects.find((item) => item.id === project.id) ?? project;
+      const currentView = freshState.projectNow[project.id];
+      if (
+        !currentView ||
+        !projectNowResumeTargetIsCurrent(resumeCandidate, currentProject, currentView, freshState)
+      ) {
+        controller.forgetProjectNowUi(project.id, projectNowUiMemoryKey(resumeCandidate));
+        setResumeCandidate(null);
+        setNestedDiscussionOpen(false);
+        setOtherOpen(false);
+        setProjectContextOpen(false);
+        setRestoredScroll(0);
+        return;
+      }
+      setActionEntry(resumeCandidate.actionEntry);
+      setMode('action');
+      setNestedDiscussionOpen(resumeCandidate.activity === 'discussion');
+      setResumeCandidate(null);
+      setRestoredScroll(0);
+    } catch {
+      setResumeError(
+        "The current project state couldn't be checked. Your draft is still saved. Try again.",
+      );
+    } finally {
+      setResumeBusy(false);
+    }
   };
 
   const runAction = async (action: PresentedProjectAction) => {
@@ -1775,7 +2277,7 @@ function ProjectNowProjectPage({
       return;
     }
     if (action.kind === 'start-work' && action.workItemId) {
-      await controller.selectWorkItem(project.id, action.workItemId);
+      await selectWorkItem(action.workItemId);
       setOtherOpen(false);
       return;
     }
@@ -1796,6 +2298,30 @@ function ProjectNowProjectPage({
       await controller.continueDirectionConflict(project.id);
       return;
     }
+    if (action.kind === 'check-execution' && action.requestId) {
+      if (checkingExecution) return;
+      setCheckingExecution(true);
+      setExecutionCheckError('');
+      try {
+        await controller.projectDecision(project.id, {
+          action: 'sync',
+          requestId: action.requestId,
+        });
+        await controller.readProjectNow(project.id, { quiet: true, initialize: false });
+      } catch (cause) {
+        if (pageMounted.current) setExecutionCheckError(projectError(cause));
+      } finally {
+        if (pageMounted.current) setCheckingExecution(false);
+      }
+      return;
+    }
+    if (
+      (action.kind === 'open-request' || action.kind === 'respond-to-request') &&
+      action.requestId
+    ) {
+      openActionMode('review-result', action.workItemId, action.requestId);
+      return;
+    }
     openActionMode(action.kind, action.workItemId, action.requestId, action.releaseId);
   };
 
@@ -1804,7 +2330,7 @@ function ProjectNowProjectPage({
     if (recommendation?.status !== 'recommended' || !recommendation.candidate) return;
     if (recommendation.candidate.source === 'proposal')
       await controller.selectProposal(project.id, recommendation.candidate.id);
-    else await controller.selectWorkItem(project.id, recommendation.candidate.id);
+    else await selectWorkItem(recommendation.candidate.id);
     setOtherOpen(false);
   };
 
@@ -1820,7 +2346,6 @@ function ProjectNowProjectPage({
     view?.recommendation.status === 'recommended' &&
     !!view.recommendation.candidate &&
     view.primaryAction?.kind === 'choose-current-work';
-
   return (
     <div className="pw-project-detail pw-project-now-page">
       <RouteLink className="pw-project-back" href="#/projects" onNavigate={onNavigate}>
@@ -1880,15 +2405,21 @@ function ProjectNowProjectPage({
 
       {mode === 'action' && view ? (
         <section className="pw-now-action-mode" aria-label="Current work action">
-          <Button className="pw-button pw-button--quiet" onClick={() => setMode('default')}>
+          <Button className="pw-button pw-button--quiet" onClick={closeActionMode}>
             <ArrowLeft size={14} aria-hidden="true" /> Back to current work
           </Button>
           <div className="pw-now-mode-context">
             <span className="pw-small">
-              {actionEntry?.mode === 'release' ? 'Release & delivery' : 'Current work'}
+              {actionEntry?.mode === 'release'
+                ? 'Release & delivery'
+                : actionEntry?.mode === 'policy'
+                  ? 'Project policy'
+                  : 'Current work'}
             </span>
             <strong>
-              {actionEntry?.mode === 'release' ? project.title : projectNowHeading(view)}
+              {actionEntry?.mode === 'release' || actionEntry?.mode === 'policy'
+                ? project.title
+                : projectNowHeading(view)}
             </strong>
           </div>
           {actionEntry ? (
@@ -1905,12 +2436,11 @@ function ProjectNowProjectPage({
               selectionKey={actionEntry.selectionKey}
               release={state.releases[project.id]}
               releaseLoading={state.releaseLoading[project.id] ?? false}
-              onBack={() => setMode('default')}
+              onBack={closeActionMode}
+              discussionOpen={nestedDiscussionOpen}
+              onDiscussionChange={setNestedDiscussionOpen}
               onVerify={() =>
                 setActionEntry((entry) => (entry ? { ...entry, mode: 'verify' } : entry))
-              }
-              onPolicy={() =>
-                setActionEntry((entry) => (entry ? { ...entry, mode: 'policy' } : entry))
               }
             />
           ) : (
@@ -1920,9 +2450,48 @@ function ProjectNowProjectPage({
       ) : view ? (
         <>
           <section className="pw-now-work" aria-labelledby="pw-now-work-title">
+            {resumeCandidate && (
+              <aside className="pw-now-notice pw-now-notice--quiet pw-now-resume-cue" role="status">
+                <div>
+                  <strong>{projectNowResumeText(resumeCandidate)}</strong>
+                  {resumeError && <p role="alert">{resumeError}</p>}
+                </div>
+                <Button
+                  className="pw-button pw-button--quiet"
+                  disabled={resumeBusy}
+                  onClick={() => void resumeSavedAction()}
+                >
+                  {resumeBusy ? 'Checking current state…' : projectNowResumeButton(resumeCandidate)}
+                </Button>
+              </aside>
+            )}
             <h2 id="pw-now-work-title">{projectNowHeading(view)}</h2>
 
             <p className="pw-now-current-state">{view.currentState}</p>
+
+            {view.execution && (
+              <div className="pw-now-execution-status">
+                {view.execution.workItemId !== view.work?.id && (
+                  <span className="pw-small">Request for {view.execution.workTitle}</span>
+                )}
+                <p role="status">{view.execution.text}</p>
+                <div className="pw-now-actions">
+                  {view.execution.actions.map((action) => (
+                    <Button
+                      key={`${action.kind}:${action.requestId ?? ''}`}
+                      className="pw-button pw-button--quiet"
+                      disabled={busy || (action.kind === 'check-execution' && checkingExecution)}
+                      onClick={() => void runAction(action)}
+                    >
+                      {action.kind === 'check-execution' && checkingExecution
+                        ? 'Checking execution state…'
+                        : action.label}
+                    </Button>
+                  ))}
+                </div>
+                {executionCheckError && <p role="alert">{executionCheckError}</p>}
+              </div>
+            )}
 
             {view.stillToCheck && (
               <div className="pw-now-uncertainty">
@@ -2046,6 +2615,23 @@ function ProjectNowProjectPage({
               </div>
             )}
 
+            {!recommendationReplacesNext &&
+              (!view.nextText || !view.primaryAction) &&
+              view.secondaryActions.length > 0 && (
+                <div className="pw-now-actions">
+                  {view.secondaryActions.map((action) => (
+                    <Button
+                      key={`${action.kind}:${action.workItemId ?? ''}:${action.requestId ?? ''}`}
+                      className="pw-button pw-button--quiet"
+                      disabled={busy}
+                      onClick={() => void runAction(action)}
+                    >
+                      {action.label}
+                    </Button>
+                  ))}
+                </div>
+              )}
+
             {!recommendationReplacesNext && view.nextText && view.primaryAction && (
               <div className="pw-now-next">
                 <span className="pw-small">Next</span>
@@ -2096,7 +2682,7 @@ function ProjectNowProjectPage({
                       onClick={() =>
                         void (item.source === 'proposal'
                           ? controller.selectProposal(project.id, item.id)
-                          : controller.selectWorkItem(project.id, item.id))
+                          : selectWorkItem(item.id))
                       }
                     >
                       <span>{item.title}</span>
@@ -2116,7 +2702,11 @@ function ProjectNowProjectPage({
           )}
 
           <section className="pw-context-section" aria-labelledby="project-context-heading">
-            <details className="pw-context-disclosure">
+            <details
+              className="pw-context-disclosure"
+              open={projectContextOpen}
+              onToggle={(event) => setProjectContextOpen(event.currentTarget.open)}
+            >
               <summary id="project-context-heading">Project context</summary>
               <div className="pw-context-list">
                 {dirtyWorkPreview !== 'off' ? (

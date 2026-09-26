@@ -26,6 +26,7 @@ type Props = {
   actionKind: PresentedProjectAction['kind'];
   mode:
     | 'continue'
+    | 'remaining'
     | 'verify'
     | 'policy'
     | 'direction'
@@ -38,9 +39,10 @@ type Props = {
   release?: ReleaseProjectView;
   releaseLoading?: boolean;
   selectionKey: string | null;
+  discussionOpen?: boolean;
   onBack: () => void;
   onVerify: () => void;
-  onPolicy: () => void;
+  onDiscussionChange?: (open: boolean) => void;
 };
 
 function ActionError({ value }: { value: string }) {
@@ -71,7 +73,8 @@ function readScopeDraft(key: string, fallback: ScopeDraft): ScopeDraft {
         ? value.scopeIds.filter((item): item is string => typeof item === 'string').slice(0, 300)
         : [],
       basis: typeof value.basis === 'string' ? value.basis.slice(0, 256) : '',
-      confirmed: value.confirmed === true,
+      // Confirmation is per visit and must be checked again after reopening.
+      confirmed: false,
     };
   } catch {
     return fallback;
@@ -80,7 +83,7 @@ function readScopeDraft(key: string, fallback: ScopeDraft): ScopeDraft {
 
 function writeScopeDraft(key: string, value: ScopeDraft) {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    localStorage.setItem(key, JSON.stringify({ ...value, confirmed: false }));
   } catch {
     // The in-memory draft remains usable for this action session.
   }
@@ -92,10 +95,15 @@ function DirectionAction({
   data,
   view,
   onBack,
-  onPolicy,
-}: Omit<Props, 'edits' | 'actionKind' | 'mode' | 'requestId' | 'selectionKey' | 'onVerify'>) {
+}: Omit<
+  Props,
+  'edits' | 'actionKind' | 'mode' | 'requestId' | 'selectionKey' | 'onVerify' | 'onPolicy'
+>) {
   const conflict =
-    data?.record.policyConflict?.status === 'open' ? data.record.policyConflict : null;
+    data?.record.policyConflict?.status === 'open' &&
+    data.record.policyConflict.category === 'purpose-direction'
+      ? data.record.policyConflict
+      : null;
   const suggestedDirection = view.bootstrap.directionSuggestion?.text ?? '';
   const savedGoal =
     !view.bootstrap.directionDeferred && project.goalConfirmed ? project.goal.trim() || null : null;
@@ -233,7 +241,7 @@ function DirectionAction({
     <section className="pw-decision-direction" aria-label="Review project direction">
       {conflict ? (
         <div className="pw-decision-uncertain">
-          <h3>The direction conflicts with a recorded policy</h3>
+          <h3>The current direction conflicts with the project purpose</h3>
           <p>{conflict.description}</p>
           <p className="pw-small">Source: {conflict.source}</p>
         </div>
@@ -265,11 +273,6 @@ function DirectionAction({
               ? 'Save direction'
               : 'Use this direction'}
         </Button>
-        {conflict && (
-          <Button variant="outline" disabled={busy} onClick={onPolicy}>
-            Review a policy change
-          </Button>
-        )}
         {!conflict && !view.direction && (
           <Button variant="ghost" disabled={busy} onClick={() => void deferDirection()}>
             No current direction
@@ -301,21 +304,40 @@ function RequestReport({
         and refresh before choosing another action.
       </p>
     );
+  const statusText =
+    request.state === 'prepared' && !request.externalReport
+      ? 'Your request is ready to review before anything is sent.'
+      : request.externalReport
+        ? 'You recorded an external result for this request.'
+        : request.state === 'failed' && !request.execution
+          ? 'StateCarry could not send this request. Review it before preparing another request.'
+          : request.execution?.status === 'waiting'
+            ? 'Codex needs your input before it can continue.'
+            : request.execution?.status === 'running'
+              ? 'Codex is working on this request.'
+              : request.execution?.status === 'failed'
+                ? 'The execution reported a failure.'
+                : request.execution?.status === 'interrupted'
+                  ? 'The execution was interrupted.'
+                  : request.execution?.status === 'completed'
+                    ? 'A result is recorded and is waiting for your review.'
+                    : request.execution?.status === 'unknown' ||
+                        ['dispatching', 'result-unknown'].includes(request.state)
+                      ? 'StateCarry could not confirm whether this request is still running. Check the Codex conversation before sending it again.'
+                      : 'The request is waiting for an execution update.';
+  const executionMayStillBeActive =
+    !request.externalReport &&
+    !['completed', 'failed', 'interrupted'].includes(request.execution?.status ?? '') &&
+    ['dispatching', 'sent', 'result-unknown'].includes(request.state);
   return (
     <>
-      <p role="status">
-        {request.state === 'prepared' && !request.externalReport
-          ? 'Your request is ready to review before anything is sent.'
-          : request.externalReport
-            ? 'You recorded an external result for this request.'
-            : request.execution?.status === 'failed'
-              ? 'The execution reported a failure.'
-              : request.execution?.status === 'interrupted'
-                ? 'The execution was interrupted.'
-                : request.execution?.status === 'completed'
-                  ? 'A result is recorded and is waiting for your review.'
-                  : 'The request is waiting for an execution update.'}
-      </p>
+      <p role="status">{statusText}</p>
+      {executionMayStillBeActive && (
+        <p className="pw-small">
+          If you fully quit StateCarry, this execution may be interrupted. When you reopen
+          StateCarry, check this request’s current status before deciding what to do next.
+        </p>
+      )}
       <details className="pw-details">
         <summary>Read the exact request</summary>
         <pre>{request.preparedText ?? request.target.payload.nextAction}</pre>
@@ -428,8 +450,9 @@ function RequestAction({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [externalReport, setExternalReport] = useState('');
-  const polling = useRef(false);
   const comparing = useRef(false);
+  const mounted = useRef(false);
+  const lastCheckedRequest = useRef<string | null>(null);
   const request = data?.requests.find((item) => item.id === requestId);
   const comparison = requestId ? data?.record.comparisons[requestId] : undefined;
   const canAccept =
@@ -440,6 +463,20 @@ function RequestAction({
     canAccept &&
     data?.record.policyConflict?.status === 'open' &&
     request?.target.payload.projectContext?.operation === 'policy';
+  const executionTerminal = ['completed', 'failed', 'interrupted'].includes(
+    request?.execution?.status ?? '',
+  );
+  const executionInFlight =
+    !!request &&
+    ['dispatching', 'sent', 'result-unknown'].includes(request.state) &&
+    !executionTerminal;
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const run = async (command: ProjectExecutionCommand, returnAfter = false) => {
     if (busy) return;
@@ -448,14 +485,15 @@ function RequestAction({
     setNotice('');
     try {
       const result = await controller.projectDecision(project.id, command);
+      if (!mounted.current) return undefined;
       await controller.readProjectNow(project.id);
-      if (returnAfter) onBack();
+      if (returnAfter && mounted.current) onBack();
       return result;
     } catch (cause) {
-      setError(projectError(cause));
+      if (mounted.current) setError(projectError(cause));
       return undefined;
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   };
 
@@ -463,36 +501,21 @@ function RequestAction({
     if (
       !request ||
       !['sent', 'dispatching', 'result-unknown'].includes(request.state) ||
+      lastCheckedRequest.current === request.id ||
       ['completed', 'failed', 'interrupted'].includes(request.execution?.status ?? '')
     )
       return;
+    lastCheckedRequest.current = request.id;
     let cancelled = false;
-    const poll = async () => {
-      if (cancelled || polling.current) return;
-      polling.current = true;
-      try {
-        await controller.projectDecision(project.id, { action: 'sync', requestId: request.id });
-      } catch (cause) {
-        if (!cancelled) setError(projectError(cause));
-      } finally {
-        polling.current = false;
-      }
-    };
-    void poll();
-    const timer = setInterval(() => void poll(), 3000);
+    void controller
+      .projectDecision(project.id, { action: 'sync', requestId: request.id })
+      .catch((cause) => {
+        if (!cancelled && mounted.current) setError(projectError(cause));
+      });
     return () => {
       cancelled = true;
-      clearInterval(timer);
     };
-  }, [
-    comparison,
-    controller,
-    project.id,
-    project.outputLanguage,
-    request?.execution?.status,
-    request?.id,
-    request?.state,
-  ]);
+  }, [controller, project.id, request?.execution?.status, request?.id, request?.state]);
 
   useEffect(() => {
     if (!request || request.execution?.status !== 'completed' || comparison || comparing.current)
@@ -540,9 +563,13 @@ function RequestAction({
       <h3>
         {request?.state === 'prepared' && !request.externalReport
           ? 'Your request is ready to review'
-          : terminal || request?.externalReport
-            ? 'Review the returned result'
-            : 'Your Codex request'}
+          : request?.state === 'failed' && !request.execution
+            ? 'The request could not be sent'
+            : request?.execution?.status === 'waiting'
+              ? 'Codex needs your input'
+              : terminal || request?.externalReport
+                ? 'Review the returned result'
+                : 'Your Codex request'}
       </h3>
       <RequestReport data={data} requestId={requestId} />
       {request && (
@@ -595,48 +622,54 @@ function RequestAction({
               </a>
             </p>
           )}
-          {request.execution?.questions.map((question) => (
-            <ExecutionQuestion
-              key={question.id}
-              question={question}
-              busy={busy}
-              onAnswer={(accept, answers) =>
-                void run({ action: 'answer', requestId, questionId: question.id, accept, answers })
-              }
-            />
-          ))}
-          {(request.state === 'prepared' || request.state === 'result-unknown') &&
-            !request.externalReport && (
-              <details className="pw-details">
-                <summary>Already ran this request outside StateCarry?</summary>
-                <p>
-                  Record what happened, including checks and remaining work. This records your
-                  report, not an independently verified result.
-                </p>
-                <label className="pw-field">
-                  External result
-                  <Textarea
-                    value={externalReport}
-                    maxLength={8000}
-                    onChange={(event) => setExternalReport(event.target.value)}
-                  />
-                </label>
-                <Button
-                  disabled={busy || !externalReport.trim()}
-                  onClick={() =>
-                    void run({
-                      action: 'record-result',
-                      requestId,
-                      report: externalReport.trim(),
-                    }).then((result) => {
-                      if (result) setExternalReport('');
-                    })
-                  }
-                >
-                  Record external result
-                </Button>
-              </details>
-            )}
+          {request.execution?.status === 'waiting' &&
+            request.execution.questions.map((question) => (
+              <ExecutionQuestion
+                key={question.id}
+                question={question}
+                busy={busy}
+                onAnswer={(accept, answers) =>
+                  void run({
+                    action: 'answer',
+                    requestId,
+                    questionId: question.id,
+                    accept,
+                    answers,
+                  })
+                }
+              />
+            ))}
+          {request.state === 'prepared' && !request.externalReport && (
+            <details className="pw-details">
+              <summary>Already ran this request outside StateCarry?</summary>
+              <p>
+                Record what happened, including checks and remaining work. This records your report,
+                not an independently verified result.
+              </p>
+              <label className="pw-field">
+                External result
+                <Textarea
+                  value={externalReport}
+                  maxLength={8000}
+                  onChange={(event) => setExternalReport(event.target.value)}
+                />
+              </label>
+              <Button
+                disabled={busy || !externalReport.trim()}
+                onClick={() =>
+                  void run({
+                    action: 'record-result',
+                    requestId,
+                    report: externalReport.trim(),
+                  }).then((result) => {
+                    if (result) setExternalReport('');
+                  })
+                }
+              >
+                Record external result
+              </Button>
+            </details>
+          )}
           {(request.state !== 'prepared' || request.externalReport) && (
             <div className="pw-actions">
               <Button
@@ -646,14 +679,20 @@ function RequestAction({
               >
                 Check execution state
               </Button>
-              <Button
-                disabled={busy}
-                onClick={() =>
-                  void run({ action: 'compare', requestId, outputLanguage: project.outputLanguage })
-                }
-              >
-                Compare with current project
-              </Button>
+              {!executionInFlight && (
+                <Button
+                  disabled={busy}
+                  onClick={() =>
+                    void run({
+                      action: 'compare',
+                      requestId,
+                      outputLanguage: project.outputLanguage,
+                    })
+                  }
+                >
+                  Compare with current project
+                </Button>
+              )}
               {['running', 'waiting'].includes(request.execution?.status ?? '') && (
                 <Button
                   variant="ghost"
@@ -715,11 +754,13 @@ function ScopeAction({
   mode,
   onBack,
 }: Omit<Props, 'edits' | 'actionKind' | 'requestId' | 'selectionKey' | 'onVerify' | 'onPolicy'> & {
-  mode: 'continue' | 'verify' | 'policy';
+  mode: 'continue' | 'remaining' | 'verify' | 'policy';
 }) {
   const work = view.work;
+  const remainingOnly = mode === 'remaining';
+  const projectPolicy = mode === 'policy';
   const draftKey = (operation: DecisionOperation) =>
-    `statecarry.project-action.v3.${project.id}.${work?.id ?? 'none'}.${operation}`;
+    `statecarry.project-action.v3.${project.id}.${operation === 'policy' ? 'project' : (work?.id ?? 'none')}.${operation}`;
   const defaultDraft = (operation: DecisionOperation): ScopeDraft => ({
     text:
       operation === 'verify'
@@ -749,11 +790,12 @@ function ScopeAction({
     basis: '',
     confirmed: false,
   });
-  const [operation, setOperation] = useState<DecisionOperation>(mode);
+  const [operation, setOperation] = useState<DecisionOperation>(remainingOnly ? 'verify' : mode);
   const storageKey = draftKey(operation);
-  const [draft, setDraft] = useState<ScopeDraft>(() =>
-    readScopeDraft(draftKey(mode), defaultDraft(mode)),
-  );
+  const [draft, setDraft] = useState<ScopeDraft>(() => {
+    const initialOperation = remainingOnly ? 'verify' : mode;
+    return readScopeDraft(draftKey(initialOperation), defaultDraft(initialOperation));
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const observeRequested = useRef(false);
@@ -771,21 +813,50 @@ function ScopeAction({
   }, [controller, data, project.id, project.outputLanguage]);
 
   const observation = data?.record.observation;
+  const policyDescription = data?.record.policyConflict?.description;
   useEffect(() => {
-    if (!observation || draft.basis) return;
-    setDraft((old) => ({ ...old, basis: observation.basis, confirmed: false }));
-  }, [draft.basis, observation]);
+    if (!observation) return;
+    setDraft((old) => {
+      const basisChanged = !!old.basis && old.basis !== observation.basis;
+      const scopeBecameStale = data?.scopeCurrent === false && old.scopeIds.length > 0;
+      if (old.basis === observation.basis && !scopeBecameStale) return old;
+      return {
+        ...old,
+        basis: observation.basis,
+        scopeIds: basisChanged || scopeBecameStale ? [] : old.scopeIds,
+        confirmed: false,
+      };
+    });
+  }, [data?.scopeCurrent, draft.basis, observation]);
+
+  useEffect(() => {
+    if (!projectPolicy || !policyDescription) return;
+    const genericText = 'Address the recorded policy conflict: Review the project policy conflict.';
+    setDraft((old) =>
+      old.text === genericText
+        ? {
+            ...old,
+            text: `Address the recorded policy conflict: ${policyDescription}`,
+            confirmed: false,
+          }
+        : old,
+    );
+  }, [policyDescription, projectPolicy]);
 
   const activeRequest =
-    work && data
-      ? [...data.requests]
-          .reverse()
-          .find(
-            (request) =>
-              request.target.payload.projectContext?.workItemId === work.id &&
-              !data.record.accepted.includes(request.id) &&
-              !data.record.closed?.includes(request.id),
-          )
+    !remainingOnly && data
+      ? [...data.requests].reverse().find((request) => {
+          const context = request.target.payload.projectContext;
+          return (
+            (projectPolicy
+              ? context?.operation === 'policy' &&
+                !!context.policyConflictBasis &&
+                context.policyConflictBasis === data.policyConflictBasis
+              : !!work && context?.workItemId === work.id) &&
+            !data.record.accepted.includes(request.id) &&
+            !data.record.closed?.includes(request.id)
+          );
+        })
       : null;
 
   if (activeRequest)
@@ -799,7 +870,7 @@ function ScopeAction({
       />
     );
 
-  if (!data || !work) return <p role="status">Reading saved project state…</p>;
+  if (!data || (!work && !projectPolicy)) return <p role="status">Reading saved project state…</p>;
 
   const keptIds = new Set(data.record.kept.flatMap((item) => item.scopeIds));
   const scopes = observation?.scopes ?? [];
@@ -809,7 +880,9 @@ function ScopeAction({
   const inventoryReady =
     !!observation &&
     observation.inventoryComplete !== false &&
-    (verification || observation.complete || observation.inventoryComplete === true);
+    (remainingOnly
+      ? observation.complete || observation.inventoryComplete === true
+      : verification || observation.complete || observation.inventoryComplete === true);
   const canConfirm = inventoryReady && !stale;
   const exactScopeRequired = ['commit', 'revert', 'unstage'].includes(operation);
   const operationLabel = {
@@ -819,7 +892,7 @@ function ScopeAction({
     revert: 'Review discarding changes',
     unstage: 'Review unstaging changes',
     direction: 'Review direction',
-    policy: 'Review policy change',
+    policy: 'Review project policy change',
   }[operation];
   const chooseOperation = (next: DecisionOperation) => {
     setOperation(next);
@@ -883,7 +956,7 @@ function ScopeAction({
           basis: draft.basis,
           scopeIds: verification ? [] : draft.scopeIds,
           operation,
-          workItemId: work.id,
+          ...(operation === 'policy' ? {} : { workItemId: work!.id }),
         },
         text: draft.text.trim(),
         doneWhen: draft.doneWhen.trim(),
@@ -896,22 +969,73 @@ function ScopeAction({
     }
   };
 
+  const keepSelectedChanges = async () => {
+    if (busy || !observation || !draft.confirmed || stale || !draft.scopeIds.length) return;
+    const keptScopeIds = new Set(draft.scopeIds);
+    setBusy(true);
+    setError('');
+    try {
+      await controller.projectDecision(project.id, {
+        action: 'keep',
+        basis: observation.basis,
+        scopeIds: [...keptScopeIds],
+      });
+      const nextDraft = {
+        ...draft,
+        scopeIds: draft.scopeIds.filter((id) => !keptScopeIds.has(id)),
+        basis: observation.basis,
+        confirmed: false,
+      };
+      writeScopeDraft(storageKey, nextDraft);
+      setDraft(nextDraft);
+      await controller.readProjectNow(project.id);
+      onBack();
+    } catch (cause) {
+      setError(projectError(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <section className="pw-decision-review" aria-label="Review request">
-      <h3>{operationLabel}</h3>
-      <div className="pw-actions" aria-label="Request type">
-        {operation !== 'verify' && (
-          <Button variant="outline" disabled={busy} onClick={() => chooseOperation('verify')}>
-            Check current behavior
-          </Button>
-        )}
-        {operation === 'verify' && (
-          <Button variant="outline" disabled={busy} onClick={() => chooseOperation('continue')}>
-            Continue this work
-          </Button>
-        )}
-      </div>
-      {verification && (
+    <section
+      className="pw-decision-review"
+      aria-label={
+        remainingOnly
+          ? 'Review remaining changes'
+          : projectPolicy
+            ? 'Review project policy request'
+            : 'Review request'
+      }
+    >
+      <h3>{remainingOnly ? 'Review remaining changes' : operationLabel}</h3>
+      {projectPolicy && (
+        <p>
+          This request applies to {project.title}. StateCarry will prepare it for your review; it
+          will not be sent unless you choose Send.
+        </p>
+      )}
+      {remainingOnly && (
+        <p>
+          This work remains stopped. Review the project changes here, or keep selected changes and
+          move on without restarting the work.
+        </p>
+      )}
+      {!remainingOnly && work && !projectPolicy && (
+        <div className="pw-actions" aria-label="Request type">
+          {operation !== 'verify' && (
+            <Button variant="outline" disabled={busy} onClick={() => chooseOperation('verify')}>
+              Check current behavior
+            </Button>
+          )}
+          {operation === 'verify' && (
+            <Button variant="outline" disabled={busy} onClick={() => chooseOperation('continue')}>
+              Continue this work
+            </Button>
+          )}
+        </div>
+      )}
+      {!remainingOnly && work && verification && (
         <p>
           Run the reviewed checks for this task. Existing changes do not need to be included. Report
           the results without implementing fixes; normal build and test artifacts may be produced.
@@ -932,34 +1056,39 @@ function ScopeAction({
                 observation.limitations.map((limit) => <p key={limit}>{limit}</p>)}
             </div>
           )}
-          <label className="pw-field">
-            What should happen?
-            <Textarea
-              maxLength={2000}
-              value={draft.text}
-              onChange={(event) =>
-                setDraft((old) => ({ ...old, text: event.target.value, confirmed: false }))
-              }
-            />
-          </label>
-          <label className="pw-field">
-            Done when
-            <Textarea
-              maxLength={2000}
-              value={draft.doneWhen}
-              onChange={(event) =>
-                setDraft((old) => ({ ...old, doneWhen: event.target.value, confirmed: false }))
-              }
-            />
-          </label>
-          {!verification && (
+          {!remainingOnly && (
+            <label className="pw-field">
+              What should happen?
+              <Textarea
+                maxLength={2000}
+                value={draft.text}
+                onChange={(event) =>
+                  setDraft((old) => ({ ...old, text: event.target.value, confirmed: false }))
+                }
+              />
+            </label>
+          )}
+          {!remainingOnly && (
+            <label className="pw-field">
+              Done when
+              <Textarea
+                maxLength={2000}
+                value={draft.doneWhen}
+                onChange={(event) =>
+                  setDraft((old) => ({ ...old, doneWhen: event.target.value, confirmed: false }))
+                }
+              />
+            </label>
+          )}
+          {(remainingOnly || !verification) && (
             <>
               <p>
-                Choose any existing changes that belong to this request. Unselected changes stay
-                outside the request, even in the same file.
+                {remainingOnly
+                  ? 'Review each change before deciding whether to keep it unchanged.'
+                  : 'Choose any existing changes that belong to this request. Unselected changes stay outside the request, even in the same file.'}
               </p>
               <fieldset disabled={busy || !inventoryReady} className="pw-decision-scopes">
-                <legend>Included changes</legend>
+                <legend>{remainingOnly ? 'Remaining project changes' : 'Included changes'}</legend>
                 {(observation.files ?? [])
                   .filter((file) => file.detail !== 'ready')
                   .map((file) => (
@@ -986,7 +1115,9 @@ function ScopeAction({
                         <input
                           type="checkbox"
                           checked={draft.scopeIds.includes(scope.id)}
-                          disabled={operation === 'unstage' && scope.layer !== 'staged'}
+                          disabled={
+                            !remainingOnly && operation === 'unstage' && scope.layer !== 'staged'
+                          }
                           onChange={(event) =>
                             setDraft((old) => ({
                               ...old,
@@ -1009,11 +1140,17 @@ function ScopeAction({
                   ))
                 ) : (
                   <p className="pw-small">
-                    {observation.files?.length
-                      ? 'No file changes are selected yet. Unread files remain outside this request.'
-                      : observation.complete
-                        ? 'No existing local changes need to be included.'
-                        : 'The existing changes could not be determined.'}
+                    {remainingOnly
+                      ? observation.files?.length
+                        ? 'No readable changes are selected. Some file changes have not been read yet.'
+                        : observation.complete
+                          ? 'No remaining local changes were found.'
+                          : 'The remaining project changes could not be determined.'
+                      : observation.files?.length
+                        ? 'No file changes are selected yet. Unread files remain outside this request.'
+                        : observation.complete
+                          ? 'No existing local changes need to be included.'
+                          : 'The existing changes could not be determined.'}
                   </p>
                 )}
               </fieldset>
@@ -1044,70 +1181,84 @@ function ScopeAction({
                 }))
               }
             />{' '}
-            {verification
-              ? 'I reviewed the verification request and completion condition.'
-              : 'I reviewed what is included, what stays unchanged, and the completion condition.'}
+            {remainingOnly
+              ? 'I reviewed these changes and want to leave the selected ones unchanged.'
+              : verification
+                ? 'I reviewed the verification request and completion condition.'
+                : 'I reviewed what is included, what stays unchanged, and the completion condition.'}
           </label>
-          <div className="pw-actions">
-            <Button
-              disabled={
-                busy ||
-                !canConfirm ||
-                !draft.confirmed ||
-                stale ||
-                !draft.text.trim() ||
-                !draft.doneWhen.trim() ||
-                (exactScopeRequired && !draft.scopeIds.length)
-              }
-              onClick={() => void prepare()}
-            >
-              Prepare request for Codex
-            </Button>
-            <Button variant="ghost" onClick={onBack}>
-              Decide later
-            </Button>
-          </div>
-          <details className="pw-details">
-            <summary>More options</summary>
+          {remainingOnly ? (
             <div className="pw-actions">
-              {operation !== 'commit' && (
-                <Button variant="ghost" onClick={() => chooseOperation('commit')}>
-                  Review a commit
-                </Button>
-              )}
-              {operation !== 'revert' && (
-                <Button variant="ghost" onClick={() => chooseOperation('revert')}>
-                  Review discarding changes
-                </Button>
-              )}
-              {operation !== 'unstage' && (
-                <Button variant="ghost" onClick={() => chooseOperation('unstage')}>
-                  Review unstaging changes
-                </Button>
-              )}
               <Button
-                variant="ghost"
                 disabled={
                   busy || stale || !draft.confirmed || !draft.scopeIds.length || !inventoryReady
                 }
-                onClick={() =>
-                  void controller
-                    .projectDecision(project.id, {
-                      action: 'keep',
-                      basis: observation.basis,
-                      scopeIds: draft.scopeIds,
-                    })
-                    .then(async () => {
-                      await controller.readProjectNow(project.id);
-                      onBack();
-                    })
-                    .catch((cause) => setError(projectError(cause)))
-                }
+                onClick={() => void keepSelectedChanges()}
               >
                 Leave selected changes and move on
               </Button>
+              <Button variant="ghost" onClick={onBack}>
+                Decide later
+              </Button>
             </div>
-          </details>
+          ) : (
+            <>
+              <div className="pw-actions">
+                <Button
+                  disabled={
+                    busy ||
+                    !canConfirm ||
+                    !draft.confirmed ||
+                    stale ||
+                    !draft.text.trim() ||
+                    !draft.doneWhen.trim() ||
+                    (exactScopeRequired && !draft.scopeIds.length)
+                  }
+                  onClick={() => void prepare()}
+                >
+                  {projectPolicy ? 'Prepare project policy request' : 'Prepare request for Codex'}
+                </Button>
+                <Button variant="ghost" onClick={onBack}>
+                  Decide later
+                </Button>
+              </div>
+              {work && !projectPolicy && (
+                <details className="pw-details">
+                  <summary>More options</summary>
+                  <div className="pw-actions">
+                    {operation !== 'commit' && (
+                      <Button variant="ghost" onClick={() => chooseOperation('commit')}>
+                        Review a commit
+                      </Button>
+                    )}
+                    {operation !== 'revert' && (
+                      <Button variant="ghost" onClick={() => chooseOperation('revert')}>
+                        Review discarding changes
+                      </Button>
+                    )}
+                    {operation !== 'unstage' && (
+                      <Button variant="ghost" onClick={() => chooseOperation('unstage')}>
+                        Review unstaging changes
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      disabled={
+                        busy ||
+                        stale ||
+                        !draft.confirmed ||
+                        !draft.scopeIds.length ||
+                        !inventoryReady
+                      }
+                      onClick={() => void keepSelectedChanges()}
+                    >
+                      Leave selected changes and move on
+                    </Button>
+                  </div>
+                </details>
+              )}
+            </>
+          )}
         </>
       )}
       <ActionError value={error} />
@@ -1122,17 +1273,21 @@ function ReviewWorkAction({
   edits,
   actionKind,
   selectionKey,
+  discussionOpen = false,
   onBack,
   onVerify,
+  onDiscussionChange = () => {},
 }: Omit<Props, 'data' | 'mode' | 'requestId' | 'onPolicy'>) {
-  const [discussionOpen, setDiscussionOpen] = useState(false);
   const [openingVerify, setOpeningVerify] = useState(false);
   const [transitioning, setTransitioning] = useState(false);
   const [error, setError] = useState('');
+  useEffect(() => {
+    if (!discussionOpen || !selectionKey) return;
+    controller.openTaskDiscussion(project.id, selectionKey);
+  }, [controller, discussionOpen, project.id, selectionKey]);
   const openDiscussion = () => {
     if (!selectionKey) return;
-    controller.openTaskDiscussion(project.id, selectionKey);
-    setDiscussionOpen(true);
+    onDiscussionChange(true);
   };
   const openVerify = async () => {
     if (openingVerify) return;
@@ -1185,7 +1340,7 @@ function ReviewWorkAction({
           workKey={selectionKey}
           edits={edits}
           controller={controller}
-          onClose={() => setDiscussionOpen(false)}
+          onClose={() => onDiscussionChange(false)}
         />
       ) : (
         <>
@@ -1992,7 +2147,6 @@ export function ProjectNowActionMode(props: Props) {
         data={props.data}
         view={props.view}
         onBack={props.onBack}
-        onPolicy={props.onPolicy}
       />
     );
   if (props.mode === 'review')
@@ -2004,8 +2158,10 @@ export function ProjectNowActionMode(props: Props) {
         edits={props.edits}
         actionKind={props.actionKind}
         selectionKey={props.selectionKey}
+        discussionOpen={props.discussionOpen ?? false}
         onBack={props.onBack}
         onVerify={props.onVerify}
+        onDiscussionChange={(open) => props.onDiscussionChange?.(open)}
       />
     );
   if (props.mode === 'new-work')
@@ -2028,7 +2184,12 @@ export function ProjectNowActionMode(props: Props) {
         onBack={props.onBack}
       />
     );
-  if (props.mode === 'continue' || props.mode === 'verify' || props.mode === 'policy')
+  if (
+    props.mode === 'continue' ||
+    props.mode === 'remaining' ||
+    props.mode === 'verify' ||
+    props.mode === 'policy'
+  )
     return (
       <ScopeAction
         project={props.project}

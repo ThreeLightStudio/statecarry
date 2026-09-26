@@ -141,6 +141,30 @@ function resultRequest(
   } satisfies Continuation;
 }
 
+function linkExecution(
+  h: ReturnType<typeof harness>,
+  projectId: string,
+  workItemId: string,
+  status: 'running' | 'waiting',
+) {
+  const requestId = `request-${workItemId}`;
+  h.repo.put('workDecision', {
+    id: `execution-${workItemId}`,
+    projectId,
+    workItemId,
+    kind: workDecisionKinds.executionForWork,
+    value: { requestId },
+    basis: [],
+    state: 'valid',
+    decidedAt: AT,
+  });
+  const request = resultRequest(projectId, requestId);
+  h.repo.put('continuation', {
+    ...request,
+    execution: { status, report: '', error: null, questions: [] },
+  });
+}
+
 describe('ProjectNow resolver', () => {
   it('returns ordinary work from the saved return point without reconstructing the whole project', () => {
     const h = harness();
@@ -245,6 +269,57 @@ describe('ProjectNow resolver', () => {
         candidate: { id: 'f', source: 'work-item' },
         selectionState: 'current-retained',
       },
+    });
+  });
+
+  it.each(['waiting', 'running'] as const)(
+    'recommends independent work when active work has a %s Codex execution',
+    (status) => {
+      const h = harness();
+      const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+      const projectId = receipt.projectId;
+      h.core.projectModel.view(projectId);
+      work(h, projectId, 'a', 'active', 'Wait for Codex result');
+      work(h, projectId, 'b', 'active', 'Small independent cleanup');
+      select(h, projectId, 'a');
+      observe(h, projectId);
+      linkExecution(h, projectId, 'a', status);
+
+      const now = h.core.now.resolve(projectId);
+
+      expect(h.repo.get('workItem', 'a')?.state).toBe('active');
+      expect(now).toMatchObject({
+        currentWorkId: 'a',
+        state: 'waiting',
+        execution: { status },
+        recommendation: {
+          status: 'recommended',
+          candidate: { id: 'b', source: 'work-item' },
+          selectionState: 'current-retained',
+        },
+      });
+    },
+  );
+
+  it('does not derive recommendation eligibility from a waiting execution on paused work', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    h.core.projectModel.view(projectId);
+    work(h, projectId, 'a', 'paused', 'Paused current work');
+    work(h, projectId, 'b', 'active', 'Small independent cleanup');
+    select(h, projectId, 'a');
+    observe(h, projectId);
+    linkExecution(h, projectId, 'a', 'waiting');
+
+    const now = h.core.now.resolve(projectId);
+
+    expect(h.repo.get('workItem', 'a')?.state).toBe('paused');
+    expect(now).toMatchObject({
+      currentWorkId: 'a',
+      state: 'paused',
+      execution: { status: 'waiting' },
+      recommendation: { status: 'none', candidate: null },
     });
   });
 
@@ -740,6 +815,72 @@ describe('ProjectNow resolver', () => {
     });
   });
 
+  it.each(['running', 'completed'] as const)(
+    "keeps selected Work B while showing Work A's %s execution during a policy conflict",
+    async (status) => {
+      const h = harness();
+      const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+      const projectId = receipt.projectId;
+      h.core.projectModel.view(projectId);
+      work(h, projectId, 'a', 'active', 'Other work');
+      work(h, projectId, 'b', 'active', 'Selected work B');
+      select(h, projectId, 'b');
+      observe(h, projectId);
+
+      h.repo.put('workDecision', {
+        id: 'execution-a',
+        projectId,
+        workItemId: 'a',
+        kind: workDecisionKinds.executionForWork,
+        value: { requestId: 'request-a' },
+        basis: [],
+        state: 'valid',
+        decidedAt: AT,
+      });
+      const request = resultRequest(projectId, 'request-a');
+      h.repo.put('continuation', {
+        ...request,
+        execution: {
+          status,
+          report: status === 'completed' ? 'Work A result is ready.' : '',
+          error: null,
+          questions: [],
+        },
+      });
+
+      await h.core.executions.command(
+        projectId,
+        {
+          action: 'conflict',
+          category: 'project-policy',
+          description: 'The project must keep its saved data local.',
+          source: 'Project privacy policy',
+        },
+        h.core.executions.view(projectId).record.version,
+      );
+
+      expect(h.core.now.resolve(projectId)).toMatchObject({
+        currentWorkId: 'b',
+        currentWorkSelection: 'user',
+        execution: { workItemId: 'a', requestId: 'request-a', status },
+        next: { kind: 'review-project-policy' },
+        notice: { kind: 'project-policy-conflict' },
+      });
+      expect(h.core.executions.view(projectId).record).toMatchObject({
+        requests: [],
+        accepted: [],
+      });
+      expect(h.repo.get('workDecision', 'select:b')).toMatchObject({
+        workItemId: 'b',
+        state: 'valid',
+      });
+      expect(h.repo.get('continuation', 'request-a')).toMatchObject({
+        state: 'sent',
+        execution: { status },
+      });
+    },
+  );
+
   it('keeps completed current work and routes queued completion conflicts to work choices', () => {
     const h = harness();
     const { receipt } = registerProject(h, { goal: 'Improve project return.' });
@@ -845,6 +986,7 @@ describe('ProjectNow resolver', () => {
         corrections: {},
         direction: null,
         policyConflict: {
+          category: 'purpose-direction',
           description: 'Showing every state by default increases return-time reading cost.',
           source: 'project-purpose',
           status: 'open',
@@ -860,8 +1002,9 @@ describe('ProjectNow resolver', () => {
       currentWorkId: 'a',
       notice: { level: 'immediate', kind: 'direction-conflict' },
       next: { kind: 'review-direction' },
-      secondaryActions: [{ kind: 'continue-despite-direction-conflict', workItemId: 'a' }],
+      secondaryActions: [{ kind: 'continue-despite-direction-conflict' }],
     });
+    expect(blocked.secondaryActions[0]).not.toHaveProperty('workItemId');
     h.core.projectModel.continueDirectionConflict(projectId);
     expect(h.core.now.resolve(projectId)).toMatchObject({
       currentWorkId: 'a',
@@ -1249,6 +1392,7 @@ describe('ProjectNow resolver', () => {
       state: 'stopped',
       currentState: 'This work was stopped.',
       next: { kind: 'choose-next-work' },
+      secondaryActions: [expect.objectContaining({ kind: 'discuss-work', workItemId: 'work-b' })],
     });
   });
 

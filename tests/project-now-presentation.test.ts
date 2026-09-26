@@ -275,6 +275,7 @@ describe('ProjectNow presentation', () => {
         corrections: {},
         direction: null,
         policyConflict: {
+          category: 'purpose-direction',
           description: 'This may increase the amount a returning user must read.',
           source: 'project-purpose',
           status: 'open',

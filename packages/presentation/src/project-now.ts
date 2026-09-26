@@ -3,6 +3,7 @@ import {
   type ProjectNow,
   type ProjectNowAction,
   type ProjectNowBootstrap,
+  type ProjectNowExecution,
   type ProjectNowNotice,
   type ProjectNowRecommendationEvidenceGap,
   type WorkItem,
@@ -56,6 +57,13 @@ export type ProjectNowView = {
     completionCondition: string | null;
   } | null;
   state: ProjectNow['state'];
+  execution:
+    | (Omit<ProjectNowExecution, 'actions'> & {
+        workTitle: string;
+        text: string;
+        actions: PresentedProjectAction[];
+      })
+    | null;
   currentState: string;
   stillToCheck: string | null;
   nextText: string | null;
@@ -114,6 +122,10 @@ function actionLabel(kind: ProjectNowAction['kind']) {
       return 'Review completion';
     case 'review-work':
       return 'Review work';
+    case 'discuss-work':
+      return 'Discuss this task';
+    case 'review-remaining-changes':
+      return 'Review remaining changes';
     case 'continue-work':
       return 'Continue work';
     case 'resume-work':
@@ -122,6 +134,8 @@ function actionLabel(kind: ProjectNowAction['kind']) {
       return 'Start work';
     case 'review-work-plan':
       return 'Re-check work';
+    case 'review-project-policy':
+      return 'Review policy change';
     case 'choose-current-work':
       return 'Choose current work';
     case 'choose-next-work':
@@ -132,6 +146,12 @@ function actionLabel(kind: ProjectNowAction['kind']) {
       return 'Review release';
     case 'stop-work':
       return 'Stop work';
+    case 'check-execution':
+      return 'Check execution state';
+    case 'open-request':
+      return 'Open request';
+    case 'respond-to-request':
+      return 'Respond to Codex';
     case 'continue-despite-direction-conflict':
       return 'Continue anyway';
   }
@@ -157,6 +177,8 @@ function noticeTitle(notice: ProjectNowNotice) {
       return 'Result ready';
     case 'direction-conflict':
       return 'Direction needs review';
+    case 'project-policy-conflict':
+      return 'Project policy needs review';
     case 'integration-needed':
       return 'Integration needs attention';
     case 'release-ready':
@@ -304,6 +326,26 @@ export function presentProjectNow(model: ProjectModelView, now: ProjectNow): Pro
   if (model.project.id !== now.projectId) throw new Error('ProjectNow belongs to another project.');
   const work = currentWork(model, now);
   const direction = currentDirection(model, now);
+  const executionWork = now.execution
+    ? model.workItems.find((item) => item.id === now.execution?.workItemId)
+    : undefined;
+  const executionText = now.execution
+    ? now.execution.status === 'checking'
+      ? 'StateCarry is checking this request.'
+      : now.execution.status === 'running'
+        ? 'Codex is working on this request.'
+        : now.execution.status === 'waiting'
+          ? 'Codex needs your input before it can continue.'
+          : now.execution.status === 'unknown'
+            ? 'StateCarry could not confirm whether this request is still running. Check the Codex conversation before sending it again.'
+            : now.execution.status === 'reported'
+              ? 'A result you recorded is ready for your review.'
+              : now.execution.status === 'completed'
+                ? 'A result is ready for your review.'
+                : now.execution.status === 'failed'
+                  ? 'Codex reported that the request failed.'
+                  : 'The execution was interrupted before a result was returned.'
+    : null;
   return {
     project: {
       id: model.project.id,
@@ -322,6 +364,22 @@ export function presentProjectNow(model: ProjectModelView, now: ProjectNow): Pro
         }
       : null,
     state: now.state,
+    execution: now.execution
+      ? {
+          ...now.execution,
+          workTitle: executionWork?.title ?? 'Other work',
+          text: executionText!,
+          actions: now.execution.actions
+            .filter((action) => {
+              if (now.next?.kind === action.kind && now.next.requestId === action.requestId)
+                return false;
+              return !(
+                now.notice?.requestId === action.requestId && action.kind === 'review-result'
+              );
+            })
+            .map((action) => presentAction(action, 'secondary')),
+        }
+      : null,
     currentState: firstSentence(now.currentState),
     stillToCheck: now.uncertainty ? firstSentence(now.uncertainty, 220) : null,
     nextText: now.next ? firstSentence(now.next.text, 220) : null,
@@ -366,6 +424,8 @@ function compactStatus(now: ProjectNow) {
       return 'Disconnected';
     case 'needs-direction':
       return 'Direction needed';
+    case 'needs-policy-review':
+      return 'Project policy needs review';
     case 'choose-work':
       return 'Work needs choosing';
     case 'choose-next-work':
@@ -391,6 +451,7 @@ function compactCurrent(model: ProjectModelView, now: ProjectNow) {
   const work = currentWork(model, now);
   if (work) return compactWhitespace(work.title);
   if (now.next?.kind === 'define-direction') return 'Define the current direction';
+  if (now.next?.kind === 'review-project-policy') return 'Review project policy';
   if (now.next?.kind === 'choose-current-work') return 'Choose current work';
   if (now.next?.kind === 'choose-next-work') return 'Decide the next work';
   if (now.state === 'idle') return 'No current work';

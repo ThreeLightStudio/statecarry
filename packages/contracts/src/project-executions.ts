@@ -36,6 +36,21 @@ export type ScopeFile = ScopeFileSelection & {
   detail: 'ready' | 'unread' | 'unavailable';
   limitation: string | null;
 };
+export const projectConflictCategorySchema = z.enum(['purpose-direction', 'project-policy']);
+export type ProjectConflictCategory = z.infer<typeof projectConflictCategorySchema>;
+export type ProjectConflict = {
+  /** Older persisted records have no id or category and are treated as project policy conflicts. */
+  id?: string;
+  category?: ProjectConflictCategory;
+  description: string;
+  source: string;
+  status: 'open' | 'resolved';
+};
+export function projectConflictCategory(
+  conflict: { category?: unknown } | null | undefined,
+): ProjectConflictCategory {
+  return conflict?.category === 'purpose-direction' ? 'purpose-direction' : 'project-policy';
+}
 export type SessionQuestion = {
   id: string;
   kind: 'command' | 'file-change' | 'permissions' | 'question';
@@ -57,6 +72,7 @@ export const projectExecutionContextSchema = z
     scopeIds: z.array(z.string().min(1).max(256)).max(300),
     operation: decisionOperationSchema,
     workItemId: z.string().min(1).max(250).optional(),
+    policyConflictBasis: z.string().min(1).max(256).optional(),
   })
   .strict();
 export type ProjectExecutionContext = z.infer<typeof projectExecutionContextSchema>;
@@ -69,7 +85,7 @@ export type ProjectScopeRecord = {
   expandedFiles?: ScopeFileSelection[];
   kept: Array<{ id: string; scopeIds: string[]; scopes: ChangeScope[]; at: string }>;
   corrections: Record<string, string>;
-  policyConflict: { description: string; source: string; status: 'open' | 'resolved' } | null;
+  policyConflict: ProjectConflict | null;
 };
 export type ProjectExecutionRecord = {
   id: string;
@@ -87,6 +103,7 @@ export type ProjectActionState = ProjectScopeRecord & ProjectExecutionRecord;
 export type ProjectExecutionWorkspace = {
   analysisCurrent: boolean;
   scopeCurrent: boolean;
+  policyConflictBasis?: string | null;
   record: ProjectActionState & {
     direction: { text: string; status: 'confirmed' | 'finished'; at: string } | null;
   };
@@ -117,7 +134,14 @@ export const projectExecutionCommandSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('correct'), key: text, text }).strict(),
   z.object({ action: z.literal('direction'), text, finish: z.boolean() }).strict(),
   z.object({ action: z.literal('defer-direction') }).strict(),
-  z.object({ action: z.literal('conflict'), description: text, source: text }).strict(),
+  z
+    .object({
+      action: z.literal('conflict'),
+      category: projectConflictCategorySchema.default('project-policy'),
+      description: text,
+      source: text,
+    })
+    .strict(),
   z.object({ action: z.literal('resolve-conflict'), requestId: text }).strict(),
   z
     .object({

@@ -928,6 +928,15 @@
 .pw-now-current-state {
   @apply m-0 text-base leading-7 text-foreground;
 }
+.pw-now-execution-status {
+  @apply grid gap-1;
+}
+.pw-now-execution-status > p {
+  @apply m-0 text-sm leading-6 text-muted-foreground;
+}
+.pw-now-execution-status > .pw-now-actions {
+  @apply mt-0;
+}
 .pw-now-uncertainty {
   @apply grid gap-1.5;
 }
