@@ -8,6 +8,7 @@ import {
   type ProjectNow,
   type ProjectNowAction,
   type ProjectNowBootstrap,
+  type ProjectNowExecution,
   type ProjectNowNotice,
   type ProjectNowOtherWorkCounts,
   type ProjectNowRecommendation,
@@ -177,6 +178,93 @@ export class ProjectNowResolver {
     return { item: null, selection: null };
   }
 
+  private executionForWork(projectId: string, workItemId?: string): ProjectNowExecution | null {
+    const record = this.core.repo.get('projectExecution', projectId);
+    const ignored = new Set([...(record?.accepted ?? []), ...(record?.closed ?? [])]);
+    const mapped = this.core.repo
+      .list('workDecision')
+      .filter(
+        (decision) =>
+          decision.projectId === projectId &&
+          decision.state === 'valid' &&
+          decision.kind === workDecisionKinds.executionForWork &&
+          !!decision.workItemId &&
+          (!workItemId || decision.workItemId === workItemId),
+      )
+      .flatMap((decision) => {
+        const requestId = decisionString(decision, 'requestId');
+        if (!requestId) return [];
+        const request = this.core.repo.get('continuation', requestId);
+        if (!request || request.projectId !== projectId) return [];
+        const terminal = ['completed', 'failed', 'interrupted'].includes(
+          request.execution?.status ?? '',
+        );
+        const inFlight =
+          ['dispatching', 'sent', 'result-unknown'].includes(request.state) && !terminal;
+        if (!inFlight && ignored.has(request.id)) return [];
+        if (!inFlight && !request.externalReport && !terminal && request.state !== 'failed')
+          return [];
+        let status: ProjectNowExecution['status'];
+        if (request.externalReport && !inFlight) status = 'reported';
+        else if (request.execution?.status) status = request.execution.status;
+        else if (request.state === 'failed') status = 'failed';
+        else if (request.state === 'result-unknown' || request.state === 'dispatching')
+          status = 'unknown';
+        else if (request.state === 'sent') status = 'checking';
+        else return [];
+        return [{ workItemId: decision.workItemId!, request, status, inFlight }];
+      })
+      .sort(
+        (left, right) =>
+          Number(right.inFlight) - Number(left.inFlight) ||
+          right.request.updatedAt.localeCompare(left.request.updatedAt),
+      );
+    const selected = mapped[0];
+    if (!selected) return null;
+    const actions: ProjectNowAction[] = [];
+    if (selected.status === 'waiting') {
+      actions.push({
+        kind: 'respond-to-request',
+        workItemId: selected.workItemId,
+        requestId: selected.request.id,
+        text: 'Respond to Codex.',
+      });
+    } else if (selected.status === 'unknown' || selected.status === 'checking') {
+      actions.push({
+        kind: 'check-execution',
+        workItemId: selected.workItemId,
+        requestId: selected.request.id,
+        text: 'Check this execution state.',
+      });
+      actions.push({
+        kind: 'open-request',
+        workItemId: selected.workItemId,
+        requestId: selected.request.id,
+        text: 'Open the Codex request.',
+      });
+    } else if (selected.inFlight) {
+      actions.push({
+        kind: 'open-request',
+        workItemId: selected.workItemId,
+        requestId: selected.request.id,
+        text: 'Open the Codex request.',
+      });
+    } else {
+      actions.push({
+        kind: 'review-result',
+        workItemId: selected.workItemId,
+        requestId: selected.request.id,
+        text: 'Review the returned result.',
+      });
+    }
+    return {
+      workItemId: selected.workItemId,
+      requestId: selected.request.id,
+      status: selected.status,
+      actions,
+    };
+  }
+
   private resultInfo(projectId: string, relations: WorkRelation[]): ResultInfo[] {
     const project = this.core.project(projectId);
     const ignored = new Set([
@@ -194,13 +282,17 @@ export class ProjectNowResolver {
       );
     return mappings.flatMap((decision) => {
       const requestId = decisionString(decision, 'requestId');
-      if (!requestId || ignored.has(requestId)) return [];
+      if (!requestId) return [];
       const request = this.core.repo.get('continuation', requestId);
       if (!request) return [];
+      const terminal = ['completed', 'failed', 'interrupted'].includes(
+        request.execution?.status ?? '',
+      );
+      const inFlight =
+        ['dispatching', 'sent', 'result-unknown'].includes(request.state) && !terminal;
+      if (ignored.has(request.id) && !inFlight) return [];
       const resultReady =
-        !!request.externalReport ||
-        ['completed', 'failed', 'interrupted'].includes(request.execution?.status ?? '') ||
-        request.state === 'failed';
+        terminal || (!inFlight && (!!request.externalReport || request.state === 'failed'));
       if (!resultReady) return [];
       const downstream = relations.filter(
         (relation) =>
@@ -615,6 +707,7 @@ export class ProjectNowResolver {
           ? ('changed' as const)
           : ('current' as const);
     const bootstrap = this.bootstrap(model, current, primaryDirection, matches);
+    const projectExecution = this.executionForWork(projectId);
 
     if (model.project.lifecycle === 'disconnected')
       return {
@@ -622,6 +715,7 @@ export class ProjectNowResolver {
         primaryDirectionId: primaryDirection?.id ?? null,
         currentWorkId: current?.id ?? null,
         currentWorkSelection: selection.selection,
+        execution: projectExecution,
         state: 'disconnected',
         currentState: 'The project is disconnected, so its current state cannot be checked.',
         uncertainty: 'Only the last saved StateCarry context is available.',
@@ -658,6 +752,7 @@ export class ProjectNowResolver {
     const currentResult = current
       ? results.find((result) => result.workItemId === current.id)
       : null;
+    const currentExecution = current ? this.executionForWork(projectId, current.id) : null;
     const otherResult = results.find((result) => result.workItemId !== current?.id) ?? null;
     const releaseAttention = this.core.releases.attention(projectId);
     let notice: ProjectNowNotice | null = conflict;
@@ -701,6 +796,7 @@ export class ProjectNowResolver {
         primaryDirectionId: primaryDirection?.id ?? null,
         currentWorkId: current?.id ?? null,
         currentWorkSelection: selection.selection,
+        execution: current ? this.executionForWork(projectId, current.id) : projectExecution,
         state: current ? nowState(current) : 'needs-direction',
         currentState: current
           ? `Current work: ${current.title}.`
@@ -737,6 +833,7 @@ export class ProjectNowResolver {
           primaryDirectionId: primaryDirection?.id ?? null,
           currentWorkId: null,
           currentWorkSelection: null,
+          execution: projectExecution,
           state: 'choose-work',
           currentState:
             proposalChoices.length === 1
@@ -764,6 +861,7 @@ export class ProjectNowResolver {
           primaryDirectionId: primaryDirection?.id ?? null,
           currentWorkId: null,
           currentWorkSelection: null,
+          execution: projectExecution,
           state: 'choose-work',
           currentState:
             open.length === 1
@@ -796,6 +894,7 @@ export class ProjectNowResolver {
             primaryDirectionId: null,
             currentWorkId: null,
             currentWorkSelection: null,
+            execution: projectExecution,
             state: 'idle',
             currentState:
               releaseAttention?.text ?? 'There is no current work or result that needs attention.',
@@ -823,6 +922,7 @@ export class ProjectNowResolver {
             primaryDirectionId: null,
             currentWorkId: null,
             currentWorkSelection: null,
+            execution: projectExecution,
             state: 'idle',
             currentState: 'No current direction is set. Saved project context remains available.',
             uncertainty: null,
@@ -848,6 +948,7 @@ export class ProjectNowResolver {
           primaryDirectionId: null,
           currentWorkId: null,
           currentWorkSelection: null,
+          execution: projectExecution,
           state: 'needs-direction',
           currentState: 'No confirmed current direction is available.',
           uncertainty: null,
@@ -869,6 +970,7 @@ export class ProjectNowResolver {
         primaryDirectionId: primaryDirection.id,
         currentWorkId: null,
         currentWorkSelection: null,
+        execution: projectExecution,
         state: releaseAttention ? 'complete' : 'choose-next-work',
         currentState: 'The current direction is active, but no work is selected to continue it.',
         uncertainty: null,
@@ -913,7 +1015,7 @@ export class ProjectNowResolver {
           : current.state === 'paused'
             ? 'This work is paused.'
             : null;
-    const currentState =
+    let currentState =
       recordedState ??
       match?.proposal.currentState ??
       returnPoint?.current ??
@@ -943,7 +1045,9 @@ export class ProjectNowResolver {
     let state: ProjectNow['state'] = nowState(current);
     const secondaryActions: ProjectNowAction[] = [];
 
-    if (currentResult) {
+    const preserveWorkDecision =
+      !!current && ['paused', 'stopped', 'completed'].includes(current.state);
+    if (currentResult && !preserveWorkDecision) {
       state = 'review';
       next = {
         kind: 'review-result',
@@ -951,7 +1055,7 @@ export class ProjectNowResolver {
         requestId: currentResult.request.id,
         text: `Review the result for ${current.title}.`,
       };
-    } else if (!primaryDirection && !bootstrap.directionDeferred) {
+    } else if (!primaryDirection && !bootstrap.directionDeferred && !preserveWorkDecision) {
       state = 'needs-direction';
       next = {
         kind: 'define-direction',
@@ -996,7 +1100,55 @@ export class ProjectNowResolver {
         next = { kind: 'choose-next-work', text: 'Decide the next work for this direction.' };
       }
     } else if (current.state === 'waiting') {
-      if (matchReviewAction) {
+      if (currentExecution?.status === 'waiting') {
+        state = 'waiting';
+        currentState = 'This work is waiting for your response to the Codex request.';
+        next = {
+          kind: 'respond-to-request',
+          workItemId: current.id,
+          requestId: currentExecution.requestId,
+          text: 'Respond to Codex before this work can continue.',
+        };
+      } else if (
+        currentExecution?.status === 'unknown' ||
+        currentExecution?.status === 'checking'
+      ) {
+        state = 'waiting';
+        currentState = 'This work is waiting while StateCarry checks the Codex request.';
+        next = {
+          kind: 'open-request',
+          workItemId: current.id,
+          requestId: currentExecution.requestId,
+          text: 'Check the Codex request before sending it again.',
+        };
+      } else if (currentExecution?.status === 'running') {
+        state = 'waiting';
+        currentState = 'This work is waiting for Codex to finish the request.';
+        if (recommendation.status === 'recommended' && recommendation.candidate) {
+          next =
+            recommendation.candidate.source === 'work-item'
+              ? {
+                  kind: 'start-work',
+                  workItemId: recommendation.candidate.id,
+                  text: `Work on ${recommendation.candidate.title} while this is waiting.`,
+                  reason: recommendation.reason ?? undefined,
+                  confidence: recommendation.confidence ?? undefined,
+                }
+              : {
+                  kind: 'choose-current-work',
+                  text: `Choose whether to work on ${recommendation.candidate.title} while this is waiting.`,
+                  reason: recommendation.reason ?? undefined,
+                  confidence: recommendation.confidence ?? undefined,
+                };
+        } else {
+          next = {
+            kind: 'open-request',
+            workItemId: current.id,
+            requestId: currentExecution.requestId,
+            text: 'Open the Codex request.',
+          };
+        }
+      } else if (matchReviewAction) {
         state = 'review';
         next = matchReviewAction;
       } else {
@@ -1070,6 +1222,50 @@ export class ProjectNowResolver {
       });
     }
 
+    const activeExecution =
+      currentExecution &&
+      ['checking', 'running', 'waiting', 'unknown'].includes(currentExecution.status);
+    if (activeExecution && current.state === 'active') {
+      state = 'waiting';
+      currentState =
+        currentExecution.status === 'waiting'
+          ? 'This work is waiting for your response to the Codex request.'
+          : currentExecution.status === 'unknown'
+            ? 'This work is waiting while you check the Codex request.'
+            : currentExecution.status === 'checking'
+              ? 'This work is waiting while StateCarry checks the Codex request.'
+              : 'This work is waiting for Codex to finish the request.';
+      if (currentExecution.status === 'waiting') {
+        next = {
+          kind: 'respond-to-request',
+          workItemId: current.id,
+          requestId: currentExecution.requestId,
+          text: 'Respond to Codex before this work can continue.',
+        };
+      } else if (currentExecution.status === 'unknown' || currentExecution.status === 'checking') {
+        next = {
+          kind: 'open-request',
+          workItemId: current.id,
+          requestId: currentExecution.requestId,
+          text: 'Check the Codex request before sending it again.',
+        };
+      } else if (
+        !(recommendation.status === 'recommended' && recommendation.candidate) &&
+        next?.kind === 'continue-work'
+      ) {
+        next = {
+          kind: 'open-request',
+          workItemId: current.id,
+          requestId: currentExecution.requestId,
+          text: 'Open the Codex request.',
+        };
+      }
+      for (let index = secondaryActions.length - 1; index >= 0; index--)
+        if (secondaryActions[index]?.kind === 'stop-work') secondaryActions.splice(index, 1);
+    }
+
+    const visibleExecution = currentExecution ?? this.executionForWork(projectId);
+
     if (releaseAttention && primaryDirection) {
       const releaseAction: ProjectNowAction = {
         kind: 'review-release',
@@ -1095,6 +1291,7 @@ export class ProjectNowResolver {
       primaryDirectionId: primaryDirection?.id ?? null,
       currentWorkId: current.id,
       currentWorkSelection: selection.selection,
+      execution: visibleExecution,
       state,
       currentState,
       uncertainty,

@@ -3,6 +3,7 @@ import {
   type ProjectNow,
   type ProjectNowAction,
   type ProjectNowBootstrap,
+  type ProjectNowExecution,
   type ProjectNowNotice,
   type ProjectNowRecommendationEvidenceGap,
   type WorkItem,
@@ -56,6 +57,13 @@ export type ProjectNowView = {
     completionCondition: string | null;
   } | null;
   state: ProjectNow['state'];
+  execution:
+    | (Omit<ProjectNowExecution, 'actions'> & {
+        workTitle: string;
+        text: string;
+        actions: PresentedProjectAction[];
+      })
+    | null;
   currentState: string;
   stillToCheck: string | null;
   nextText: string | null;
@@ -132,6 +140,12 @@ function actionLabel(kind: ProjectNowAction['kind']) {
       return 'Review release';
     case 'stop-work':
       return 'Stop work';
+    case 'check-execution':
+      return 'Check execution state';
+    case 'open-request':
+      return 'Open request';
+    case 'respond-to-request':
+      return 'Respond to Codex';
     case 'continue-despite-direction-conflict':
       return 'Continue anyway';
   }
@@ -304,6 +318,26 @@ export function presentProjectNow(model: ProjectModelView, now: ProjectNow): Pro
   if (model.project.id !== now.projectId) throw new Error('ProjectNow belongs to another project.');
   const work = currentWork(model, now);
   const direction = currentDirection(model, now);
+  const executionWork = now.execution
+    ? model.workItems.find((item) => item.id === now.execution?.workItemId)
+    : undefined;
+  const executionText = now.execution
+    ? now.execution.status === 'checking'
+      ? 'StateCarry is checking this request.'
+      : now.execution.status === 'running'
+        ? 'Codex is working on this request.'
+        : now.execution.status === 'waiting'
+          ? 'Codex needs your input before it can continue.'
+          : now.execution.status === 'unknown'
+            ? 'StateCarry could not confirm whether this request is still running. Check the Codex conversation before sending it again.'
+            : now.execution.status === 'reported'
+              ? 'A result you recorded is ready for your review.'
+              : now.execution.status === 'completed'
+                ? 'A result is ready for your review.'
+                : now.execution.status === 'failed'
+                  ? 'Codex reported that the request failed.'
+                  : 'The execution was interrupted before a result was returned.'
+    : null;
   return {
     project: {
       id: model.project.id,
@@ -322,6 +356,22 @@ export function presentProjectNow(model: ProjectModelView, now: ProjectNow): Pro
         }
       : null,
     state: now.state,
+    execution: now.execution
+      ? {
+          ...now.execution,
+          workTitle: executionWork?.title ?? 'Other work',
+          text: executionText!,
+          actions: now.execution.actions
+            .filter((action) => {
+              if (now.next?.kind === action.kind && now.next.requestId === action.requestId)
+                return false;
+              return !(
+                now.notice?.requestId === action.requestId && action.kind === 'review-result'
+              );
+            })
+            .map((action) => presentAction(action, 'secondary')),
+        }
+      : null,
     currentState: firstSentence(now.currentState),
     stillToCheck: now.uncertainty ? firstSentence(now.uncertainty, 220) : null,
     nextText: now.next ? firstSentence(now.next.text, 220) : null,

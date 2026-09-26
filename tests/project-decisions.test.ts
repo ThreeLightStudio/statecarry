@@ -389,6 +389,166 @@ describe('project decision loop', () => {
     expect(f.session.send).toHaveBeenCalledTimes(1);
     await expect(f.prepare('continue')).rejects.toMatchObject({ code: 'VALIDATION' });
   });
+  it('stores execution status changes and notifies the project-scoped update stream', async () => {
+    const f = fixture();
+    const request = (await f.prepare()).requests[0];
+    await f.command({ action: 'send', requestId: request.id });
+    f.setExecution({
+      status: 'completed',
+      report: 'The focused check passed.',
+      error: null,
+      questions: [],
+    });
+    const changed = vi.spyOn(f.core.events, 'changed');
+
+    await f.core.executions.sync(f.id, request.id);
+
+    expect(f.core.executions.view(f.id).requests[0].execution).toMatchObject({
+      status: 'completed',
+      report: 'The focused check passed.',
+    });
+    expect(changed).toHaveBeenCalledWith(f.id, 'execution');
+  });
+  it('records an honest unknown state after a failed check without sending again', async () => {
+    const f = fixture();
+    const request = (await f.prepare()).requests[0];
+    await f.command({ action: 'send', requestId: request.id });
+    vi.mocked(f.session.read!).mockRejectedValueOnce(new Error('transport detail'));
+
+    await expect(f.core.executions.sync(f.id, request.id)).rejects.toMatchObject({
+      code: 'SOURCE_UNAVAILABLE',
+    });
+
+    expect(f.core.executions.view(f.id).requests[0].execution).toMatchObject({
+      status: 'unknown',
+      error:
+        'StateCarry could not check this Codex request. Check the conversation before sending it again.',
+    });
+    await f.command({ action: 'send', requestId: request.id });
+    expect(f.session.send).toHaveBeenCalledOnce();
+  });
+  it('derives execution state in Project Now without changing the user-selected Work lifecycle', async () => {
+    const f = fixture();
+    const request = (await f.prepare()).requests[0];
+    await f.command({ action: 'send', requestId: request.id });
+    await f.command({ action: 'sync', requestId: request.id });
+
+    const selected = f.core.now.resolve(f.id);
+    expect(selected).toMatchObject({
+      currentWorkId: f.workItemId,
+      currentWorkSelection: 'user',
+      state: 'waiting',
+      execution: { requestId: request.id, status: 'running' },
+    });
+    expect(f.core.repo.get('workItem', f.workItemId)?.state).toBe('active');
+
+    f.core.projectModel.pauseWork(f.id, f.workItemId);
+    const paused = f.core.now.resolve(f.id);
+    expect(paused).toMatchObject({
+      currentWorkId: f.workItemId,
+      currentWorkSelection: 'user',
+      state: 'paused',
+      currentState: 'This work is paused.',
+      execution: { requestId: request.id, status: 'running' },
+    });
+    f.core.projectModel.completeWork(f.id, f.workItemId);
+    expect(f.core.now.resolve(f.id)).toMatchObject({
+      currentWorkId: f.workItemId,
+      currentWorkSelection: 'user',
+      state: 'complete',
+      currentState: 'This work is complete.',
+      execution: { requestId: request.id, status: 'running' },
+    });
+
+    const stopped = fixture();
+    const stoppedRequest = (await stopped.prepare()).requests[0];
+    await stopped.command({ action: 'send', requestId: stoppedRequest.id });
+    await stopped.command({ action: 'sync', requestId: stoppedRequest.id });
+    stopped.core.projectModel.stopWork(stopped.id, stopped.workItemId);
+    expect(stopped.core.now.resolve(stopped.id)).toMatchObject({
+      currentWorkId: stopped.workItemId,
+      currentWorkSelection: 'user',
+      state: 'stopped',
+      currentState: 'This work was stopped.',
+      execution: { requestId: stoppedRequest.id, status: 'running' },
+    });
+  });
+  it('does not let external reports, comparisons, closing, or acceptance hide an in-flight request', async () => {
+    const f = fixture();
+    const request = (await f.prepare()).requests[0];
+    await f.command({ action: 'send', requestId: request.id });
+    await f.command({ action: 'sync', requestId: request.id });
+    const current = f.core.repo.get('projectExecution', f.id)!;
+    f.core.repo.put('projectExecution', {
+      ...current,
+      accepted: [request.id],
+      closed: [request.id],
+    });
+
+    expect(f.core.now.resolve(f.id)).toMatchObject({
+      currentWorkId: f.workItemId,
+      execution: { requestId: request.id, status: 'running' },
+    });
+    await expect(
+      f.command({ action: 'record-result', requestId: request.id, report: 'It passed.' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+    await expect(
+      f.command({ action: 'close-request', requestId: request.id }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+    await expect(
+      f.command({ action: 'compare', requestId: request.id, outputLanguage: 'en' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+    await expect(f.command({ action: 'accept', requestId: request.id })).rejects.toMatchObject({
+      code: 'REVISION_CONFLICT',
+    });
+    await expect(f.prepare('continue')).rejects.toMatchObject({ code: 'VALIDATION' });
+    expect(f.session.send).toHaveBeenCalledOnce();
+  });
+  it('ignores a late execution read after service shutdown invalidates pending syncs', async () => {
+    const f = fixture();
+    const request = (await f.prepare()).requests[0];
+    await f.command({ action: 'send', requestId: request.id });
+    await f.command({ action: 'sync', requestId: request.id });
+    let resolveLate!: (value: SessionRun) => void;
+    vi.mocked(f.session.read!).mockImplementationOnce(
+      () => new Promise((resolve) => (resolveLate = resolve)),
+    );
+    const late = f.core.executions.sync(f.id, request.id);
+    f.core.executions.cancelPendingExecutionSyncs();
+    resolveLate({ status: 'completed', report: 'late result', error: null, questions: [] });
+    await late;
+
+    expect(f.core.executions.view(f.id).requests[0].execution).toMatchObject({
+      status: 'running',
+      report: '',
+    });
+  });
+  it('coalesces status reads and ignores a late response after an interrupt', async () => {
+    const f = fixture();
+    const request = (await f.prepare()).requests[0];
+    await f.command({ action: 'send', requestId: request.id });
+    f.setExecution({ status: 'running', report: '', error: null, questions: [] });
+    await f.command({ action: 'sync', requestId: request.id });
+
+    let resolveLate!: (value: SessionRun) => void;
+    vi.mocked(f.session.read!).mockImplementationOnce(
+      () => new Promise((resolve) => (resolveLate = resolve)),
+    );
+    const late = f.core.executions.sync(f.id, request.id);
+    void f.core.executions.sync(f.id, request.id);
+    expect(f.session.read).toHaveBeenCalledTimes(2);
+
+    await f.command({ action: 'interrupt', requestId: request.id });
+    f.setExecution({ status: 'interrupted', report: '', error: null, questions: [] });
+    await f.core.executions.sync(f.id, request.id, true);
+    resolveLate({ status: 'running', report: 'late', error: null, questions: [] });
+    await late;
+
+    expect(f.core.executions.view(f.id).requests[0].execution).toMatchObject({
+      status: 'interrupted',
+      report: '',
+    });
+  });
   it('rejects another project request and concurrent decision overwrite', async () => {
     const f = fixture();
     await expect(f.command({ action: 'sync', requestId: 'foreign' })).rejects.toMatchObject({

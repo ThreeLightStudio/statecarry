@@ -5,14 +5,70 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
+import type { SessionRun } from '@statecarry/contracts';
 import { StateCarry } from '@statecarry/core';
+import { BackgroundLoop } from '../apps/server/src/background';
 import { SQLiteRepository } from '../apps/server/src/adapters/sqlite';
 import { ChangeEvents, createHttpServer } from '../apps/server/src/http';
 import { HttpProjectGateway } from '../apps/web/src/adapters/project-gateway';
 import { HttpAnalysisGateway } from '../apps/web/src/adapters/analysis-gateway';
 import { harness, source } from './helpers';
 import { projectCandidate } from './project-fixtures';
-import { act, installBrowser, mountProjectRoot, toggleDetails } from './project-ui-fixtures';
+import {
+  act,
+  button,
+  installBrowser,
+  mountProjectRoot,
+  press,
+  toggleDetails,
+} from './project-ui-fixtures';
+
+class LoopbackEventSource extends EventTarget {
+  static port = 0;
+  private connection: ReturnType<typeof request>;
+
+  constructor(url: string) {
+    super();
+    this.connection = request(
+      {
+        hostname: '127.0.0.1',
+        port: LoopbackEventSource.port,
+        path: new URL(url, 'http://127.0.0.1').pathname,
+        headers: { Host: '127.0.0.1:4310' },
+      },
+      (response) => {
+        response.setEncoding('utf8');
+        let pending = '';
+        response.on('data', (chunk: string) => {
+          pending += chunk;
+          let boundary = pending.indexOf('\n\n');
+          while (boundary >= 0) {
+            const block = pending.slice(0, boundary);
+            pending = pending.slice(boundary + 2);
+            const event = block
+              .split('\n')
+              .find((line) => line.startsWith('event:'))
+              ?.slice('event:'.length)
+              .trim();
+            const data = block
+              .split('\n')
+              .filter((line) => line.startsWith('data:'))
+              .map((line) => line.slice('data:'.length).trim())
+              .join('\n');
+            if (event) this.dispatchEvent(new MessageEvent(event, { data }));
+            boundary = pending.indexOf('\n\n');
+          }
+        });
+      },
+    );
+    this.connection.on('error', () => this.dispatchEvent(new Event('error')));
+    this.connection.end();
+  }
+
+  close() {
+    this.connection.destroy();
+  }
+}
 
 it('uses the real client, HTTP and SQLite through analysis, selection, execution and restart', async () => {
   installBrowser();
@@ -27,6 +83,12 @@ it('uses the real client, HTTP and SQLite through analysis, selection, execution
     unknowns: ['This user-created task has no verified result yet.'],
   });
   h.summary.checkQuestion = async () => ({ checks: [], unknownsSafe: true });
+  let readExecution = async (): Promise<SessionRun> => ({
+    status: 'running',
+    report: '',
+    error: null,
+    questions: [],
+  });
   const session = {
     capability: () => ({
       create: 'supported' as const,
@@ -36,15 +98,11 @@ it('uses the real client, HTTP and SQLite through analysis, selection, execution
     }),
     create: vi.fn(async () => ({ threadId: 'native-execution' })),
     send: vi.fn(async () => ({ turnId: 'native-turn' })),
-    read: async () => ({
-      status: 'completed' as const,
-      report: 'The requested check passed.',
-      error: null,
-      questions: [],
-    }),
+    read: vi.fn(() => readExecution()),
     answer: async () => {},
     interrupt: async () => {},
   };
+  let events = new ChangeEvents();
   const makeCore = () =>
     new StateCarry(
       repo,
@@ -53,7 +111,7 @@ it('uses the real client, HTTP and SQLite through analysis, selection, execution
       h.navigator,
       h.core.clock,
       h.core.ids,
-      h.core.events,
+      events,
       session,
       {
         inspect: () => ({
@@ -79,12 +137,14 @@ it('uses the real client, HTTP and SQLite through analysis, selection, execution
       },
     );
   let core = makeCore();
-  let server = createHttpServer(core, new ChangeEvents(), '/tmp/no-web', 4310);
+  let server = createHttpServer(core, events, '/tmp/no-web', 4310);
   const listen = async () => {
     server.listen(0, '127.0.0.1');
     await once(server, 'listening');
     const address = server.address();
     if (!address || typeof address === 'string') throw new Error('Missing server address');
+    LoopbackEventSource.port = address.port;
+    vi.stubGlobal('EventSource', LoopbackEventSource);
     vi.stubGlobal(
       'fetch',
       (path: string, init?: RequestInit) =>
@@ -119,6 +179,7 @@ it('uses the real client, HTTP and SQLite through analysis, selection, execution
   const gateway = new HttpProjectGateway();
   const analysis = new HttpAnalysisGateway();
   let mounted: Awaited<ReturnType<typeof mountProjectRoot>> | undefined;
+  let background: BackgroundLoop | undefined;
   try {
     await listen();
     const created = await gateway.create({
@@ -200,66 +261,167 @@ it('uses the real client, HTTP and SQLite through analysis, selection, execution
       workItemId: userWork.id,
       turns: [{ question: 'What remains unverified?' }],
     });
-    let execution = await gateway.execution(id, { action: 'observe', outputLanguage: 'en' });
-    execution = await gateway.execution(
-      id,
-      {
-        action: 'prepare',
-        context: {
-          operation: 'verify',
-          workItemId: userWork.id,
-          basis: execution.record.observation!.basis,
-          scopeIds: [],
-        },
-        text: 'Check the user task.',
-        doneWhen: 'The result is reviewed.',
-        threadId: null,
-      },
-      execution.record.version,
-    );
-    const requestId = execution.requests[0].id;
+    window.history.replaceState(null, '', `#/project/${id}`);
+    mounted = await mountProjectRoot(gateway, analysis);
+    await act(async () => {
+      await vi.waitFor(() => expect(mounted!.host.textContent).toContain('User written task'));
+    });
+    await press(mounted.host, 'Continue work');
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(mounted!.host.querySelector('.pw-decision-confirm input')).toBeTruthy(),
+      );
+    });
+    const confirmation = mounted.host.querySelector<HTMLInputElement>(
+      '.pw-decision-confirm input',
+    )!;
+    await act(async () => {
+      await vi.waitFor(() => expect(confirmation.disabled).toBe(false));
+    });
+    await act(async () => confirmation.click());
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(button(mounted!.host, 'Prepare request for Codex').disabled).toBe(false),
+      );
+    });
+    await press(mounted.host, 'Prepare request for Codex');
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(mounted!.host.textContent).toContain('Your request is ready to review'),
+      );
+    });
+    const requestId = repo
+      .list('continuation')
+      .find((request) => request.target.payload.projectContext?.workItemId === userWork.id)!.id;
     expect(session.send).not.toHaveBeenCalled();
-    execution = await gateway.execution(
-      id,
-      { action: 'send', requestId },
-      execution.record.version,
-    );
-    execution = await gateway.execution(
-      id,
-      { action: 'sync', requestId },
-      execution.record.version,
-    );
-    expect(execution.record.accepted).toEqual([]);
-    execution = await gateway.execution(
-      id,
-      { action: 'compare', requestId, outputLanguage: 'en' },
-      execution.record.version,
-    );
-    execution = await gateway.execution(
-      id,
-      { action: 'accept', requestId },
-      execution.record.version,
-    );
-    expect(execution.record.accepted).toEqual([requestId]);
-    const saved = await gateway.now(id);
-    const calls = generate.mock.calls.length;
+    await press(mounted.host, 'Send to a new Codex conversation');
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(repo.get('continuation', requestId)?.execution?.status).toBe('running'),
+      );
+    });
+    expect(session.send).toHaveBeenCalledTimes(1);
+    await press(mounted.host, 'Back to current work');
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(mounted!.host.textContent).toContain('Codex is working on this request.'),
+      );
+    });
+    expect((await gateway.now(id)).now).toMatchObject({
+      currentWorkId: userWork.id,
+      currentWorkSelection: 'user',
+      execution: { workItemId: userWork.id, requestId, status: 'running' },
+    });
+    expect(repo.get('workItem', userWork.id)?.state).toBe('active');
+
+    const firstBackgroundTime = Date.now();
+    const executionBackground = new BackgroundLoop(core);
+    background = executionBackground;
+    executionBackground.deferExisting(firstBackgroundTime);
+    readExecution = async () => ({
+      status: 'waiting',
+      report: '',
+      error: null,
+      questions: [
+        {
+          id: 'input-needed',
+          kind: 'question',
+          title: 'A decision is needed',
+          detail: 'Choose the output format.',
+        },
+      ],
+    });
+    await act(async () => {
+      executionBackground.tick(firstBackgroundTime);
+      await vi.waitFor(() =>
+        expect(repo.get('continuation', requestId)?.execution?.status).toBe('waiting'),
+      );
+      await vi.waitFor(() =>
+        expect(mounted!.host.textContent).toContain(
+          'Codex needs your input before it can continue.',
+        ),
+      );
+    });
+    expect(button(mounted.host, 'Respond to Codex')).toBeTruthy();
+
+    readExecution = async () => {
+      throw new Error('The Codex conversation is temporarily unavailable.');
+    };
+    await act(async () => {
+      executionBackground.tick(firstBackgroundTime + 4_000);
+      await vi.waitFor(() =>
+        expect(repo.get('continuation', requestId)?.execution?.status).toBe('unknown'),
+      );
+      await vi.waitFor(() =>
+        expect(mounted!.host.textContent).toContain(
+          'StateCarry could not confirm whether this request is still running.',
+        ),
+      );
+    });
+    expect(button(mounted.host, 'Check execution state')).toBeTruthy();
+    expect(repo.get('workItem', userWork.id)?.state).toBe('active');
+    expect((await gateway.now(id)).now.currentWorkSelection).toBe('user');
+
+    await mounted.unmount();
+    mounted = undefined;
+    executionBackground.stop();
+    background = undefined;
     await close();
     repo.close();
     repo = new SQLiteRepository(directory);
+    events = new ChangeEvents();
     core = makeCore();
-    server = createHttpServer(core, new ChangeEvents(), '/tmp/no-web', 4310);
+    server = createHttpServer(core, events, '/tmp/no-web', 4310);
     await listen();
-    expect(await gateway.now(id)).toEqual(saved);
-    expect((await gateway.execution(id)).record.accepted).toEqual([requestId]);
+    expect((await gateway.now(id)).now).toMatchObject({
+      currentWorkId: userWork.id,
+      currentWorkSelection: 'user',
+      execution: { requestId, status: 'unknown' },
+    });
     expect(repo.list('workDiscussion')[0].workItemId).toBe(userWork.id);
+
+    readExecution = async () => ({
+      status: 'completed',
+      report: 'The requested check passed.',
+      error: null,
+      questions: [],
+    });
+    const restartTime = Date.now();
+    const restartedBackground = new BackgroundLoop(core);
+    background = restartedBackground;
+    restartedBackground.deferExisting(restartTime);
+    restartedBackground.tick(restartTime);
+    await vi.waitFor(() =>
+      expect(repo.get('continuation', requestId)?.execution?.status).toBe('completed'),
+    );
+    expect(repo.get('workItem', userWork.id)?.state).toBe('active');
+    expect((await gateway.now(id)).now.currentWorkSelection).toBe('user');
+
+    const calls = generate.mock.calls.length;
     mounted = await mountProjectRoot(gateway, analysis);
     await act(async () => {
       await vi.waitFor(() => expect(mounted!.host.textContent).toContain('Native lifecycle'));
     });
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(mounted!.host.textContent).toContain('A result is ready for your review.'),
+      );
+    });
+    await press(mounted.host, 'Review result');
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(mounted!.host.textContent).toContain('The requested check passed.'),
+      );
+      await vi.waitFor(() =>
+        expect(mounted!.host.textContent).toContain('Observed after the request'),
+      );
+    });
+    expect((await gateway.execution(id)).record.accepted).toEqual([]);
     expect(generate.mock.calls.length).toBe(calls);
     expect(repo.list('source')[0].text).toBe(source().text);
   } finally {
     await mounted?.unmount();
+    background?.stop();
     await close();
     repo.close();
     rmSync(directory, { recursive: true, force: true });

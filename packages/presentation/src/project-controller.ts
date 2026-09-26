@@ -310,6 +310,14 @@ export class ProjectController {
             change.projectId === this.value.route.projectId
           )
             return;
+          if (change.topic === 'execution' && change.projectId) {
+            if (
+              this.value.route.page !== 'project' ||
+              this.value.route.projectId !== change.projectId
+            )
+              void this.readProjectNow(change.projectId, { quiet: true, initialize: false });
+            return;
+          }
           this.scheduleRead();
           return;
         }

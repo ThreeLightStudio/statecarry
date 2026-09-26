@@ -213,7 +213,14 @@ export interface Identity {
 export interface Events {
   changed(
     projectId: string | null,
-    topic?: 'profile' | 'sources' | 'observation' | 'working-tree-analysis' | 'overview' | 'agent',
+    topic?:
+      | 'profile'
+      | 'sources'
+      | 'observation'
+      | 'working-tree-analysis'
+      | 'overview'
+      | 'agent'
+      | 'execution',
   ): void;
   /** Completes an observation that a concurrent reader may have seen in progress. */
   collectionSettled?(projectId: string): void;

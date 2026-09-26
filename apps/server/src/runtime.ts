@@ -106,6 +106,7 @@ export function createServerRuntime(options: ServerRuntimeOptions = {}) {
         clearInterval(timer);
         timer = null;
       }
+      background.stop();
       server.off('error', handleServerError);
       let failure: unknown = null;
       try {

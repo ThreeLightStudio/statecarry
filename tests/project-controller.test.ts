@@ -680,6 +680,34 @@ describe('project-oriented presentation and return memory', () => {
       vi.useRealTimers();
     }
   });
+  it('updates a background result for another project without moving the selected work or reloading everything', async () => {
+    vi.useFakeTimers();
+    const h = setup();
+    let changed!: Parameters<NonNullable<AnalysisGateway['subscribe']>>[0];
+    h.analysis.subscribe = (listener) => {
+      changed = listener;
+      return () => {};
+    };
+    const controller = h.controller();
+    try {
+      await controller.start({ page: 'project', projectId: 'b' });
+      const nowCallsBeforeResult = vi.mocked(h.gateway.now).mock.calls.length;
+      expect(controller.getSnapshot().route).toMatchObject({ page: 'project', projectId: 'b' });
+
+      changed({ projectId: 'a', topic: 'execution' });
+      await vi.advanceTimersByTimeAsync(1000);
+
+      expect(h.gateway.now).toHaveBeenCalledWith('a');
+      expect(vi.mocked(h.gateway.now).mock.calls.length).toBe(nowCallsBeforeResult + 1);
+      expect(h.gateway.list).toHaveBeenCalledTimes(1);
+      expect(controller.getSnapshot().route).toMatchObject({ page: 'project', projectId: 'b' });
+      expect(controller.getSnapshot().projectNow.a).toBeDefined();
+      expect(h.analysis.refresh).not.toHaveBeenCalled();
+    } finally {
+      controller.stop();
+      vi.useRealTimers();
+    }
+  });
   it('keeps original inspection open across unrelated changes but withdraws it immediately for its own project', async () => {
     vi.useFakeTimers();
     const h = setup();

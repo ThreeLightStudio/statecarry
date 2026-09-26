@@ -1704,6 +1704,8 @@ function projectNowActionEntryMode(
     case 'resume-work':
       return 'continue';
     case 'review-result':
+    case 'open-request':
+    case 'respond-to-request':
       return 'result';
     case 'review-direction':
     case 'define-direction':
@@ -1720,6 +1722,7 @@ function projectNowActionEntryMode(
     case 'start-work':
     case 'choose-current-work':
     case 'stop-work':
+    case 'check-execution':
     case 'continue-despite-direction-conflict':
       throw new Error(`Project action ${kind} is handled before action-mode entry.`);
   }
@@ -1743,7 +1746,17 @@ function ProjectNowProjectPage({
   const [mode, setMode] = useState<'default' | 'action'>('default');
   const [actionEntry, setActionEntry] = useState<ProjectNowActionEntry | null>(null);
   const [otherOpen, setOtherOpen] = useState(false);
+  const [checkingExecution, setCheckingExecution] = useState(false);
+  const [executionCheckError, setExecutionCheckError] = useState('');
   const requestedNow = useRef(false);
+  const pageMounted = useRef(false);
+
+  useEffect(() => {
+    pageMounted.current = true;
+    return () => {
+      pageMounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!view && !loading && !state.error && !requestedNow.current) {
@@ -1751,6 +1764,11 @@ function ProjectNowProjectPage({
       void controller.readProjectNow(project.id);
     }
   }, [controller, loading, project.id, state.error, view]);
+
+  useEffect(() => {
+    if (view?.state !== 'waiting' || !view.work || state.decisions[project.id]) return;
+    void controller.projectDecision(project.id).catch(() => {});
+  }, [controller, project.id, state.decisions, view?.state, view?.work?.id]);
 
   const openActionMode = (
     kind: PresentedProjectAction['kind'],
@@ -1796,6 +1814,30 @@ function ProjectNowProjectPage({
       await controller.continueDirectionConflict(project.id);
       return;
     }
+    if (action.kind === 'check-execution' && action.requestId) {
+      if (checkingExecution) return;
+      setCheckingExecution(true);
+      setExecutionCheckError('');
+      try {
+        await controller.projectDecision(project.id, {
+          action: 'sync',
+          requestId: action.requestId,
+        });
+        await controller.readProjectNow(project.id, { quiet: true, initialize: false });
+      } catch (cause) {
+        if (pageMounted.current) setExecutionCheckError(projectError(cause));
+      } finally {
+        if (pageMounted.current) setCheckingExecution(false);
+      }
+      return;
+    }
+    if (
+      (action.kind === 'open-request' || action.kind === 'respond-to-request') &&
+      action.requestId
+    ) {
+      openActionMode('review-result', action.workItemId, action.requestId);
+      return;
+    }
     openActionMode(action.kind, action.workItemId, action.requestId, action.releaseId);
   };
 
@@ -1820,7 +1862,6 @@ function ProjectNowProjectPage({
     view?.recommendation.status === 'recommended' &&
     !!view.recommendation.candidate &&
     view.primaryAction?.kind === 'choose-current-work';
-
   return (
     <div className="pw-project-detail pw-project-now-page">
       <RouteLink className="pw-project-back" href="#/projects" onNavigate={onNavigate}>
@@ -1923,6 +1964,30 @@ function ProjectNowProjectPage({
             <h2 id="pw-now-work-title">{projectNowHeading(view)}</h2>
 
             <p className="pw-now-current-state">{view.currentState}</p>
+
+            {view.execution && (
+              <div className="pw-now-execution-status">
+                {view.execution.workItemId !== view.work?.id && (
+                  <span className="pw-small">Request for {view.execution.workTitle}</span>
+                )}
+                <p role="status">{view.execution.text}</p>
+                <div className="pw-now-actions">
+                  {view.execution.actions.map((action) => (
+                    <Button
+                      key={`${action.kind}:${action.requestId ?? ''}`}
+                      className="pw-button pw-button--quiet"
+                      disabled={busy || (action.kind === 'check-execution' && checkingExecution)}
+                      onClick={() => void runAction(action)}
+                    >
+                      {action.kind === 'check-execution' && checkingExecution
+                        ? 'Checking execution state…'
+                        : action.label}
+                    </Button>
+                  ))}
+                </div>
+                {executionCheckError && <p role="alert">{executionCheckError}</p>}
+              </div>
+            )}
 
             {view.stillToCheck && (
               <div className="pw-now-uncertainty">
@@ -2045,6 +2110,23 @@ function ProjectNowProjectPage({
                 ))}
               </div>
             )}
+
+            {!recommendationReplacesNext &&
+              (!view.nextText || !view.primaryAction) &&
+              view.secondaryActions.length > 0 && (
+                <div className="pw-now-actions">
+                  {view.secondaryActions.map((action) => (
+                    <Button
+                      key={`${action.kind}:${action.workItemId ?? ''}:${action.requestId ?? ''}`}
+                      className="pw-button pw-button--quiet"
+                      disabled={busy}
+                      onClick={() => void runAction(action)}
+                    >
+                      {action.label}
+                    </Button>
+                  ))}
+                </div>
+              )}
 
             {!recommendationReplacesNext && view.nextText && view.primaryAction && (
               <div className="pw-now-next">

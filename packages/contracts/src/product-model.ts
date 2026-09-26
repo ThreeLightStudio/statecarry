@@ -274,6 +274,9 @@ export type ProjectNowAction = {
     | 'define-direction'
     | 'review-release'
     | 'stop-work'
+    | 'check-execution'
+    | 'open-request'
+    | 'respond-to-request'
     | 'continue-despite-direction-conflict';
   workItemId?: string;
   requestId?: string;
@@ -281,6 +284,21 @@ export type ProjectNowAction = {
   text: string;
   reason?: string;
   confidence?: 'high' | 'medium' | 'low';
+};
+
+export type ProjectNowExecution = {
+  workItemId: string;
+  requestId: string;
+  status:
+    | 'checking'
+    | 'running'
+    | 'waiting'
+    | 'unknown'
+    | 'reported'
+    | 'completed'
+    | 'failed'
+    | 'interrupted';
+  actions: ProjectNowAction[];
 };
 
 export type ProjectNowNotice = {
@@ -398,6 +416,8 @@ export type ProjectNow = {
   currentWorkId: string | null;
   /** Only a valid explicit user decision can set the current work. */
   currentWorkSelection: 'user' | null;
+  /** An execution status derived from a request mapped to Work; never persists a Work transition. */
+  execution?: ProjectNowExecution | null;
   state:
     | 'disconnected'
     | 'needs-direction'

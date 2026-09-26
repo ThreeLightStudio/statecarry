@@ -301,21 +301,30 @@ function RequestReport({
         and refresh before choosing another action.
       </p>
     );
+  const statusText =
+    request.state === 'prepared' && !request.externalReport
+      ? 'Your request is ready to review before anything is sent.'
+      : request.externalReport
+        ? 'You recorded an external result for this request.'
+        : request.state === 'failed' && !request.execution
+          ? 'StateCarry could not send this request. Review it before preparing another request.'
+          : request.execution?.status === 'waiting'
+            ? 'Codex needs your input before it can continue.'
+            : request.execution?.status === 'running'
+              ? 'Codex is working on this request.'
+              : request.execution?.status === 'failed'
+                ? 'The execution reported a failure.'
+                : request.execution?.status === 'interrupted'
+                  ? 'The execution was interrupted.'
+                  : request.execution?.status === 'completed'
+                    ? 'A result is recorded and is waiting for your review.'
+                    : request.execution?.status === 'unknown' ||
+                        ['dispatching', 'result-unknown'].includes(request.state)
+                      ? 'StateCarry could not confirm whether this request is still running. Check the Codex conversation before sending it again.'
+                      : 'The request is waiting for an execution update.';
   return (
     <>
-      <p role="status">
-        {request.state === 'prepared' && !request.externalReport
-          ? 'Your request is ready to review before anything is sent.'
-          : request.externalReport
-            ? 'You recorded an external result for this request.'
-            : request.execution?.status === 'failed'
-              ? 'The execution reported a failure.'
-              : request.execution?.status === 'interrupted'
-                ? 'The execution was interrupted.'
-                : request.execution?.status === 'completed'
-                  ? 'A result is recorded and is waiting for your review.'
-                  : 'The request is waiting for an execution update.'}
-      </p>
+      <p role="status">{statusText}</p>
       <details className="pw-details">
         <summary>Read the exact request</summary>
         <pre>{request.preparedText ?? request.target.payload.nextAction}</pre>
@@ -428,8 +437,9 @@ function RequestAction({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [externalReport, setExternalReport] = useState('');
-  const polling = useRef(false);
   const comparing = useRef(false);
+  const mounted = useRef(false);
+  const lastCheckedRequest = useRef<string | null>(null);
   const request = data?.requests.find((item) => item.id === requestId);
   const comparison = requestId ? data?.record.comparisons[requestId] : undefined;
   const canAccept =
@@ -440,6 +450,20 @@ function RequestAction({
     canAccept &&
     data?.record.policyConflict?.status === 'open' &&
     request?.target.payload.projectContext?.operation === 'policy';
+  const executionTerminal = ['completed', 'failed', 'interrupted'].includes(
+    request?.execution?.status ?? '',
+  );
+  const executionInFlight =
+    !!request &&
+    ['dispatching', 'sent', 'result-unknown'].includes(request.state) &&
+    !executionTerminal;
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const run = async (command: ProjectExecutionCommand, returnAfter = false) => {
     if (busy) return;
@@ -448,14 +472,15 @@ function RequestAction({
     setNotice('');
     try {
       const result = await controller.projectDecision(project.id, command);
+      if (!mounted.current) return undefined;
       await controller.readProjectNow(project.id);
-      if (returnAfter) onBack();
+      if (returnAfter && mounted.current) onBack();
       return result;
     } catch (cause) {
-      setError(projectError(cause));
+      if (mounted.current) setError(projectError(cause));
       return undefined;
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   };
 
@@ -463,36 +488,21 @@ function RequestAction({
     if (
       !request ||
       !['sent', 'dispatching', 'result-unknown'].includes(request.state) ||
+      lastCheckedRequest.current === request.id ||
       ['completed', 'failed', 'interrupted'].includes(request.execution?.status ?? '')
     )
       return;
+    lastCheckedRequest.current = request.id;
     let cancelled = false;
-    const poll = async () => {
-      if (cancelled || polling.current) return;
-      polling.current = true;
-      try {
-        await controller.projectDecision(project.id, { action: 'sync', requestId: request.id });
-      } catch (cause) {
-        if (!cancelled) setError(projectError(cause));
-      } finally {
-        polling.current = false;
-      }
-    };
-    void poll();
-    const timer = setInterval(() => void poll(), 3000);
+    void controller
+      .projectDecision(project.id, { action: 'sync', requestId: request.id })
+      .catch((cause) => {
+        if (!cancelled && mounted.current) setError(projectError(cause));
+      });
     return () => {
       cancelled = true;
-      clearInterval(timer);
     };
-  }, [
-    comparison,
-    controller,
-    project.id,
-    project.outputLanguage,
-    request?.execution?.status,
-    request?.id,
-    request?.state,
-  ]);
+  }, [controller, project.id, request?.execution?.status, request?.id, request?.state]);
 
   useEffect(() => {
     if (!request || request.execution?.status !== 'completed' || comparison || comparing.current)
@@ -540,9 +550,13 @@ function RequestAction({
       <h3>
         {request?.state === 'prepared' && !request.externalReport
           ? 'Your request is ready to review'
-          : terminal || request?.externalReport
-            ? 'Review the returned result'
-            : 'Your Codex request'}
+          : request?.state === 'failed' && !request.execution
+            ? 'The request could not be sent'
+            : request?.execution?.status === 'waiting'
+              ? 'Codex needs your input'
+              : terminal || request?.externalReport
+                ? 'Review the returned result'
+                : 'Your Codex request'}
       </h3>
       <RequestReport data={data} requestId={requestId} />
       {request && (
@@ -595,48 +609,54 @@ function RequestAction({
               </a>
             </p>
           )}
-          {request.execution?.questions.map((question) => (
-            <ExecutionQuestion
-              key={question.id}
-              question={question}
-              busy={busy}
-              onAnswer={(accept, answers) =>
-                void run({ action: 'answer', requestId, questionId: question.id, accept, answers })
-              }
-            />
-          ))}
-          {(request.state === 'prepared' || request.state === 'result-unknown') &&
-            !request.externalReport && (
-              <details className="pw-details">
-                <summary>Already ran this request outside StateCarry?</summary>
-                <p>
-                  Record what happened, including checks and remaining work. This records your
-                  report, not an independently verified result.
-                </p>
-                <label className="pw-field">
-                  External result
-                  <Textarea
-                    value={externalReport}
-                    maxLength={8000}
-                    onChange={(event) => setExternalReport(event.target.value)}
-                  />
-                </label>
-                <Button
-                  disabled={busy || !externalReport.trim()}
-                  onClick={() =>
-                    void run({
-                      action: 'record-result',
-                      requestId,
-                      report: externalReport.trim(),
-                    }).then((result) => {
-                      if (result) setExternalReport('');
-                    })
-                  }
-                >
-                  Record external result
-                </Button>
-              </details>
-            )}
+          {request.execution?.status === 'waiting' &&
+            request.execution.questions.map((question) => (
+              <ExecutionQuestion
+                key={question.id}
+                question={question}
+                busy={busy}
+                onAnswer={(accept, answers) =>
+                  void run({
+                    action: 'answer',
+                    requestId,
+                    questionId: question.id,
+                    accept,
+                    answers,
+                  })
+                }
+              />
+            ))}
+          {request.state === 'prepared' && !request.externalReport && (
+            <details className="pw-details">
+              <summary>Already ran this request outside StateCarry?</summary>
+              <p>
+                Record what happened, including checks and remaining work. This records your report,
+                not an independently verified result.
+              </p>
+              <label className="pw-field">
+                External result
+                <Textarea
+                  value={externalReport}
+                  maxLength={8000}
+                  onChange={(event) => setExternalReport(event.target.value)}
+                />
+              </label>
+              <Button
+                disabled={busy || !externalReport.trim()}
+                onClick={() =>
+                  void run({
+                    action: 'record-result',
+                    requestId,
+                    report: externalReport.trim(),
+                  }).then((result) => {
+                    if (result) setExternalReport('');
+                  })
+                }
+              >
+                Record external result
+              </Button>
+            </details>
+          )}
           {(request.state !== 'prepared' || request.externalReport) && (
             <div className="pw-actions">
               <Button
@@ -646,14 +666,20 @@ function RequestAction({
               >
                 Check execution state
               </Button>
-              <Button
-                disabled={busy}
-                onClick={() =>
-                  void run({ action: 'compare', requestId, outputLanguage: project.outputLanguage })
-                }
-              >
-                Compare with current project
-              </Button>
+              {!executionInFlight && (
+                <Button
+                  disabled={busy}
+                  onClick={() =>
+                    void run({
+                      action: 'compare',
+                      requestId,
+                      outputLanguage: project.outputLanguage,
+                    })
+                  }
+                >
+                  Compare with current project
+                </Button>
+              )}
               {['running', 'waiting'].includes(request.execution?.status ?? '') && (
                 <Button
                   variant="ghost"
