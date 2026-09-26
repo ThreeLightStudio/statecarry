@@ -308,13 +308,6 @@ export class ProjectController {
               void this.inspectWorkingTree(change.projectId);
             return;
           }
-          if (
-            change.topic === 'overview' &&
-            change.projectId &&
-            this.value.route.page === 'project' &&
-            change.projectId === this.value.route.projectId
-          )
-            return;
           if (change.topic === 'execution' && change.projectId) {
             if (
               this.value.route.page !== 'project' ||
