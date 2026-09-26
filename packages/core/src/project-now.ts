@@ -743,10 +743,14 @@ export class ProjectNowResolver {
 
     const conflict = this.directionConflict(projectId);
     const currentExecution = current ? this.executionForWork(projectId, current.id) : null;
+    const activeExecutionWaiting =
+      current?.state === 'active' &&
+      !!currentExecution &&
+      ['checking', 'running', 'waiting', 'unknown'].includes(currentExecution.status);
     const recommendation = this.workRecommendation(
       model,
       current,
-      currentExecution?.status === 'waiting',
+      activeExecutionWaiting,
       primaryDirection,
       conflict,
       otherWorkCandidates,
@@ -1227,10 +1231,7 @@ export class ProjectNowResolver {
       });
     }
 
-    const activeExecution =
-      currentExecution &&
-      ['checking', 'running', 'waiting', 'unknown'].includes(currentExecution.status);
-    if (activeExecution && current.state === 'active') {
+    if (activeExecutionWaiting && current) {
       state = 'waiting';
       currentState =
         currentExecution.status === 'waiting'

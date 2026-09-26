@@ -420,6 +420,25 @@ it('keeps another Work selected while a request completes across restart', async
     });
     expect(repo.list('workDiscussion')[0].workItemId).toBe(userWork.id);
 
+    const calls = generate.mock.calls.length;
+    window.history.replaceState(null, '', `#/project/${id}`);
+    mounted = await mountProjectRoot(gateway, analysis);
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(mounted!.host.querySelector('#pw-now-work-title')?.textContent).toBe(workB.title),
+      );
+      await vi.waitFor(() =>
+        expect(mounted!.host.textContent).toContain(
+          'StateCarry could not confirm whether this request is still running.',
+        ),
+      );
+    });
+    expect(mounted.host.textContent).toContain('Request for User written task');
+    expect(repo.get('workItem', userWork.id)?.state).toBe('active');
+    expect((await gateway.execution(id)).record.accepted).toEqual([]);
+    expect(session.send).toHaveBeenCalledTimes(1);
+    expect(generate.mock.calls.length).toBe(calls);
+
     readExecution = async () => ({
       status: 'completed',
       report: 'The requested check passed.',
@@ -430,32 +449,31 @@ it('keeps another Work selected while a request completes across restart', async
     const restartedBackground = new BackgroundLoop(core);
     background = restartedBackground;
     restartedBackground.deferExisting(restartTime);
-    restartedBackground.tick(restartTime);
-    await vi.waitFor(() =>
-      expect(repo.get('continuation', requestId)?.execution?.status).toBe('completed'),
-    );
+    await act(async () => {
+      restartedBackground.tick(restartTime);
+      await vi.waitFor(() =>
+        expect(repo.get('continuation', requestId)?.execution?.status).toBe('completed'),
+      );
+      await vi.waitFor(() =>
+        expect(mounted!.host.textContent).toContain(
+          'User written task has a result ready to review.',
+        ),
+      );
+      await vi.waitFor(() =>
+        expect(mounted!.host.querySelector('#pw-now-work-title')?.textContent).toBe(workB.title),
+      );
+    });
+    expect(mounted.host.textContent).toContain('A result is ready for your review.');
+    expect(mounted.host.textContent).toContain('Request for User written task');
     expect(repo.get('workItem', userWork.id)?.state).toBe('active');
     expect((await gateway.now(id)).now).toMatchObject({
       currentWorkId: selected,
       currentWorkSelection: 'user',
       execution: { workItemId: userWork.id, requestId, status: 'completed' },
     });
-
-    const calls = generate.mock.calls.length;
-    mounted = await mountProjectRoot(gateway, analysis);
-    await act(async () => {
-      await vi.waitFor(() => expect(mounted!.host.textContent).toContain('Native lifecycle'));
-    });
-    await act(async () => {
-      await vi.waitFor(() =>
-        expect(mounted!.host.textContent).toContain('A result is ready for your review.'),
-      );
-      await vi.waitFor(() =>
-        expect(mounted!.host.querySelector('#pw-now-work-title')?.textContent).toBe(workB.title),
-      );
-    });
-    expect(mounted.host.textContent).toContain('Request for User written task');
-    expect(mounted.host.textContent).toContain('User written task has a result ready to review.');
+    expect((await gateway.execution(id)).record.accepted).toEqual([]);
+    expect(session.send).toHaveBeenCalledTimes(1);
+    expect(generate.mock.calls.length).toBe(calls);
     await press(mounted.host, 'Review result');
     await act(async () => {
       await vi.waitFor(() =>

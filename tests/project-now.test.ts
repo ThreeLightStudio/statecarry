@@ -141,6 +141,30 @@ function resultRequest(
   } satisfies Continuation;
 }
 
+function linkExecution(
+  h: ReturnType<typeof harness>,
+  projectId: string,
+  workItemId: string,
+  status: 'running' | 'waiting',
+) {
+  const requestId = `request-${workItemId}`;
+  h.repo.put('workDecision', {
+    id: `execution-${workItemId}`,
+    projectId,
+    workItemId,
+    kind: workDecisionKinds.executionForWork,
+    value: { requestId },
+    basis: [],
+    state: 'valid',
+    decidedAt: AT,
+  });
+  const request = resultRequest(projectId, requestId);
+  h.repo.put('continuation', {
+    ...request,
+    execution: { status, report: '', error: null, questions: [] },
+  });
+}
+
 describe('ProjectNow resolver', () => {
   it('returns ordinary work from the saved return point without reconstructing the whole project', () => {
     const h = harness();
@@ -248,43 +272,54 @@ describe('ProjectNow resolver', () => {
     });
   });
 
-  it('recommends independent work when the active current work is waiting on Codex', () => {
+  it.each(['waiting', 'running'] as const)(
+    'recommends independent work when active work has a %s Codex execution',
+    (status) => {
+      const h = harness();
+      const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+      const projectId = receipt.projectId;
+      h.core.projectModel.view(projectId);
+      work(h, projectId, 'a', 'active', 'Wait for Codex result');
+      work(h, projectId, 'b', 'active', 'Small independent cleanup');
+      select(h, projectId, 'a');
+      observe(h, projectId);
+      linkExecution(h, projectId, 'a', status);
+
+      const now = h.core.now.resolve(projectId);
+
+      expect(h.repo.get('workItem', 'a')?.state).toBe('active');
+      expect(now).toMatchObject({
+        currentWorkId: 'a',
+        state: 'waiting',
+        execution: { status },
+        recommendation: {
+          status: 'recommended',
+          candidate: { id: 'b', source: 'work-item' },
+          selectionState: 'current-retained',
+        },
+      });
+    },
+  );
+
+  it('does not derive recommendation eligibility from a waiting execution on paused work', () => {
     const h = harness();
     const { receipt } = registerProject(h, { goal: 'Improve project return.' });
     const projectId = receipt.projectId;
     h.core.projectModel.view(projectId);
-    work(h, projectId, 'a', 'active', 'Wait for Codex result');
+    work(h, projectId, 'a', 'paused', 'Paused current work');
     work(h, projectId, 'b', 'active', 'Small independent cleanup');
     select(h, projectId, 'a');
     observe(h, projectId);
-    h.repo.put('workDecision', {
-      id: 'execution-a',
-      projectId,
-      workItemId: 'a',
-      kind: workDecisionKinds.executionForWork,
-      value: { requestId: 'request-a' },
-      basis: [],
-      state: 'valid',
-      decidedAt: AT,
-    });
-    const request = resultRequest(projectId, 'request-a');
-    h.repo.put('continuation', {
-      ...request,
-      execution: { status: 'waiting', report: '', error: null, questions: [] },
-    });
+    linkExecution(h, projectId, 'a', 'waiting');
 
     const now = h.core.now.resolve(projectId);
 
-    expect(h.repo.get('workItem', 'a')?.state).toBe('active');
+    expect(h.repo.get('workItem', 'a')?.state).toBe('paused');
     expect(now).toMatchObject({
       currentWorkId: 'a',
-      state: 'waiting',
+      state: 'paused',
       execution: { status: 'waiting' },
-      recommendation: {
-        status: 'recommended',
-        candidate: { id: 'b', source: 'work-item' },
-        selectionState: 'current-retained',
-      },
+      recommendation: { status: 'none', candidate: null },
     });
   });
 
