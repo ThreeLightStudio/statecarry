@@ -343,6 +343,12 @@ work preparation until a policy request has been reviewed against the current pr
 explicitly confirms the resolution. Policy requests belong to the project and do not require a
 current Work item. Older conflict records without a category keep their blocking policy meaning.
 
+An unresolved conflict cannot be replaced by a different conflict; resolve it through its
+matching route first. Re-recording the same open conflict preserves its identity. A policy
+request is tied to the conflict present when it was prepared. If that conflict changes, the
+old request cannot be sent, compared, reviewed, accepted, or used to resolve the new conflict.
+Legacy policy requests without that binding cannot act on an open conflict.
+
 ### Product availability and maintenance
 
 Work needed to keep the product usable or deliverable can outrank direction work.

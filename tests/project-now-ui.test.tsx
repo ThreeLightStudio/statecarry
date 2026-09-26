@@ -318,8 +318,19 @@ function nativeDecisionLifecycle(
   let data = structuredClone(initial);
   const decisionGateway = vi.fn(async (_id: string, command?: ProjectExecutionCommand) => {
     if (command?.action === 'prepare') {
-      const request = preparedRequest(command);
-      data = { ...data, record: { ...data.record, requests: [request.id] }, requests: [request] };
+      const boundCommand =
+        command.context.operation === 'policy' && data.policyConflictBasis
+          ? {
+              ...command,
+              context: { ...command.context, policyConflictBasis: data.policyConflictBasis },
+            }
+          : command;
+      const request = preparedRequest(boundCommand);
+      data = {
+        ...data,
+        record: { ...data.record, requests: [...new Set([...data.record.requests, request.id])] },
+        requests: [...data.requests.filter((item) => item.id !== request.id), request],
+      };
     }
     if (command?.action === 'keep')
       data = {
@@ -1865,12 +1876,27 @@ it('prepares a project policy request without a current work item or automatic s
     },
   }));
   const policyDecision = scopedDecision();
+  policyDecision.policyConflictBasis = 'policy-q-basis';
   policyDecision.record.policyConflict = {
     category: 'project-policy',
     description: 'The project must keep saved data local.',
     source: 'Project privacy policy',
     status: 'open',
   };
+  const stalePolicyRequest = preparedRequest({
+    action: 'prepare',
+    context: {
+      basis: 'scope-a',
+      scopeIds: [],
+      operation: 'policy',
+      policyConflictBasis: 'policy-p-basis',
+    },
+    text: 'Review earlier policy P.',
+    doneWhen: 'Earlier policy P was reviewed.',
+    threadId: null,
+  });
+  policyDecision.record.requests = [stalePolicyRequest.id];
+  policyDecision.requests = [stalePolicyRequest];
   const lifecycle = nativeDecisionLifecycle(h, policyDecision);
   window.history.replaceState(null, '', '#/project/alpha');
   const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);

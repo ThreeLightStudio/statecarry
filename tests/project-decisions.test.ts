@@ -208,8 +208,17 @@ describe('project decision loop', () => {
         threadId: null,
       }),
     ).rejects.toMatchObject({ code: 'VALIDATION' });
+    await f.command({
+      action: 'conflict',
+      category: 'project-policy',
+      description: 'The project must keep saved data local.',
+      source: 'Project privacy policy',
+    });
     const policy = await f.prepare('policy');
     expect(policy.requests[0].target.payload.projectContext?.workItemId).toBeUndefined();
+    expect(policy.requests[0].target.payload.projectContext?.policyConflictBasis).toEqual(
+      expect.any(String),
+    );
     expect(f.h.repo.list('workItem')).toEqual(before);
   });
 
@@ -357,6 +366,7 @@ describe('project decision loop', () => {
         .list('workDecision')
         .some((decision) => decision.kind === 'continue-direction-conflict'),
     ).toBe(true);
+    await f.command({ action: 'resolve-direction', text: 'Improve the export workflow.' });
     await f.command({
       action: 'conflict',
       category: 'project-policy',
@@ -374,6 +384,37 @@ describe('project decision loop', () => {
     await f.command({ action: 'direction', text: 'Keep all storage local.', finish: false });
     expect(f.core.now.resolve(f.id).notice).toMatchObject({ kind: 'project-policy-conflict' });
     await expect(f.prepare('continue')).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('preserves an unresolved project policy conflict when a direction conflict is recorded', async () => {
+    const f = fixture();
+    await f.command({
+      action: 'conflict',
+      category: 'project-policy',
+      description: 'The project must keep saved data local.',
+      source: 'Project privacy policy',
+    });
+    const policyConflict = f.core.executions.view(f.id).record.policyConflict;
+
+    await expect(
+      f.command({
+        action: 'conflict',
+        category: 'purpose-direction',
+        description: 'The current direction conflicts with the project purpose.',
+        source: 'project purpose and active direction',
+      }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+
+    expect(f.core.executions.view(f.id).record.policyConflict).toEqual(policyConflict);
+    expect(f.core.now.resolve(f.id).notice).toMatchObject({ kind: 'project-policy-conflict' });
+    expect(() => f.core.projectModel.continueDirectionConflict(f.id)).toThrow(
+      expect.objectContaining({ code: 'VALIDATION' }),
+    );
+    await expect(f.prepare('continue')).rejects.toMatchObject({ code: 'VALIDATION' });
+    const policyReview = await f.prepare('policy', []);
+    expect(policyReview.requests[0].target.payload.projectContext?.policyConflictBasis).toEqual(
+      expect.any(String),
+    );
   });
 
   it('reads legacy conflict records as blocking project policy conflicts', async () => {
@@ -426,6 +467,16 @@ describe('project decision loop', () => {
       category: 'purpose-direction',
       status: 'open',
     });
+    const directionConflictId = f.core.executions.view(f.id).record.policyConflict?.id;
+    await f.command({
+      action: 'conflict',
+      category: 'purpose-direction',
+      description: 'The current direction conflicts with the project purpose.',
+      source: 'project purpose and active direction',
+    });
+    expect(f.core.executions.view(f.id).record.policyConflict?.id).toBe(directionConflictId);
+    expect(f.core.executions.hasDirectionConflictOverride(f.id)).toBe(true);
+    expect(f.core.now.resolve(f.id).notice).toBeNull();
     const prepared = await f.prepare('continue');
     expect(prepared.requests[0].state).toBe('prepared');
     expect(f.session.create).not.toHaveBeenCalled();
@@ -461,6 +512,101 @@ describe('project decision loop', () => {
     });
     expect(f.core.now.resolve(f.id).notice).toMatchObject({ kind: 'direction-conflict' });
     await expect(f.prepare('continue')).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('binds a policy request to the conflict it reviewed across later conflicts', async () => {
+    const f = fixture();
+    await f.command({ action: 'observe', outputLanguage: 'en' });
+    await f.command({
+      action: 'conflict',
+      category: 'project-policy',
+      description: 'Policy P requires local storage.',
+      source: 'Policy P',
+    });
+    const request = (await f.prepare('policy', [])).requests[0];
+    const policyConflictBasis = request.target.payload.projectContext?.policyConflictBasis;
+    expect(policyConflictBasis).toEqual(expect.any(String));
+
+    await f.command({
+      action: 'record-result',
+      requestId: request.id,
+      report: 'Policy P was reviewed against the current project.',
+    });
+    await f.command({ action: 'compare', requestId: request.id, outputLanguage: 'en' });
+    await f.command({ action: 'resolve-conflict', requestId: request.id });
+    expect(f.core.executions.view(f.id).record.policyConflict?.status).toBe('resolved');
+
+    await f.command({
+      action: 'conflict',
+      category: 'project-policy',
+      description: 'Policy Q requires encrypted local storage.',
+      source: 'Policy Q',
+    });
+    expect(f.core.executions.view(f.id).record.observation?.basis).toBe('basis-1');
+    expect(f.core.executions.view(f.id).record.comparisons[request.id]?.basis).toBe('basis-1');
+    await expect(
+      f.command({ action: 'resolve-conflict', requestId: request.id }),
+    ).rejects.toMatchObject({ code: 'REVISION_CONFLICT' });
+    await expect(f.command({ action: 'review', requestId: request.id })).rejects.toMatchObject({
+      code: 'REVISION_CONFLICT',
+    });
+    await expect(
+      f.command({ action: 'compare', requestId: request.id, outputLanguage: 'en' }),
+    ).rejects.toMatchObject({ code: 'REVISION_CONFLICT' });
+    await expect(f.command({ action: 'send', requestId: request.id })).rejects.toMatchObject({
+      code: 'REVISION_CONFLICT',
+    });
+    await expect(f.command({ action: 'accept', requestId: request.id })).rejects.toMatchObject({
+      code: 'REVISION_CONFLICT',
+    });
+    expect(f.core.executions.view(f.id).record.accepted).toEqual([]);
+    expect(f.core.executions.view(f.id).record.policyConflict).toMatchObject({
+      description: 'Policy Q requires encrypted local storage.',
+      status: 'open',
+    });
+    expect(f.session.create).not.toHaveBeenCalled();
+    expect(f.session.send).not.toHaveBeenCalled();
+  });
+
+  it('blocks legacy policy requests without a saved conflict basis', async () => {
+    const f = fixture();
+    await f.command({ action: 'observe', outputLanguage: 'en' });
+    f.h.repo.put('projectScope', {
+      id: f.id,
+      projectId: f.id,
+      version: 1,
+      kept: [],
+      corrections: {},
+      policyConflict: {
+        description: 'The project must keep its saved data local.',
+        source: 'Legacy project policy',
+        status: 'open',
+      },
+    });
+    const request = (await f.prepare('policy', [])).requests[0];
+    const context = request.target.payload.projectContext;
+    if (!context) throw new Error('Expected a policy request context.');
+    const legacyContext = { ...context };
+    delete legacyContext.policyConflictBasis;
+    f.h.repo.put('continuation', {
+      ...request,
+      target: {
+        ...request.target,
+        payload: { ...request.target.payload, projectContext: legacyContext },
+      },
+    });
+
+    await expect(f.command({ action: 'send', requestId: request.id })).rejects.toMatchObject({
+      code: 'REVISION_CONFLICT',
+    });
+    await expect(f.command({ action: 'review', requestId: request.id })).rejects.toMatchObject({
+      code: 'REVISION_CONFLICT',
+    });
+    await expect(
+      f.command({ action: 'resolve-conflict', requestId: request.id }),
+    ).rejects.toMatchObject({ code: 'REVISION_CONFLICT' });
+    expect(f.session.create).not.toHaveBeenCalled();
+    expect(f.session.send).not.toHaveBeenCalled();
   });
   it('records an explicit no-direction choice and clears it when a direction is later saved', async () => {
     const f = fixture();
@@ -889,7 +1035,11 @@ describe('project decision loop', () => {
 
       expect(prepared.requests[0]).toMatchObject({
         state: 'prepared',
-        target: { payload: { projectContext: { operation: 'policy' } } },
+        target: {
+          payload: {
+            projectContext: { operation: 'policy', policyConflictBasis: expect.any(String) },
+          },
+        },
       });
       expect(prepared.requests[0].target.payload.projectContext).not.toHaveProperty('workItemId');
       expect(f.core.projectModel.view(f.id).workItems).toEqual([]);

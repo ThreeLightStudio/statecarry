@@ -815,6 +815,69 @@ describe('ProjectNow resolver', () => {
     });
   });
 
+  it.each(['running', 'completed'] as const)(
+    'keeps selected Work B and its %s execution visible during a policy conflict',
+    async (status) => {
+      const h = harness();
+      const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+      const projectId = receipt.projectId;
+      h.core.projectModel.view(projectId);
+      work(h, projectId, 'a', 'active', 'Other work');
+      work(h, projectId, 'b', 'active', 'Selected work B');
+      select(h, projectId, 'b');
+      observe(h, projectId);
+
+      h.repo.put('workDecision', {
+        id: 'execution-b',
+        projectId,
+        workItemId: 'b',
+        kind: workDecisionKinds.executionForWork,
+        value: { requestId: 'request-b' },
+        basis: [],
+        state: 'valid',
+        decidedAt: AT,
+      });
+      const request = resultRequest(projectId, 'request-b');
+      h.repo.put('continuation', {
+        ...request,
+        execution: {
+          status,
+          report: status === 'completed' ? 'Work B result is ready.' : '',
+          error: null,
+          questions: [],
+        },
+      });
+
+      await h.core.executions.command(
+        projectId,
+        {
+          action: 'conflict',
+          category: 'project-policy',
+          description: 'The project must keep its saved data local.',
+          source: 'Project privacy policy',
+        },
+        h.core.executions.view(projectId).record.version,
+      );
+
+      expect(h.core.now.resolve(projectId)).toMatchObject({
+        currentWorkId: 'b',
+        currentWorkSelection: 'user',
+        execution: { workItemId: 'b', requestId: 'request-b', status },
+        next: { kind: 'review-project-policy' },
+        notice: { kind: 'project-policy-conflict' },
+      });
+      expect(h.core.executions.view(projectId).record).toMatchObject({
+        requests: [],
+        accepted: [],
+      });
+      expect(h.repo.get('workDecision', 'select:b')).toMatchObject({
+        workItemId: 'b',
+        state: 'valid',
+      });
+      expect(h.repo.get('continuation', 'request-b')?.execution?.status).toBe(status);
+    },
+  );
+
   it('keeps completed current work and routes queued completion conflicts to work choices', () => {
     const h = harness();
     const { receipt } = registerProject(h, { goal: 'Improve project return.' });

@@ -72,6 +72,7 @@ export const projectExecutionContextSchema = z
     scopeIds: z.array(z.string().min(1).max(256)).max(300),
     operation: decisionOperationSchema,
     workItemId: z.string().min(1).max(250).optional(),
+    policyConflictBasis: z.string().min(1).max(256).optional(),
   })
   .strict();
 export type ProjectExecutionContext = z.infer<typeof projectExecutionContextSchema>;
@@ -102,6 +103,7 @@ export type ProjectActionState = ProjectScopeRecord & ProjectExecutionRecord;
 export type ProjectExecutionWorkspace = {
   analysisCurrent: boolean;
   scopeCurrent: boolean;
+  policyConflictBasis?: string | null;
   record: ProjectActionState & {
     direction: { text: string; status: 'confirmed' | 'finished'; at: string } | null;
   };

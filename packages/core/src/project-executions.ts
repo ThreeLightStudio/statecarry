@@ -189,6 +189,45 @@ export class ProjectExecutions {
     };
   }
 
+  private activePolicyConflictBasis(id: string, conflict = this.record(id).policyConflict) {
+    if (
+      !conflict ||
+      conflict.status !== 'open' ||
+      projectConflictCategory(conflict) !== 'project-policy'
+    )
+      return null;
+    return this.core.ids.hash([
+      'project-policy-conflict',
+      conflict.id ?? '',
+      conflict.description,
+      conflict.source,
+    ]);
+  }
+
+  private bindPolicyConflictBasis(id: string, context: ProjectExecutionContext) {
+    const cleanContext = { ...context };
+    delete cleanContext.policyConflictBasis;
+    if (context.operation !== 'policy') return cleanContext;
+    const policyConflictBasis = this.activePolicyConflictBasis(id);
+    if (!policyConflictBasis)
+      throw new DomainError(
+        'VALIDATION',
+        'Record an open project policy conflict before preparing its review.',
+      );
+    return { ...cleanContext, policyConflictBasis };
+  }
+
+  private validatePolicyConflictBasis(id: string, context: ProjectExecutionContext) {
+    if (context.operation !== 'policy') return;
+    const currentBasis = this.activePolicyConflictBasis(id);
+    if (!currentBasis || context.policyConflictBasis !== currentBasis)
+      throw new DomainError(
+        'REVISION_CONFLICT',
+        'The project policy conflict changed. Review the current conflict before continuing.',
+        409,
+      );
+  }
+
   directionConflictKey(
     id: string,
     conflict: ProjectConflict | null = this.record(id).policyConflict,
@@ -318,6 +357,7 @@ export class ProjectExecutions {
     return {
       record,
       workspace,
+      policyConflictBasis: this.activePolicyConflictBasis(id),
       scopeCurrent:
         !!record.observation &&
         record.observedWorkspaceBasis === this.core.projects.latestObservation(id)?.semanticKey,
@@ -342,6 +382,7 @@ export class ProjectExecutions {
         'The change scope is not current. Check the project and review the scope again.',
         409,
       );
+    this.validatePolicyConflictBasis(id, context);
     if (context.scopeIds.some((key) => !scope.scopes.some((item) => item.id === key)))
       throw new DomainError(
         'VALIDATION',
@@ -510,19 +551,40 @@ export class ProjectExecutions {
         this.core.projectModel.deferDirection(id);
         break;
       case 'conflict':
-        this.save(id, (r) => ({
-          ...r,
-          policyConflict: {
-            id: this.core.ids.next(),
-            category: input.category,
-            description: input.description,
-            source: input.source,
-            status: 'open',
-          },
-        }));
+        {
+          const current = this.record(id).policyConflict;
+          const sameOpenConflict =
+            current?.status === 'open' &&
+            projectConflictCategory(current) === input.category &&
+            current.description === input.description &&
+            current.source === input.source;
+          if (current?.status === 'open' && !sameOpenConflict)
+            throw new DomainError(
+              'VALIDATION',
+              'Resolve the current conflict before recording another one.',
+            );
+          const conflictId = sameOpenConflict && current?.id ? current.id : this.core.ids.next();
+          this.save(id, (r) => ({
+            ...r,
+            policyConflict: {
+              id: conflictId,
+              category: input.category,
+              description: input.description,
+              source: input.source,
+              status: 'open',
+            },
+          }));
+        }
         break;
       case 'resolve-conflict': {
         const request = this.request(id, input.requestId);
+        const context = request.target.payload.projectContext;
+        if (context?.operation !== 'policy')
+          throw new DomainError(
+            'VALIDATION',
+            'This request was not prepared for a project policy conflict.',
+          );
+        this.validatePolicyConflictBasis(id, context);
         const conflict = this.record(id).policyConflict;
         if (
           request.target.payload.projectContext?.operation !== 'policy' ||
@@ -545,10 +607,11 @@ export class ProjectExecutions {
         break;
       }
       case 'prepare': {
+        const context = this.bindPolicyConflictBasis(id, input.context);
         if (!input.context.workItemId && !['direction', 'policy'].includes(input.context.operation))
           throw new DomainError('VALIDATION', 'Choose a task before preparing its execution.');
-        if (input.context.workItemId) {
-          const item = this.core.repo.get('workItem', input.context.workItemId);
+        if (context.workItemId) {
+          const item = this.core.repo.get('workItem', context.workItemId);
           if (!item || item.projectId !== id)
             throw new DomainError('NOT_FOUND', 'The selected work is no longer available.', 404);
         }
@@ -562,7 +625,7 @@ export class ProjectExecutions {
             'VALIDATION',
             'Check the existing execution before preparing another request.',
           );
-        this.validate(id, input.context);
+        this.validate(id, context);
         const work = this.core.project(id);
         const request = this.core.continuations.prepare(id, {
           requestId: this.core.ids.next(),
@@ -571,7 +634,7 @@ export class ProjectExecutions {
             targetMode: input.threadId ? 'existing-session' : 'new-session',
             threadId: input.threadId,
             payload: {
-              projectContext: input.context,
+              projectContext: context,
               goal:
                 this.core.projectModel
                   .directions(id)
@@ -586,19 +649,14 @@ export class ProjectExecutions {
             },
           },
         });
-        if (input.context.workItemId)
+        if (context.workItemId)
           this.core.repo.put('workDecision', {
-            id: this.core.ids.hash([
-              'execution-for-work',
-              id,
-              input.context.workItemId,
-              request.id,
-            ]),
+            id: this.core.ids.hash(['execution-for-work', id, context.workItemId, request.id]),
             projectId: id,
-            workItemId: input.context.workItemId,
+            workItemId: context.workItemId,
             kind: workDecisionKinds.executionForWork,
             value: { requestId: request.id },
-            basis: [input.context.basis],
+            basis: [context.basis],
             state: 'valid',
             decidedAt: this.core.clock.now(),
           });
@@ -670,6 +728,8 @@ export class ProjectExecutions {
       }
       case 'send': {
         const request = this.request(id, input.requestId);
+        const context = request.target.payload.projectContext;
+        if (context?.operation === 'policy') this.validatePolicyConflictBasis(id, context);
         if (
           this.record(id).closed?.includes(request.id) ||
           this.record(id).accepted.includes(request.id) ||
@@ -738,6 +798,8 @@ export class ProjectExecutions {
       }
       case 'compare': {
         const request = this.request(id, input.requestId);
+        const context = request.target.payload.projectContext;
+        if (context?.operation === 'policy') this.validatePolicyConflictBasis(id, context);
         if (this.inFlight(request))
           throw new DomainError(
             'VALIDATION',
@@ -774,6 +836,8 @@ export class ProjectExecutions {
       }
       case 'accept': {
         const request = this.request(id, input.requestId);
+        const context = request.target.payload.projectContext;
+        if (context?.operation === 'policy') this.validatePolicyConflictBasis(id, context);
         const comparison = this.record(id).comparisons[input.requestId];
         if (
           this.inFlight(request) ||

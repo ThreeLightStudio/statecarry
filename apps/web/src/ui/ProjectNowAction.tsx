@@ -836,7 +836,9 @@ function ScopeAction({
           const context = request.target.payload.projectContext;
           return (
             (projectPolicy
-              ? context?.operation === 'policy'
+              ? context?.operation === 'policy' &&
+                !!context.policyConflictBasis &&
+                context.policyConflictBasis === data.policyConflictBasis
               : !!work && context?.workItemId === work.id) &&
             !data.record.accepted.includes(request.id) &&
             !data.record.closed?.includes(request.id)
