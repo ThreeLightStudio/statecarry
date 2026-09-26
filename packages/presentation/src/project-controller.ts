@@ -14,7 +14,7 @@ import {
 } from '@statecarry/contracts';
 import type { AnalysisGateway } from './analysis';
 import { presentProjectAnalysis, analysisHandoffText } from './analysis';
-import type { AnalysisMemory, ProjectDrafts } from './project-drafts';
+import type { AnalysisMemory, ProjectDrafts, ProjectNowUiMemory } from './project-drafts';
 import {
   presentProjectCompact,
   presentProjectNow,
@@ -1298,7 +1298,15 @@ export class ProjectController {
     });
   }
   recordScroll(id: string, scroll: number) {
-    this.edit(id, (old) => ({ ...old, scroll: Math.max(0, scroll) }));
+    const value = Math.max(0, scroll);
+    this.edit(id, (old) => ({
+      ...old,
+      scroll: value,
+      ...(old.projectNowUi ? { projectNowUi: { ...old.projectNowUi, scroll: value } } : {}),
+    }));
+  }
+  recordProjectNowUi(id: string, value: ProjectNowUiMemory) {
+    this.edit(id, (old) => ({ ...old, projectNowUi: value }));
   }
   expand(id: string, key: string, open: boolean) {
     this.edit(id, (old) => ({

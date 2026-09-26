@@ -21,7 +21,9 @@ import {
   settle,
   toggleDetails,
   typeField,
+  go,
 } from './project-ui-fixtures';
+import { LocalProjectDraftMemory } from '../apps/web/src/adapters/project-draft-memory';
 
 const noRecommendation: ProjectNow['recommendation'] = {
   status: 'none',
@@ -2941,6 +2943,329 @@ it('keeps an unchanged kept scope out of the active work default decision', asyn
     expect(
       lifecycle.decisionGateway.mock.calls.some(([, command]) => command?.action === 'keep'),
     ).toBe(false);
+  } finally {
+    await mounted.unmount();
+  }
+});
+
+it('restores a recent action draft, disclosures, and scroll after leaving and returning to a project', async () => {
+  const h = projectUiFixture([projectEntry('alpha')]);
+  const data = bundle();
+  h.projectGateway.now = vi.fn(async () => ({
+    initialized: true,
+    model: structuredClone(data.model),
+    now: data.current('work-a'),
+  }));
+  nativeDecisionLifecycle(h, scopedDecision());
+  window.history.replaceState(null, '', '#/project/alpha');
+  const mounted = await mountProjectRoot(
+    h.projectGateway,
+    h.analysisGateway,
+    new LocalProjectDraftMemory(() => window.localStorage),
+  );
+  const scrollY = Object.getOwnPropertyDescriptor(window, 'scrollY');
+  Object.defineProperty(window, 'scrollY', { configurable: true, value: 420 });
+  window.dispatchEvent(new Event('scroll'));
+  const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+  try {
+    const otherWork = [...mounted.host.querySelectorAll('summary')].find((item) =>
+      item.textContent?.startsWith('Other work ·'),
+    );
+    expect(otherWork).toBeTruthy();
+    await act(async () => otherWork!.click());
+    await settle();
+    await toggleDetails(mounted.host, 'Project context');
+    await press(mounted.host, 'Continue work');
+    await typeField(
+      mounted.host,
+      '[aria-label="Review request"] textarea',
+      'Keep this unfinished review request.',
+    );
+
+    await go('#/home');
+    const savedUi = JSON.parse(storage.getItem('statecarry.project-drafts.v3.alpha')!).state
+      .projectNowUi;
+    expect(savedUi.scroll).toBe(420);
+    expect(savedUi.basis).toContain('scope-a');
+    expect(savedUi).toMatchObject({
+      screen: 'action',
+      activity: 'action',
+      actionEntry: { kind: 'continue-work', selectionKey: 'work-a', mode: 'continue' },
+    });
+    expect(
+      new LocalProjectDraftMemory(() => window.localStorage).read('alpha')?.projectNowUi,
+    ).toBeTruthy();
+    await go('#/project/alpha');
+    await settle();
+    expect(mounted.host.querySelector('.pw-now-action-mode')).not.toBeNull();
+    expect(
+      mounted.host.querySelector<HTMLTextAreaElement>('[aria-label="Review request"] textarea')
+        ?.value,
+    ).toBe('Keep this unfinished review request.');
+    expect(scrollTo).toHaveBeenCalledWith(0, 420);
+
+    await press(mounted.host, 'Back to current work');
+    const restoredDetails = [...mounted.host.querySelectorAll('details')];
+    expect(
+      restoredDetails.find(
+        (item) => item.querySelector('summary')?.textContent === 'Project context',
+      )?.open,
+    ).toBe(true);
+    expect(
+      restoredDetails.find((item) =>
+        item.querySelector('summary')?.textContent?.startsWith('Other work ·'),
+      )?.open,
+    ).toBe(true);
+  } finally {
+    scrollTo.mockRestore();
+    if (scrollY) Object.defineProperty(window, 'scrollY', scrollY);
+    await mounted.unmount();
+  }
+});
+
+it('returns to the base work view after a long absence and resumes only after rechecking', async () => {
+  const h = projectUiFixture([projectEntry('alpha')]);
+  const data = bundle();
+  const nowRead = vi.fn(async () => ({
+    initialized: true,
+    model: structuredClone(data.model),
+    now: data.current('work-a'),
+  }));
+  h.projectGateway.now = nowRead;
+  nativeDecisionLifecycle(h, scopedDecision());
+  const clock = vi.spyOn(Date, 'now');
+  const startedAt = Date.now();
+  clock.mockReturnValue(startedAt);
+  window.history.replaceState(null, '', '#/project/alpha');
+  const mounted = await mountProjectRoot(
+    h.projectGateway,
+    h.analysisGateway,
+    new LocalProjectDraftMemory(() => window.localStorage),
+  );
+  try {
+    await press(mounted.host, 'Continue work');
+    await typeField(
+      mounted.host,
+      '[aria-label="Review request"] textarea',
+      'Keep this review request through the break.',
+    );
+    await go('#/home');
+    clock.mockReturnValue(startedAt + 31 * 60 * 1000);
+    await go('#/project/alpha');
+    await settle();
+
+    expect(mounted.host.querySelector('.pw-now-action-mode')).toBeNull();
+    expect(mounted.host.querySelector('.pw-now-resume-cue')?.textContent).toContain(
+      'Last time, you were reviewing this work.',
+    );
+    const readsBeforeResume = nowRead.mock.calls.length;
+    const resume = mounted.host.querySelector<HTMLButtonElement>('.pw-now-resume-cue button')!;
+    await act(async () => resume.click());
+    await settle();
+
+    expect(mounted.host.querySelector('.pw-now-action-mode')).not.toBeNull();
+    expect(
+      mounted.host.querySelector<HTMLTextAreaElement>('[aria-label="Review request"] textarea')
+        ?.value,
+    ).toBe('Keep this review request through the break.');
+    expect(nowRead.mock.calls.length).toBeGreaterThan(readsBeforeResume);
+  } finally {
+    clock.mockRestore();
+    await mounted.unmount();
+  }
+});
+
+it('restores discussion history and unsent text after controller recreation with an older basis', async () => {
+  const h = projectUiFixture([projectEntry('alpha')]);
+  const data = bundle();
+  h.projectGateway.now = vi.fn(async () => ({
+    initialized: true,
+    model: structuredClone(data.model),
+    now: {
+      ...data.current('work-a'),
+      secondaryActions: [
+        { kind: 'discuss-work' as const, workItemId: 'work-a', text: 'Discuss this task.' },
+        { kind: 'review-work' as const, workItemId: 'work-a', text: 'Review this work.' },
+      ],
+    },
+  }));
+  h.analysisGateway.discussTask = vi.fn(async (_id, input) => {
+    const answer = {
+      items: [],
+      unknowns: ['An earlier project state needs checking.'],
+      limitations: [],
+    };
+    data.model.discussions = [
+      {
+        id: 'discussion-alpha',
+        projectId: 'alpha',
+        workItemId: input.workItemId!,
+        basis: input.version,
+        updatedAt: now,
+        turns: [{ question: input.question, basis: input.version, answer }],
+      },
+    ];
+    return { answer, limitations: [] };
+  });
+  const memory = new LocalProjectDraftMemory(() => window.localStorage);
+  window.history.replaceState(null, '', '#/project/alpha');
+  let mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway, memory);
+  try {
+    await press(mounted.host, 'Discuss this task');
+    await typeField(
+      mounted.host,
+      'textarea[name="task-discussion-work-a"]',
+      'What should I check before returning?',
+    );
+    await press(mounted.host, 'Ask');
+    await typeField(
+      mounted.host,
+      'textarea[name="task-discussion-work-a"]',
+      'Keep this follow-up for the current project state.',
+    );
+    await go('#/home');
+    await mounted.unmount();
+
+    h.rows.projects[0]!.analysis!.version = 'resume-v2';
+    h.rows.projects[0]!.analysis!.revision = 8;
+    data.model.project.revision = 8;
+    window.history.replaceState(null, '', '#/project/alpha');
+    mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway, memory);
+
+    expect(mounted.host.querySelector('[aria-label="Task discussion"]')).not.toBeNull();
+    expect(mounted.host.textContent).toContain('Answer from an earlier project state');
+    expect(mounted.host.textContent).toContain('An earlier project state needs checking.');
+    expect(
+      mounted.host.querySelector<HTMLTextAreaElement>('textarea[name="task-discussion-work-a"]')
+        ?.value,
+    ).toBe('Keep this follow-up for the current project state.');
+    expect(mounted.host.querySelector<HTMLButtonElement>('button')?.textContent).not.toContain(
+      'Accept',
+    );
+    expect(h.projectGateway.resumeWork).not.toHaveBeenCalled();
+  } finally {
+    await mounted.unmount();
+  }
+});
+
+it('falls back to the newly selected work when a saved action target disappears', async () => {
+  const h = projectUiFixture([projectEntry('alpha')]);
+  const data = bundle();
+  let selectedWork = 'work-a';
+  h.projectGateway.now = vi.fn(async () => ({
+    initialized: true,
+    model: structuredClone(data.model),
+    now: data.current(selectedWork),
+  }));
+  nativeDecisionLifecycle(h, scopedDecision());
+  window.history.replaceState(null, '', '#/project/alpha');
+  const mounted = await mountProjectRoot(
+    h.projectGateway,
+    h.analysisGateway,
+    new LocalProjectDraftMemory(() => window.localStorage),
+  );
+  try {
+    await press(mounted.host, 'Continue work');
+    await typeField(
+      mounted.host,
+      '[aria-label="Review request"] textarea',
+      'Keep this text even if its work is gone.',
+    );
+    await go('#/home');
+    data.model.workItems = data.model.workItems.filter((item) => item.id !== 'work-a');
+    data.model.decisions = data.model.decisions.filter((item) => item.workItemId !== 'work-a');
+    selectedWork = 'work-b';
+    await go('#/project/alpha');
+
+    expect(mounted.host.querySelector('.pw-now-action-mode')).toBeNull();
+    expect(mounted.host.querySelector('.pw-now-resume-cue')).toBeNull();
+    expect(mounted.host.querySelector('#pw-now-work-title')?.textContent).toBe(
+      'Small follow-up cleanup',
+    );
+    expect(
+      JSON.parse(storage.getItem('statecarry.project-action.v3.alpha.work-a.continue')!).text,
+    ).toBe('Keep this text even if its work is gone.');
+    expect(h.projectGateway.resumeWork).not.toHaveBeenCalled();
+  } finally {
+    await mounted.unmount();
+  }
+});
+
+it('restores project policy review by project identity without restoring confirmation', async () => {
+  const h = projectUiFixture([projectEntry('alpha')]);
+  const data = bundle();
+  data.model.workItems = [];
+  data.model.decisions = [];
+  h.projectGateway.now = vi.fn(async () => ({
+    initialized: true,
+    model: structuredClone(data.model),
+    now: {
+      ...data.current('work-a'),
+      currentWorkId: null,
+      currentWorkSelection: null,
+      state: 'needs-policy-review',
+      currentState: 'A project policy conflict needs review before work can be prepared.',
+      uncertainty: 'The project must keep saved data local.',
+      next: { kind: 'review-project-policy', text: 'Review the project policy conflict.' },
+      secondaryActions: [],
+      notice: {
+        level: 'immediate',
+        kind: 'project-policy-conflict',
+        text: 'Resolve this project policy conflict before preparing work.',
+        reason: 'The project must keep saved data local.',
+      },
+      otherWorkCount: 0,
+      otherWorkCounts: { total: 0, progress: 0, completionReview: 0, evidenceConflict: 0 },
+      otherWorkCandidates: [],
+    } as ProjectNow,
+  }));
+  const policy = scopedDecision();
+  policy.policyConflictBasis = 'policy-current';
+  policy.record.policyConflict = {
+    category: 'project-policy',
+    description: 'The project must keep saved data local.',
+    source: 'Project privacy policy',
+    status: 'open',
+  };
+  const lifecycle = nativeDecisionLifecycle(h, policy);
+  window.history.replaceState(null, '', '#/project/alpha');
+  const mounted = await mountProjectRoot(
+    h.projectGateway,
+    h.analysisGateway,
+    new LocalProjectDraftMemory(() => window.localStorage),
+  );
+  try {
+    await press(mounted.host, 'Review policy change');
+    await settle();
+    await typeField(
+      mounted.host,
+      '[aria-label="Review project policy request"] textarea',
+      'Keep this project policy request.',
+    );
+    const confirmation = mounted.host.querySelector<HTMLInputElement>(
+      '.pw-decision-confirm input',
+    )!;
+    await act(async () => confirmation.click());
+    await go('#/home');
+    await go('#/project/alpha');
+    await settle();
+
+    expect(mounted.host.querySelector('.pw-now-action-mode')).not.toBeNull();
+    expect(mounted.host.textContent).toContain('This request applies to Project alpha.');
+    expect(
+      mounted.host.querySelector<HTMLInputElement>('.pw-decision-confirm input')?.checked,
+    ).toBe(false);
+    expect(
+      mounted.host.querySelector<HTMLTextAreaElement>(
+        '[aria-label="Review project policy request"] textarea',
+      )?.value,
+    ).toBe('Keep this project policy request.');
+    expect(
+      lifecycle.decisionGateway.mock.calls.some(([, command]) =>
+        ['prepare', 'send'].includes(command?.action ?? ''),
+      ),
+    ).toBe(false);
+    expect(h.projectGateway.selectWork).not.toHaveBeenCalled();
   } finally {
     await mounted.unmount();
   }

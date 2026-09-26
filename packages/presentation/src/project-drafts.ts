@@ -1,4 +1,37 @@
+import type { ProjectNowAction } from '@statecarry/contracts';
+
 /** Runtime UI state. Only unsent inputs and transient view state are persisted locally. */
+export type ProjectNowUiActionEntry = {
+  kind: ProjectNowAction['kind'];
+  selectionKey: string | null;
+  requestId: string | null;
+  releaseId: string | null;
+  mode:
+    | 'continue'
+    | 'remaining'
+    | 'verify'
+    | 'policy'
+    | 'review'
+    | 'direction'
+    | 'result'
+    | 'new-work'
+    | 'release';
+};
+export type ProjectNowUiActivity = 'base' | 'details' | 'action' | 'discussion';
+export type ProjectNowUiMemory = {
+  projectId: string;
+  lastViewedAt: number;
+  screen: 'base' | 'action';
+  activity: ProjectNowUiActivity;
+  resumePending: boolean;
+  actionEntry: ProjectNowUiActionEntry | null;
+  selectedWorkId: string | null;
+  basis: string;
+  policyConflictBasis: string | null;
+  otherWorkOpen: boolean;
+  projectContextOpen: boolean;
+  scroll: number;
+};
 export type AnalysisGoalDraft = { text: string; version: string };
 export type AnalysisActionDraft = { action: string; done: string; version: string };
 export type AnalysisTaskSnapshot = {
@@ -52,6 +85,8 @@ export type ProjectDrafts = {
   goalDiscussionDraft?: AnalysisGoalDraft | null;
   /** Runtime discussion shape. Durable turns may be hydrated from Core; unsent input stays local. */
   taskDiscussions?: [string, AnalysisTaskDiscussion][];
+  /** Short-lived Project screen position. It never contains action authority. */
+  projectNowUi?: ProjectNowUiMemory;
   goalDraft: AnalysisGoalDraft | null;
   actionDrafts: [string, AnalysisActionDraft][];
   expanded: string[];

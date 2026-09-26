@@ -764,6 +764,9 @@ After a long absence, reopen the current Work at its base view and provide a sma
 time you were reviewing changes` with a `Continue review` action. Do not automatically reopen an old
 deep inspection screen.
 
+StateCarry treats 30 minutes away from a Project screen as a long absence. Draft text and discussion
+history remain saved; reopening a detailed action screen requires the user to choose its resume cue.
+
 ## 19. Notification strength
 
 Use three broad strengths:

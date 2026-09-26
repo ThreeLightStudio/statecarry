@@ -1,4 +1,9 @@
-import type { AnalysisMemory, ProjectDrafts } from '@statecarry/presentation';
+import type {
+  AnalysisMemory,
+  ProjectDrafts,
+  ProjectNowUiActionEntry,
+  ProjectNowUiMemory,
+} from '@statecarry/presentation';
 
 const prefix = 'statecarry.project-drafts.v3.';
 const retiredPrefixes = [
@@ -11,6 +16,109 @@ type DraftStorage = Pick<Storage, 'getItem' | 'setItem'> &
   Partial<Pick<Storage, 'length' | 'key' | 'removeItem'>> & { keys?: () => Iterable<string> };
 const text = (value: unknown, limit: number): value is string =>
   typeof value === 'string' && value.length <= limit;
+const projectNowActionKinds = new Set<ProjectNowUiActionEntry['kind']>([
+  'reconnect-project',
+  'review-direction',
+  'review-result',
+  'review-completion',
+  'review-work',
+  'discuss-work',
+  'review-remaining-changes',
+  'continue-work',
+  'resume-work',
+  'start-work',
+  'review-work-plan',
+  'review-project-policy',
+  'choose-current-work',
+  'choose-next-work',
+  'define-direction',
+  'review-release',
+  'stop-work',
+  'check-execution',
+  'open-request',
+  'respond-to-request',
+  'continue-despite-direction-conflict',
+]);
+const projectNowModes = new Set<ProjectNowUiActionEntry['mode']>([
+  'continue',
+  'remaining',
+  'verify',
+  'policy',
+  'review',
+  'direction',
+  'result',
+  'new-work',
+  'release',
+]);
+const object = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value);
+
+function projectNowUi(value: unknown, id: string): ProjectNowUiMemory | undefined {
+  if (!object(value) || value.projectId !== id) return undefined;
+  if (
+    !Number.isFinite(value.lastViewedAt) ||
+    !['base', 'action'].includes(String(value.screen)) ||
+    !['base', 'details', 'action', 'discussion'].includes(String(value.activity)) ||
+    typeof value.resumePending !== 'boolean' ||
+    !Number.isFinite(value.scroll) ||
+    !text(value.basis, 2048) ||
+    (value.policyConflictBasis !== null && !text(value.policyConflictBasis, 512)) ||
+    typeof value.otherWorkOpen !== 'boolean' ||
+    typeof value.projectContextOpen !== 'boolean' ||
+    (value.selectedWorkId !== null && !text(value.selectedWorkId, 250))
+  )
+    return undefined;
+
+  let actionEntry: ProjectNowUiActionEntry | null = null;
+  if (value.actionEntry !== null) {
+    if (!object(value.actionEntry)) return undefined;
+    const entry = value.actionEntry;
+    if (
+      !projectNowActionKinds.has(entry.kind as ProjectNowUiActionEntry['kind']) ||
+      !projectNowModes.has(entry.mode as ProjectNowUiActionEntry['mode']) ||
+      ![entry.selectionKey, entry.requestId, entry.releaseId].every(
+        (item) => item === null || text(item, 512),
+      )
+    )
+      return undefined;
+    actionEntry = {
+      kind: entry.kind as ProjectNowUiActionEntry['kind'],
+      mode: entry.mode as ProjectNowUiActionEntry['mode'],
+      selectionKey: entry.selectionKey as string | null,
+      requestId: entry.requestId as string | null,
+      releaseId: entry.releaseId as string | null,
+    };
+  }
+
+  const activity = value.activity as ProjectNowUiMemory['activity'];
+  if (
+    (activity === 'action' && (!actionEntry || actionEntry.kind === 'discuss-work')) ||
+    (activity === 'discussion' && actionEntry?.kind !== 'discuss-work') ||
+    (value.screen === 'action' && (value.resumePending || !actionEntry)) ||
+    (value.screen === 'base' &&
+      ((value.resumePending &&
+        (!actionEntry || (activity !== 'action' && activity !== 'discussion'))) ||
+        (!value.resumePending &&
+          (actionEntry !== null || (activity !== 'base' && activity !== 'details')))))
+  )
+    return undefined;
+
+  return {
+    projectId: id,
+    lastViewedAt: value.lastViewedAt as number,
+    screen: value.screen as ProjectNowUiMemory['screen'],
+    activity,
+    resumePending: value.resumePending,
+    actionEntry,
+    selectedWorkId: value.selectedWorkId as string | null,
+    basis: value.basis,
+    policyConflictBasis: value.policyConflictBasis as string | null,
+    otherWorkOpen: value.otherWorkOpen,
+    projectContextOpen: value.projectContextOpen,
+    scroll: Math.min(10_000_000, Math.max(0, value.scroll as number)),
+  };
+}
+
 function draft(value: unknown, limit: number) {
   if (value === null || value === undefined) return null;
   if (
@@ -58,12 +166,12 @@ export class LocalProjectDraftMemory implements AnalysisMemory {
     try {
       const envelope = JSON.parse(raw);
       if (envelope.schema !== 3 || envelope.projectId !== id) return null;
-      return this.inputs(envelope.state);
+      return this.inputs(envelope.state, id);
     } catch {
       return null;
     }
   }
-  private inputs(value: ProjectDrafts): ProjectDrafts {
+  private inputs(value: ProjectDrafts, id: string): ProjectDrafts {
     if (
       !value ||
       !Array.isArray(value.actionDrafts) ||
@@ -90,6 +198,9 @@ export class LocalProjectDraftMemory implements AnalysisMemory {
           throw new Error('Invalid discussion input');
         return [key, { input: item.input, version: item.version, turns: [] }];
       }),
+      ...(projectNowUi(value.projectNowUi, id)
+        ? { projectNowUi: projectNowUi(value.projectNowUi, id) }
+        : {}),
       expanded: value.expanded.slice(-30).filter((key) => text(key, 100)),
       scroll: Math.max(0, value.scroll),
     };
@@ -97,7 +208,7 @@ export class LocalProjectDraftMemory implements AnalysisMemory {
   write(id: string, value: ProjectDrafts) {
     const storage = this.storage();
     this.cutover(storage);
-    const inputs = this.inputs(value);
+    const inputs = this.inputs(value, id);
     // Runtime turns are hydrated from Core; they never enter browser storage.
     const state = {
       ...inputs,

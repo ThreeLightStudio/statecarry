@@ -71,7 +71,8 @@ function readScopeDraft(key: string, fallback: ScopeDraft): ScopeDraft {
         ? value.scopeIds.filter((item): item is string => typeof item === 'string').slice(0, 300)
         : [],
       basis: typeof value.basis === 'string' ? value.basis.slice(0, 256) : '',
-      confirmed: value.confirmed === true,
+      // Confirmation is per visit and must be checked again after reopening.
+      confirmed: false,
     };
   } catch {
     return fallback;
@@ -80,7 +81,7 @@ function readScopeDraft(key: string, fallback: ScopeDraft): ScopeDraft {
 
 function writeScopeDraft(key: string, value: ScopeDraft) {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    localStorage.setItem(key, JSON.stringify({ ...value, confirmed: false }));
   } catch {
     // The in-memory draft remains usable for this action session.
   }
@@ -812,9 +813,19 @@ function ScopeAction({
   const observation = data?.record.observation;
   const policyDescription = data?.record.policyConflict?.description;
   useEffect(() => {
-    if (!observation || draft.basis) return;
-    setDraft((old) => ({ ...old, basis: observation.basis, confirmed: false }));
-  }, [draft.basis, observation]);
+    if (!observation) return;
+    setDraft((old) => {
+      const basisChanged = !!old.basis && old.basis !== observation.basis;
+      const scopeBecameStale = data?.scopeCurrent === false && old.scopeIds.length > 0;
+      if (old.basis === observation.basis && !scopeBecameStale) return old;
+      return {
+        ...old,
+        basis: observation.basis,
+        scopeIds: basisChanged || scopeBecameStale ? [] : old.scopeIds,
+        confirmed: false,
+      };
+    });
+  }, [data?.scopeCurrent, draft.basis, observation]);
 
   useEffect(() => {
     if (!projectPolicy || !policyDescription) return;
