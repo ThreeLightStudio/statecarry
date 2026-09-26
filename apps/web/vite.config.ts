@@ -25,5 +25,23 @@ export default defineConfig(({ command }) => ({
           },
         }
       : undefined,
-  build: { outDir: resolve(import.meta.dirname, '../../dist/web'), emptyOutDir: true },
+  build: {
+    outDir: resolve(import.meta.dirname, '../../dist/web'),
+    emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/')) return 'vendor';
+        },
+      },
+      onwarn(warning, warn) {
+        // zod's explanatory comments mention `@__PURE__` in their text; Rollup flags
+        // their position as unreadable and strips them. Harmless until upstream fixes it.
+        if (warning.code === 'INVALID_ANNOTATION' && warning.id?.includes('node_modules/zod/')) {
+          return;
+        }
+        warn(warning);
+      },
+    },
+  },
 }));
