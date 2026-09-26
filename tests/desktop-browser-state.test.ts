@@ -29,7 +29,9 @@ describe('desktop preferences across automatic ports', () => {
         networkFetch(new URL(url, origin), options),
       );
       window.localStorage.setItem('statecarry.stale-other-profile', 'stale');
-      window.eval(browserStatePreload(runtime.browserState!.read(), window.location.origin));
+      window.eval(
+        browserStatePreload(runtime.browserState!.read(), window.location.origin, 'light'),
+      );
       expect(window.localStorage.getItem('statecarry.response-language.v1')).toBe('ko');
       expect(window.localStorage.getItem('statecarry.stale-other-profile')).toBeNull();
       window.localStorage.setItem('statecarry.project-drafts.v3.example', 'unsent input');

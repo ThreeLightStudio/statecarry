@@ -32,6 +32,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { useTheme } from '@/lib/use-theme';
 import {
   ArrowLeft,
   MessageCircle,
@@ -715,6 +716,7 @@ function GlobalSettings({
   const [capabilities, setCapabilities] = useState<Awaited<
     ReturnType<ProjectController['capabilities']>
   > | null>(null);
+  const { preference: themePreference, setPreference: setThemePreference } = useTheme();
   const [agentSettings, setAgentSettings] = useState<AgentSettingsView | null>(null);
   const [agentProvider, setAgentProvider] = useState<AgentProvider>('codex');
   const [openrouterModel, setOpenrouterModel] = useState('');
@@ -942,6 +944,35 @@ function GlobalSettings({
             >
               {checking ? 'Checking…' : 'Check again'}
             </Button>
+          </div>
+        </Card>
+
+        <Card className={cardSurface} aria-labelledby="appearance-settings-heading">
+          <div className="pw-section-head">
+            <h2 id="appearance-settings-heading">Appearance</h2>
+          </div>
+          <div className="pw-setting-row">
+            <div className="pw-setting-copy">
+              <strong>Theme</strong>
+              <span className="pw-small">
+                System follows the appearance setting of this device until you pick Light or Dark.
+              </span>
+            </div>
+            <label className="pw-field">
+              Theme
+              <select
+                name="theme"
+                value={themePreference}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setThemePreference(value === 'light' || value === 'dark' ? value : 'system');
+                }}
+              >
+                <option value="system">System</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </label>
           </div>
         </Card>
 

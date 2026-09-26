@@ -21,6 +21,7 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -38,6 +39,7 @@
 }
 
 :root {
+  color-scheme: light;
   --radius: 0.625rem;
   --background: oklch(0.975 0.008 145);
   --foreground: oklch(0.29 0.035 151);
@@ -56,6 +58,9 @@
   /* Darkened from 0.58 lightness so alert text and destructive buttons meet
      WCAG AA 4.5:1 against their white-mixed backgrounds (measured 4.28:1). */
   --destructive: oklch(0.52 0.18 28);
+  /* Text on destructive fills. Split from --destructive so a dark theme can keep
+     the fill dark enough for readable button text while brightening alert text. */
+  --destructive-foreground: #ffffff;
   --border: oklch(0.89 0.015 145);
   --input: oklch(0.84 0.02 145);
   --ring: oklch(0.55 0.09 158);
@@ -93,6 +98,68 @@
     linear-gradient(145deg, #e4e7f8 0%, #eee7f4 48%, #dcecf4 100%);
   --shadow-brand-mark: 0 2px 8px rgb(15 23 42 / 0.12);
   --shadow-card-link: 0 4px 16px rgb(0 0 0 / 0.04);
+}
+
+/* Dark theme: same green hue family (145–158), lightness inverted. Status, badge
+   and notice values are re-derived rather than shared with the light theme so
+   fg/bg pairs keep their audited contrast on dark surfaces. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --background: oklch(0.17 0.012 152);
+  --foreground: oklch(0.93 0.01 150);
+  --card: oklch(0.21 0.014 152);
+  --card-foreground: var(--foreground);
+  --popover: oklch(0.23 0.014 152);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(0.78 0.115 155);
+  --primary-foreground: oklch(0.2 0.045 155);
+  --secondary: oklch(0.26 0.016 152);
+  --secondary-foreground: oklch(0.88 0.014 150);
+  --muted: oklch(0.24 0.013 152);
+  --muted-foreground: oklch(0.72 0.02 150);
+  --accent: oklch(0.29 0.025 152);
+  --accent-foreground: oklch(0.92 0.018 150);
+  /* Alert text on dark tinted surfaces; button fills pair with the dark
+     --destructive-foreground below. */
+  --destructive: oklch(0.7 0.17 28);
+  --destructive-foreground: oklch(0.21 0.05 28);
+  --border: oklch(0.3 0.015 152);
+  --input: oklch(0.36 0.018 152);
+  --ring: oklch(0.75 0.1 155);
+  /* Lightened so status icons and fg text stay readable on dark surfaces. */
+  --status-success: #45b383;
+  --status-info: #7da5d8;
+  --status-warning: #d4a94e;
+  --status-error: #e08a72;
+  --status-neutral: #93a3b8;
+  /* Dark tinted surfaces behind badges and notices, with light foregrounds. */
+  --badge-warning-bg: #382d14;
+  --badge-warning-fg: #dfb968;
+  --badge-info-bg: #1e2a3c;
+  --badge-info-fg: #a3c2e8;
+  --notice-warning-border: #4f482a;
+  --notice-warning-bg: #2b2415;
+  --notice-warning-fg: #d9c78e;
+  /* Brand mark and focus-banner art: decorative and theme-invariant. */
+  --brand-mark-bg: linear-gradient(145deg, #111a35, #070a14 70%);
+  --brand-flow-bg: linear-gradient(90deg, #b55cff 0%, #2f8cff 55%, #3ee0f2 100%);
+  --brand-flow-ring-bg: #0b1020;
+  /* Focus banners re-tint per theme: the light pastels glare on dark surfaces,
+     so dark keeps the same blue/violet/teal story at low luminance. */
+  --focus-banner-bg-a:
+    radial-gradient(circle at 18% 22%, rgb(255 255 255 / 0.1), transparent 24%),
+    radial-gradient(circle at 78% 32%, rgb(255 255 255 / 0.06), transparent 30%),
+    linear-gradient(145deg, #1a2534 0%, #1d1e30 46%, #15231f 100%);
+  --focus-banner-bg-b:
+    radial-gradient(circle at 24% 70%, rgb(255 255 255 / 0.09), transparent 28%),
+    radial-gradient(circle at 78% 18%, rgb(255 255 255 / 0.06), transparent 26%),
+    linear-gradient(145deg, #1c2430 0%, #17251f 45%, #201d2f 100%);
+  --focus-banner-bg-c:
+    radial-gradient(circle at 70% 66%, rgb(255 255 255 / 0.08), transparent 27%),
+    radial-gradient(circle at 18% 18%, rgb(255 255 255 / 0.06), transparent 22%),
+    linear-gradient(145deg, #1b1e31 0%, #231e2e 48%, #16232b 100%);
+  --shadow-brand-mark: 0 2px 8px rgb(0 0 0 / 0.5);
+  --shadow-card-link: 0 4px 16px rgb(0 0 0 / 0.4);
 }
 
 @layer base {

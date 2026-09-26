@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import Electrobun, { ApplicationMenu, BrowserWindow, PATHS, Updater, Utils } from 'electrobun/main';
 import { createServerRuntime } from '../../server/src/runtime';
@@ -6,6 +7,21 @@ import { ElectrobunProjectAssetPicker } from './project-asset-picker';
 import { ElectrobunUpdater } from './updater';
 import { desktopRuntimeEnvironment } from '../build-profile';
 import { browserStatePreload } from './browser-state-preload';
+
+// The desktop webview does not resolve prefers-color-scheme to the system
+// appearance, so the resolved theme is passed to the page as a preload hint.
+function systemAppearance(): 'dark' | 'light' {
+  try {
+    return execFileSync('defaults', ['read', '-g', 'AppleInterfaceStyle'], {
+      encoding: 'utf8',
+    }).trim() === 'Dark'
+      ? 'dark'
+      : 'light';
+  } catch {
+    // The defaults key is absent while macOS uses light appearance.
+    return 'light';
+  }
+}
 
 // Read the packaged channel, never the launching shell's development flags.
 const environment = desktopRuntimeEnvironment(await Updater.getLocalInfo());
@@ -93,6 +109,7 @@ try {
     preload: browserStatePreload(
       runtime.browserState?.read() ?? {},
       `http://${runtime.host}:${runtime.port}`,
+      systemAppearance(),
     ),
     frame: { width: 1280, height: 840, x: 120, y: 80 },
   });

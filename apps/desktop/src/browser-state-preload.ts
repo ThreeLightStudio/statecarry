@@ -1,8 +1,15 @@
 import { randomUUID } from 'node:crypto';
 
-export function browserStatePreload(entries: Record<string, string>, origin: string) {
+export function browserStatePreload(
+  entries: Record<string, string>,
+  origin: string,
+  systemTheme: 'dark' | 'light',
+) {
   // The native preload restores browser-owned state before React reads it.
   return `(() => {
+    // The desktop webview does not resolve prefers-color-scheme to the system
+    // appearance, so the native side passes the resolved theme as a hint.
+    window.__STATECARRY_SYSTEM_THEME__ = ${JSON.stringify(systemTheme)};
     if (window !== window.top || location.origin !== ${JSON.stringify(origin)}) return;
     const saved = ${JSON.stringify(entries)};
     const storage = window.localStorage;
