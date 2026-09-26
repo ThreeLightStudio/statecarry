@@ -69,10 +69,7 @@ it('allows verification artifacts in the project without auto-approving executio
       approvalPolicy: 'on-request',
     }),
   );
-  expect(rpc.request).toHaveBeenCalledWith('thread/resume', {
-    threadId: 'thread',
-    cwd: '/project',
-  });
+  expect(rpc.request.mock.calls.map(([method]) => method)).toEqual(['thread/start', 'turn/start']);
   rpc.emit('serverRequest', {
     id: 14,
     method: 'item/commandExecution/requestApproval',
@@ -99,6 +96,7 @@ it('keeps project direction requests read-only', async () => {
       approvalPolicy: 'never',
     }),
   );
+  expect(rpc.request.mock.calls.map(([method]) => method)).toEqual(['thread/resume', 'turn/start']);
 });
 
 it('requires a project folder before granting verification write access', async () => {
@@ -112,6 +110,93 @@ it('requires a project folder before granting verification write access', async 
     }),
   ).rejects.toThrow('Choose a project folder');
   expect(rpc.request).not.toHaveBeenCalled();
+});
+
+it('retries resume before sending after a read resume fails', async () => {
+  const { rpc, executor } = fixture();
+  let failResume = true;
+  rpc.request.mockImplementation(async (method) => {
+    if (method === 'thread/resume' && failResume) {
+      failResume = false;
+      throw new Error('resume failed');
+    }
+    if (method === 'turn/start') return { turn: { id: 'turn' } };
+    return {};
+  });
+
+  await expect(executor.read('thread', 'turn')).rejects.toThrow('resume failed');
+  rpc.emit('serverRequest', {
+    id: 16,
+    method: 'item/commandExecution/requestApproval',
+    params: { threadId: 'thread', turnId: 'turn', command: 'pnpm check' },
+  });
+  expect(rpc.respond).not.toHaveBeenCalled();
+
+  await executor.send({
+    projectId: 'project',
+    threadId: 'thread',
+    text: 'Inspect the harmless fixture.',
+    operation: 'direction',
+  });
+  expect(rpc.request.mock.calls.map(([method]) => method)).toEqual([
+    'thread/resume',
+    'thread/resume',
+    'turn/start',
+  ]);
+});
+
+it('clears event ownership and retries after a send resume fails', async () => {
+  const { rpc, executor } = fixture();
+  let failResume = true;
+  rpc.request.mockImplementation(async (method) => {
+    if (method === 'thread/resume' && failResume) {
+      failResume = false;
+      throw new Error('resume failed');
+    }
+    if (method === 'turn/start') return { turn: { id: 'turn' } };
+    return {};
+  });
+  const input = {
+    projectId: 'project',
+    threadId: 'thread',
+    text: 'Inspect the harmless fixture.',
+    operation: 'direction' as const,
+  };
+
+  await expect(executor.send(input)).rejects.toThrow('resume failed');
+  rpc.emit('serverRequest', {
+    id: 17,
+    method: 'item/commandExecution/requestApproval',
+    params: { threadId: 'thread', turnId: 'turn', command: 'pnpm check' },
+  });
+  expect(rpc.respond).toHaveBeenCalledWith(17, { decision: 'decline' });
+
+  await executor.send(input);
+  expect(rpc.request.mock.calls.map(([method]) => method)).toEqual([
+    'thread/resume',
+    'thread/resume',
+    'turn/start',
+  ]);
+});
+
+it('resumes a started thread again after the RPC connection drops', async () => {
+  const { rpc, executor } = fixture();
+  await executor.create({ projectId: 'project', cwd: '/project', title: 'Check' });
+  rpc.emit('disconnect');
+
+  await executor.send({
+    projectId: 'project',
+    threadId: 'thread',
+    text: 'Inspect the harmless fixture.',
+    cwd: '/project',
+    operation: 'direction',
+  });
+
+  expect(rpc.request.mock.calls.map(([method]) => method)).toEqual([
+    'thread/start',
+    'thread/resume',
+    'turn/start',
+  ]);
 });
 
 it('only returns the requested execution and reconnects to receive its events', async () => {
