@@ -4,6 +4,7 @@ import type {
   ProjectNowUiActionEntry,
   ProjectNowUiMemory,
 } from '@statecarry/presentation';
+import { projectNowUiMemoryKey } from '@statecarry/presentation';
 
 const prefix = 'statecarry.project-drafts.v3.';
 const retiredPrefixes = [
@@ -92,8 +93,8 @@ function projectNowUi(value: unknown, id: string): ProjectNowUiMemory | undefine
 
   const activity = value.activity as ProjectNowUiMemory['activity'];
   if (
-    (activity === 'action' && (!actionEntry || actionEntry.kind === 'discuss-work')) ||
-    (activity === 'discussion' && actionEntry?.kind !== 'discuss-work') ||
+    (activity === 'action' && !actionEntry) ||
+    (activity === 'discussion' && (!actionEntry || !actionEntry.selectionKey)) ||
     (value.screen === 'action' && (value.resumePending || !actionEntry)) ||
     (value.screen === 'base' &&
       ((value.resumePending &&
@@ -117,6 +118,23 @@ function projectNowUi(value: unknown, id: string): ProjectNowUiMemory | undefine
     projectContextOpen: value.projectContextOpen,
     scroll: Math.min(10_000_000, Math.max(0, value.scroll as number)),
   };
+}
+
+function projectNowUiMemories(value: ProjectDrafts, id: string): ProjectNowUiMemory[] {
+  const memories = new Map<string, ProjectNowUiMemory>();
+  const add = (candidate: unknown) => {
+    const memory = projectNowUi(candidate, id);
+    if (!memory) return;
+    const key = projectNowUiMemoryKey(memory);
+    memories.delete(key);
+    memories.set(key, memory);
+  };
+  const existing = Array.isArray(value.projectNowUiByIdentity)
+    ? value.projectNowUiByIdentity.slice(-50)
+    : [];
+  for (const candidate of existing) add(candidate);
+  add(value.projectNowUi);
+  return [...memories.values()].slice(-50);
 }
 
 function draft(value: unknown, limit: number) {
@@ -179,6 +197,9 @@ export class LocalProjectDraftMemory implements AnalysisMemory {
       !Number.isFinite(value.scroll)
     )
       throw new Error('Invalid project input');
+    const projectNowUiByIdentity = projectNowUiMemories(value, id);
+    const currentProjectNowUi =
+      projectNowUi(value.projectNowUi, id) ?? projectNowUiByIdentity.at(-1);
     return {
       goalDraft: draft(value.goalDraft, 1200),
       goalDiscussionDraft: draft(value.goalDiscussionDraft, 6000),
@@ -198,9 +219,8 @@ export class LocalProjectDraftMemory implements AnalysisMemory {
           throw new Error('Invalid discussion input');
         return [key, { input: item.input, version: item.version, turns: [] }];
       }),
-      ...(projectNowUi(value.projectNowUi, id)
-        ? { projectNowUi: projectNowUi(value.projectNowUi, id) }
-        : {}),
+      ...(currentProjectNowUi ? { projectNowUi: currentProjectNowUi } : {}),
+      ...(projectNowUiByIdentity.length ? { projectNowUiByIdentity } : {}),
       expanded: value.expanded.slice(-30).filter((key) => text(key, 100)),
       scroll: Math.max(0, value.scroll),
     };

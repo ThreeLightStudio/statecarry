@@ -925,6 +925,110 @@ it('preserves native request text but invalidates confirmation when the scope ba
   }
 });
 
+it('restores a recent deep action after evidence changes but clears stale scope authority', async () => {
+  const h = projectUiFixture([projectEntry('alpha')]);
+  const data = bundle();
+  h.projectGateway.now = vi.fn(async () => ({
+    initialized: true,
+    model: structuredClone(data.model),
+    now: data.current('work-a'),
+  }));
+  const lifecycle = nativeDecisionLifecycle(h);
+  window.history.replaceState(null, '', '#/project/alpha');
+  const mounted = await mountProjectRoot(
+    h.projectGateway,
+    h.analysisGateway,
+    new LocalProjectDraftMemory(() => window.localStorage),
+  );
+  try {
+    await press(mounted.host, 'Continue work');
+    await typeField(
+      mounted.host,
+      '[aria-label="Review request"] textarea',
+      'Keep this request through an evidence refresh.',
+    );
+    await act(async () => {
+      mounted.host.querySelector<HTMLInputElement>('.pw-decision-scopes input')!.click();
+    });
+    const confirmation = mounted.host.querySelector<HTMLInputElement>(
+      '.pw-decision-confirm input',
+    )!;
+    await vi.waitFor(() => expect(confirmation.disabled).toBe(false));
+    await act(async () => confirmation.click());
+    await go('#/home');
+
+    const previous = lifecycle.getData();
+    lifecycle.setData({
+      ...previous,
+      scopeCurrent: false,
+      record: {
+        ...previous.record,
+        observation: { ...previous.record.observation!, basis: 'scope-b' },
+      },
+    });
+    await go('#/project/alpha');
+    await settle();
+
+    expect(mounted.host.querySelector('.pw-now-action-mode')).not.toBeNull();
+    expect(
+      mounted.host.querySelector<HTMLTextAreaElement>('[aria-label="Review request"] textarea')
+        ?.value,
+    ).toBe('Keep this request through an evidence refresh.');
+    expect(mounted.host.querySelector<HTMLInputElement>('.pw-decision-scopes input')?.checked).toBe(
+      false,
+    );
+    expect(
+      mounted.host.querySelector<HTMLInputElement>('.pw-decision-confirm input')?.checked,
+    ).toBe(false);
+    expect(button(mounted.host, 'Prepare request for Codex').disabled).toBe(true);
+    expect(
+      lifecycle.decisionGateway.mock.calls.some(([, command]) => command?.action === 'prepare'),
+    ).toBe(false);
+  } finally {
+    await mounted.unmount();
+  }
+});
+
+it('shows a resume cue for a passive deep screen after its evidence basis changes', async () => {
+  const h = projectUiFixture([projectEntry('alpha')]);
+  const data = bundle();
+  h.projectGateway.now = vi.fn(async () => ({
+    initialized: true,
+    model: structuredClone(data.model),
+    now: data.current('work-a'),
+  }));
+  const lifecycle = nativeDecisionLifecycle(h);
+  window.history.replaceState(null, '', '#/project/alpha');
+  const mounted = await mountProjectRoot(
+    h.projectGateway,
+    h.analysisGateway,
+    new LocalProjectDraftMemory(() => window.localStorage),
+  );
+  try {
+    await press(mounted.host, 'Review work');
+    await go('#/home');
+
+    const previous = lifecycle.getData();
+    lifecycle.setData({
+      ...previous,
+      scopeCurrent: false,
+      record: {
+        ...previous.record,
+        observation: { ...previous.record.observation!, basis: 'scope-b' },
+      },
+    });
+    await go('#/project/alpha');
+    await settle();
+
+    expect(mounted.host.querySelector('.pw-now-action-mode')).toBeNull();
+    expect(mounted.host.querySelector('.pw-now-resume-cue')?.textContent).toContain(
+      'Last time, you were reviewing this work.',
+    );
+  } finally {
+    await mounted.unmount();
+  }
+});
+
 it('automatically compares the current project when a native execution reports completion', async () => {
   const h = projectUiFixture([projectEntry('alpha')]);
   const data = bundle();
@@ -3023,6 +3127,92 @@ it('restores a recent action draft, disclosures, and scroll after leaving and re
   }
 });
 
+it('keeps screen memory with its selected work when switching from A to B and back', async () => {
+  const h = projectUiFixture([projectEntry('alpha')]);
+  const data = bundle();
+  let currentWork = 'work-a';
+  h.projectGateway.now = vi.fn(async () => ({
+    initialized: true,
+    model: structuredClone(data.model),
+    now: data.current(currentWork),
+  }));
+  h.projectGateway.selectWork = vi.fn(async (_id, _revision, workItemId) => {
+    currentWork = workItemId;
+    return structuredClone(data.model);
+  });
+  nativeDecisionLifecycle(h, scopedDecision());
+  window.history.replaceState(null, '', '#/project/alpha');
+  const mounted = await mountProjectRoot(
+    h.projectGateway,
+    h.analysisGateway,
+    new LocalProjectDraftMemory(() => window.localStorage),
+  );
+  const scrollY = Object.getOwnPropertyDescriptor(window, 'scrollY');
+  let scrollPosition = 0;
+  Object.defineProperty(window, 'scrollY', { configurable: true, get: () => scrollPosition });
+  const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation((_left, top) => {
+    scrollPosition = top;
+    window.dispatchEvent(new Event('scroll'));
+  });
+  try {
+    await toggleDetails(mounted.host, 'Other work · 1');
+    await toggleDetails(mounted.host, 'Project context');
+    scrollPosition = 345;
+    window.dispatchEvent(new Event('scroll'));
+    await press(mounted.host, 'Continue work');
+    await typeField(
+      mounted.host,
+      '[aria-label="Review request"] textarea',
+      'Keep Work A request text.',
+    );
+    await press(mounted.host, 'Back to current work');
+
+    await press(mounted.host, 'Small follow-up cleanupPaused');
+    await settle();
+    expect(mounted.host.querySelector('#pw-now-work-title')?.textContent).toBe(
+      'Small follow-up cleanup',
+    );
+    expect(mounted.host.querySelector('.pw-now-action-mode')).toBeNull();
+    expect(mounted.host.querySelector('[aria-label="Review request"] textarea')).toBeNull();
+    expect(
+      [...mounted.host.querySelectorAll('details')].find(
+        (item) => item.querySelector('summary')?.textContent === 'Project context',
+      )?.open,
+    ).toBe(false);
+    expect(scrollPosition).toBe(0);
+
+    await toggleDetails(mounted.host, 'Other work · 1');
+    const chooseWorkA = mounted.host.querySelector<HTMLButtonElement>(
+      '[aria-label="Choose Improve the return screen"]',
+    );
+    expect(chooseWorkA).toBeTruthy();
+    await act(async () => chooseWorkA!.click());
+    await settle();
+
+    expect(mounted.host.querySelector('#pw-now-work-title')?.textContent).toBe(
+      'Improve the return screen',
+    );
+    expect(mounted.host.querySelector('.pw-now-action-mode')).toBeNull();
+    expect(
+      [...mounted.host.querySelectorAll('details')].find(
+        (item) => item.querySelector('summary')?.textContent === 'Project context',
+      )?.open,
+    ).toBe(true);
+    expect(scrollPosition).toBe(345);
+    await press(mounted.host, 'Continue work');
+    expect(
+      mounted.host.querySelector<HTMLTextAreaElement>('[aria-label="Review request"] textarea')
+        ?.value,
+    ).toBe('Keep Work A request text.');
+    expect(h.projectGateway.selectWork).toHaveBeenNthCalledWith(1, 'alpha', 7, 'work-b');
+    expect(h.projectGateway.selectWork).toHaveBeenNthCalledWith(2, 'alpha', 7, 'work-a');
+  } finally {
+    scrollTo.mockRestore();
+    if (scrollY) Object.defineProperty(window, 'scrollY', scrollY);
+    await mounted.unmount();
+  }
+});
+
 it('returns to the base work view after a long absence and resumes only after rechecking', async () => {
   const h = projectUiFixture([projectEntry('alpha')]);
   const data = bundle();
@@ -3111,7 +3301,8 @@ it('restores discussion history and unsent text after controller recreation with
   window.history.replaceState(null, '', '#/project/alpha');
   let mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway, memory);
   try {
-    await press(mounted.host, 'Discuss this task');
+    await press(mounted.host, 'Review work');
+    await press(mounted.host, 'Discuss this work');
     await typeField(
       mounted.host,
       'textarea[name="task-discussion-work-a"]',
@@ -3124,6 +3315,10 @@ it('restores discussion history and unsent text after controller recreation with
       'Keep this follow-up for the current project state.',
     );
     await go('#/home');
+    expect(memory.read('alpha')?.projectNowUi).toMatchObject({
+      activity: 'discussion',
+      actionEntry: { kind: 'review-work', selectionKey: 'work-a' },
+    });
     await mounted.unmount();
 
     h.rows.projects[0]!.analysis!.version = 'resume-v2';

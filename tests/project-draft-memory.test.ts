@@ -38,6 +38,7 @@ it('drops malformed screen memory without losing project drafts or discussion in
           projectContextOpen: false,
           scroll: 80,
         },
+        projectNowUiByIdentity: { malformed: true },
       },
     }),
   );
@@ -102,4 +103,65 @@ it('persists scoped screen identity and draft text but leaves discussion turns i
     ['work-a', { version: 'basis-a', input: 'Unsent question', turns: [] }],
   ]);
   expect(values.get('statecarry.project-drafts.v3.alpha')).not.toContain('A saved question');
+});
+
+it('keeps screen state separate for work and project-level action identities', () => {
+  const { memory } = memoryFixture();
+  const workMemory = (workId: string, lastViewedAt: number) => ({
+    projectId: 'alpha',
+    lastViewedAt,
+    screen: 'action' as const,
+    activity: 'action' as const,
+    resumePending: false,
+    actionEntry: {
+      kind: 'continue-work' as const,
+      selectionKey: workId,
+      requestId: null,
+      releaseId: null,
+      mode: 'continue' as const,
+    },
+    selectedWorkId: workId,
+    basis: `basis-${workId}`,
+    policyConflictBasis: null,
+    otherWorkOpen: false,
+    projectContextOpen: false,
+    scroll: lastViewedAt,
+  });
+  const workA = workMemory('work-a', 100);
+  const workB = workMemory('work-b', 200);
+  const policy = {
+    ...workMemory('work-a', 300),
+    actionEntry: {
+      kind: 'review-project-policy' as const,
+      selectionKey: null,
+      requestId: null,
+      releaseId: null,
+      mode: 'policy' as const,
+    },
+    selectedWorkId: null,
+    policyConflictBasis: 'policy-current',
+  };
+  const release = {
+    ...workMemory('work-a', 400),
+    actionEntry: {
+      kind: 'review-release' as const,
+      selectionKey: null,
+      requestId: null,
+      releaseId: 'release-a',
+      mode: 'release' as const,
+    },
+    selectedWorkId: null,
+  };
+
+  memory.write('alpha', {
+    goalDraft: null,
+    actionDrafts: [],
+    expanded: [],
+    scroll: 400,
+    projectNowUi: release,
+    projectNowUiByIdentity: [workA, workB, policy, release],
+  });
+
+  expect(memory.read('alpha')?.projectNowUiByIdentity).toEqual([workA, workB, policy, release]);
+  expect(memory.read('alpha')?.projectNowUi).toEqual(release);
 });

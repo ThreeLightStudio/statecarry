@@ -39,8 +39,10 @@ type Props = {
   release?: ReleaseProjectView;
   releaseLoading?: boolean;
   selectionKey: string | null;
+  discussionOpen?: boolean;
   onBack: () => void;
   onVerify: () => void;
+  onDiscussionChange?: (open: boolean) => void;
 };
 
 function ActionError({ value }: { value: string }) {
@@ -1271,22 +1273,21 @@ function ReviewWorkAction({
   edits,
   actionKind,
   selectionKey,
+  discussionOpen = false,
   onBack,
   onVerify,
+  onDiscussionChange = () => {},
 }: Omit<Props, 'data' | 'mode' | 'requestId' | 'onPolicy'>) {
-  const [discussionOpen, setDiscussionOpen] = useState(false);
   const [openingVerify, setOpeningVerify] = useState(false);
   const [transitioning, setTransitioning] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => {
-    if (actionKind !== 'discuss-work' || !selectionKey) return;
+    if (!discussionOpen || !selectionKey) return;
     controller.openTaskDiscussion(project.id, selectionKey);
-    setDiscussionOpen(true);
-  }, [actionKind, controller, project.id, selectionKey]);
+  }, [controller, discussionOpen, project.id, selectionKey]);
   const openDiscussion = () => {
     if (!selectionKey) return;
-    controller.openTaskDiscussion(project.id, selectionKey);
-    setDiscussionOpen(true);
+    onDiscussionChange(true);
   };
   const openVerify = async () => {
     if (openingVerify) return;
@@ -1339,7 +1340,7 @@ function ReviewWorkAction({
           workKey={selectionKey}
           edits={edits}
           controller={controller}
-          onClose={() => setDiscussionOpen(false)}
+          onClose={() => onDiscussionChange(false)}
         />
       ) : (
         <>
@@ -2157,8 +2158,10 @@ export function ProjectNowActionMode(props: Props) {
         edits={props.edits}
         actionKind={props.actionKind}
         selectionKey={props.selectionKey}
+        discussionOpen={props.discussionOpen ?? false}
         onBack={props.onBack}
         onVerify={props.onVerify}
+        onDiscussionChange={(open) => props.onDiscussionChange?.(open)}
       />
     );
   if (props.mode === 'new-work')

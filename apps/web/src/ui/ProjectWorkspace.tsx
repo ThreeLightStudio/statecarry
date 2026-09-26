@@ -22,6 +22,7 @@ import {
   type ProjectDrafts,
   type ProjectNowUiActionEntry,
   type ProjectNowUiMemory,
+  projectNowUiMemoryKey,
   type WorkingTreeView,
   type AgentProvider,
   type AgentSettingsView,
@@ -1664,7 +1665,8 @@ function WorkingTreeCard({
 }
 
 function ProjectPage(props: ProjectProps & { dirtyWorkPreview: DirtyWorkPreviewScenario }) {
-  return <ProjectNowProjectPage {...props} />;
+  const workId = props.state.projectNow[props.project.id]?.work?.id ?? 'project';
+  return <ProjectNowProjectPage key={`${props.project.id}:${workId}`} {...props} />;
 }
 
 function projectNowHeading(view: ProjectNowView): string {
@@ -1743,7 +1745,11 @@ function projectNowResumeTargetIsCurrent(
 ) {
   const entry = memory.actionEntry;
   if (!entry || project.disconnected || view.project.disconnected) return false;
-  if (memory.projectId !== project.id || memory.selectedWorkId !== (view.work?.id ?? null))
+  if (memory.projectId !== project.id) return false;
+  if (
+    projectNowUiMemoryKey(memory).startsWith('work:') &&
+    (!view.work || memory.selectedWorkId !== view.work.id)
+  )
     return false;
 
   const decision = state.decisions[project.id];
@@ -1839,6 +1845,24 @@ function projectNowResumeButton(memory: ProjectNowUiMemory) {
   return 'Continue work';
 }
 
+function projectNowUiMatchesCurrentWork(memory: ProjectNowUiMemory, view: ProjectNowView) {
+  const identity = projectNowUiMemoryKey(memory);
+  if (identity.startsWith('work:')) return !!view.work && memory.selectedWorkId === view.work.id;
+  if (identity === 'project:overview') return !view.work;
+  return true;
+}
+
+function projectNowUiMemoriesForView(edits: ProjectDrafts, view: ProjectNowView) {
+  const memories = new Map<string, ProjectNowUiMemory>();
+  for (const memory of [...(edits.projectNowUiByIdentity ?? []), edits.projectNowUi]) {
+    if (!memory || !projectNowUiMatchesCurrentWork(memory, view)) continue;
+    const identity = projectNowUiMemoryKey(memory);
+    const previous = memories.get(identity);
+    if (!previous || memory.lastViewedAt > previous.lastViewedAt) memories.set(identity, memory);
+  }
+  return [...memories.values()].sort((left, right) => right.lastViewedAt - left.lastViewedAt);
+}
+
 function ProjectNowProjectPage({
   project,
   state,
@@ -1856,6 +1880,7 @@ function ProjectNowProjectPage({
   const workingTreeAnalysisLoading = state.workingTreeAnalysisLoading[project.id] ?? false;
   const [mode, setMode] = useState<'default' | 'action'>('default');
   const [actionEntry, setActionEntry] = useState<ProjectNowUiActionEntry | null>(null);
+  const [nestedDiscussionOpen, setNestedDiscussionOpen] = useState(false);
   const [otherOpen, setOtherOpen] = useState(false);
   const [projectContextOpen, setProjectContextOpen] = useState(false);
   const [resumeCandidate, setResumeCandidate] = useState<ProjectNowUiMemory | null>(null);
@@ -1871,31 +1896,38 @@ function ProjectNowProjectPage({
   const restorationWritable = useRef(false);
   const latestMemory = useRef<ProjectNowUiMemory | null>(null);
 
-  const makeUiMemory = (lastViewedAt: number): ProjectNowUiMemory => ({
-    projectId: project.id,
-    lastViewedAt,
-    screen: mode === 'action' ? 'action' : 'base',
-    activity:
-      resumeCandidate?.activity ??
-      (mode === 'action'
-        ? actionEntry?.kind === 'discuss-work'
-          ? 'discussion'
-          : 'action'
-        : otherOpen || projectContextOpen
-          ? 'details'
-          : 'base'),
-    resumePending: !!resumeCandidate,
-    actionEntry: mode === 'action' ? actionEntry : (resumeCandidate?.actionEntry ?? null),
-    selectedWorkId: view?.work?.id ?? null,
-    basis: resumeCandidate?.basis ?? projectNowContextBasis(project, state, workingTree),
-    policyConflictBasis:
-      resumeCandidate?.policyConflictBasis ??
-      state.decisions[project.id]?.policyConflictBasis ??
-      null,
-    otherWorkOpen: otherOpen,
-    projectContextOpen,
-    scroll: window.scrollY,
-  });
+  const makeUiMemory = (lastViewedAt: number): ProjectNowUiMemory => {
+    const screenActionEntry =
+      mode === 'action' ? actionEntry : (resumeCandidate?.actionEntry ?? null);
+    const projectScopedAction =
+      screenActionEntry &&
+      ['policy', 'release', 'direction', 'new-work'].includes(screenActionEntry.mode);
+    return {
+      projectId: project.id,
+      lastViewedAt,
+      screen: mode === 'action' ? 'action' : 'base',
+      activity:
+        resumeCandidate?.activity ??
+        (mode === 'action'
+          ? nestedDiscussionOpen
+            ? 'discussion'
+            : 'action'
+          : otherOpen || projectContextOpen
+            ? 'details'
+            : 'base'),
+      resumePending: !!resumeCandidate,
+      actionEntry: screenActionEntry,
+      selectedWorkId: projectScopedAction ? null : (view?.work?.id ?? null),
+      basis: resumeCandidate?.basis ?? projectNowContextBasis(project, state, workingTree),
+      policyConflictBasis:
+        resumeCandidate?.policyConflictBasis ??
+        state.decisions[project.id]?.policyConflictBasis ??
+        null,
+      otherWorkOpen: otherOpen,
+      projectContextOpen,
+      scroll: window.scrollY,
+    };
+  };
   if (restoreReady && view) latestMemory.current = makeUiMemory(Date.now());
 
   useEffect(() => {
@@ -1914,11 +1946,12 @@ function ProjectNowProjectPage({
     if (restoreStarted.current || loading || !view) return;
     restoreStarted.current = true;
     void (async () => {
-      const memory = edits.projectNowUi;
-      if (!memory) {
+      const candidates = projectNowUiMemoriesForView(edits, view);
+      if (!candidates.length) {
         restorationWritable.current = true;
         if (pageMounted.current) {
-          setRestoredScroll(state.edits[project.id]?.scroll ?? 0);
+          const hasScreenMemory = !!edits.projectNowUi || !!edits.projectNowUiByIdentity?.length;
+          setRestoredScroll(hasScreenMemory ? 0 : (state.edits[project.id]?.scroll ?? 0));
           setRestoreReady(true);
         }
         return;
@@ -1928,10 +1961,11 @@ function ProjectNowProjectPage({
         return;
       }
 
-      if (memory.actionEntry && memory.activity !== 'discussion') {
+      if (candidates.some((memory) => memory.actionEntry && memory.activity !== 'discussion')) {
         try {
           await controller.projectDecision(project.id);
-          if (memory.actionEntry.mode === 'release') await controller.readRelease(project.id);
+          if (candidates.some((memory) => memory.actionEntry?.mode === 'release'))
+            await controller.readRelease(project.id);
         } catch {
           if (pageMounted.current) setRestoreReady(true);
           return;
@@ -1942,43 +1976,50 @@ function ProjectNowProjectPage({
       const latest = controller.getSnapshot();
       const latestView = latest.projectNow[project.id];
       const latestProject = latest.projects.find((item) => item.id === project.id) ?? project;
+      const validCandidates = candidates.filter((memory) => {
+        if (!memory.actionEntry) return true;
+        const current =
+          !!latestView &&
+          projectNowResumeTargetIsCurrent(memory, latestProject, latestView, latest);
+        if (!current) controller.forgetProjectNowUi(project.id, projectNowUiMemoryKey(memory));
+        return current;
+      });
+      const memory = validCandidates[0];
+      if (!memory) {
+        setOtherOpen(false);
+        setProjectContextOpen(false);
+        setRestoredScroll(0);
+        restorationWritable.current = true;
+        setRestoreReady(true);
+        return;
+      }
       const now = Date.now();
       const elapsed = now - memory.lastViewedAt;
       const recentlyAway = elapsed >= 0 && elapsed <= projectNowLongAbsenceMs;
-      const targetCurrent =
-        !!latestView && projectNowResumeTargetIsCurrent(memory, latestProject, latestView, latest);
       const basisMatches =
         memory.basis ===
         projectNowContextBasis(latestProject, latest, latest.workingTrees[project.id]);
+      const hasRecoverableDraft =
+        memory.actionEntry &&
+        ['continue', 'remaining', 'verify', 'policy'].includes(memory.actionEntry.mode);
+      const canRestoreDeepAction =
+        basisMatches || hasRecoverableDraft || memory.activity === 'discussion';
 
-      if (memory.resumePending && targetCurrent && memory.actionEntry) {
+      if (memory.resumePending && memory.actionEntry) {
         setResumeCandidate(memory);
       } else if (
-        targetCurrent &&
         memory.screen === 'action' &&
-        memory.activity === 'discussion' &&
         recentlyAway &&
-        memory.actionEntry
+        memory.actionEntry &&
+        canRestoreDeepAction
       ) {
         setActionEntry(memory.actionEntry);
         setMode('action');
+        setNestedDiscussionOpen(memory.activity === 'discussion');
         setOtherOpen(memory.otherWorkOpen);
         setProjectContextOpen(memory.projectContextOpen);
         setRestoredScroll(memory.scroll);
       } else if (
-        targetCurrent &&
-        memory.screen === 'action' &&
-        memory.activity === 'action' &&
-        recentlyAway &&
-        memory.actionEntry
-      ) {
-        setActionEntry(memory.actionEntry);
-        setMode('action');
-        setOtherOpen(memory.otherWorkOpen);
-        setProjectContextOpen(memory.projectContextOpen);
-        setRestoredScroll(memory.scroll);
-      } else if (
-        targetCurrent &&
         (memory.activity === 'action' || memory.activity === 'discussion') &&
         memory.actionEntry
       ) {
@@ -1995,6 +2036,7 @@ function ProjectNowProjectPage({
         setProjectContextOpen(memory.projectContextOpen);
         setRestoredScroll(memory.scroll);
       } else {
+        setNestedDiscussionOpen(false);
         setOtherOpen(false);
         setProjectContextOpen(false);
         setRestoredScroll(0);
@@ -2088,29 +2130,54 @@ function ProjectNowProjectPage({
     void controller.projectDecision(project.id).catch(() => {});
   }, [controller, project.id, state.decisions, view?.state, view?.work?.id]);
 
+  const selectWorkItem = (workItemId: string) => {
+    const identity = `work:${workItemId}`;
+    const savedMemory = [
+      ...(edits.projectNowUiByIdentity ?? []),
+      ...(edits.projectNowUi ? [edits.projectNowUi] : []),
+    ].find((memory) => projectNowUiMemoryKey(memory) === identity);
+    const memory: ProjectNowUiMemory = savedMemory
+      ? { ...savedMemory, lastViewedAt: Date.now() }
+      : {
+          projectId: project.id,
+          lastViewedAt: Date.now(),
+          screen: 'base',
+          activity: 'base',
+          resumePending: false,
+          actionEntry: null,
+          selectedWorkId: workItemId,
+          basis: projectNowContextBasis(project, state, workingTree),
+          policyConflictBasis: state.decisions[project.id]?.policyConflictBasis ?? null,
+          otherWorkOpen: false,
+          projectContextOpen: false,
+          scroll: 0,
+        };
+    controller.recordProjectNowUi(project.id, memory);
+    return controller.selectWorkItem(project.id, workItemId);
+  };
+
   const openActionMode = (
     kind: PresentedProjectAction['kind'],
     workItemId: string | null,
     requestId: string | null,
     releaseId: string | null = null,
   ) => {
-    const targetWorkId =
-      kind === 'review-project-policy' ? null : (workItemId ?? view?.work?.id ?? null);
-    setActionEntry({
-      kind,
-      selectionKey: targetWorkId,
-      requestId,
-      releaseId,
-      mode: projectNowActionEntryMode(kind),
-    });
+    const mode = projectNowActionEntryMode(kind);
+    const projectScopedAction = ['policy', 'release', 'direction', 'new-work'].includes(mode);
+    const targetWorkId = projectScopedAction ? null : (workItemId ?? view?.work?.id ?? null);
+    setActionEntry({ kind, selectionKey: targetWorkId, requestId, releaseId, mode });
+    setNestedDiscussionOpen(kind === 'discuss-work');
     setResumeCandidate(null);
     setResumeError('');
     setMode('action');
   };
 
   const closeActionMode = () => {
+    if (actionEntry && ['policy', 'release', 'direction', 'new-work'].includes(actionEntry.mode))
+      controller.forgetProjectNowUi(project.id, projectNowUiMemoryKey(makeUiMemory(Date.now())));
     setMode('default');
     setActionEntry(null);
+    setNestedDiscussionOpen(false);
     setResumeCandidate(null);
     setResumeError('');
   };
@@ -2137,7 +2204,9 @@ function ProjectNowProjectPage({
         !currentView ||
         !projectNowResumeTargetIsCurrent(resumeCandidate, currentProject, currentView, freshState)
       ) {
+        controller.forgetProjectNowUi(project.id, projectNowUiMemoryKey(resumeCandidate));
         setResumeCandidate(null);
+        setNestedDiscussionOpen(false);
         setOtherOpen(false);
         setProjectContextOpen(false);
         setRestoredScroll(0);
@@ -2145,6 +2214,7 @@ function ProjectNowProjectPage({
       }
       setActionEntry(resumeCandidate.actionEntry);
       setMode('action');
+      setNestedDiscussionOpen(resumeCandidate.activity === 'discussion');
       setResumeCandidate(null);
       setRestoredScroll(0);
     } catch {
@@ -2162,7 +2232,7 @@ function ProjectNowProjectPage({
       return;
     }
     if (action.kind === 'start-work' && action.workItemId) {
-      await controller.selectWorkItem(project.id, action.workItemId);
+      await selectWorkItem(action.workItemId);
       setOtherOpen(false);
       return;
     }
@@ -2215,7 +2285,7 @@ function ProjectNowProjectPage({
     if (recommendation?.status !== 'recommended' || !recommendation.candidate) return;
     if (recommendation.candidate.source === 'proposal')
       await controller.selectProposal(project.id, recommendation.candidate.id);
-    else await controller.selectWorkItem(project.id, recommendation.candidate.id);
+    else await selectWorkItem(recommendation.candidate.id);
     setOtherOpen(false);
   };
 
@@ -2322,6 +2392,8 @@ function ProjectNowProjectPage({
               release={state.releases[project.id]}
               releaseLoading={state.releaseLoading[project.id] ?? false}
               onBack={closeActionMode}
+              discussionOpen={nestedDiscussionOpen}
+              onDiscussionChange={setNestedDiscussionOpen}
               onVerify={() =>
                 setActionEntry((entry) => (entry ? { ...entry, mode: 'verify' } : entry))
               }
@@ -2565,7 +2637,7 @@ function ProjectNowProjectPage({
                       onClick={() =>
                         void (item.source === 'proposal'
                           ? controller.selectProposal(project.id, item.id)
-                          : controller.selectWorkItem(project.id, item.id))
+                          : selectWorkItem(item.id))
                       }
                     >
                       <span>{item.title}</span>

@@ -32,6 +32,24 @@ export type ProjectNowUiMemory = {
   projectContextOpen: boolean;
   scroll: number;
 };
+
+export function projectNowUiMemoryKey(memory: ProjectNowUiMemory): string {
+  switch (memory.actionEntry?.mode) {
+    case 'policy':
+      return 'project:policy';
+    case 'release':
+      return `project:release:${memory.actionEntry.releaseId ?? 'current'}`;
+    case 'direction':
+      return 'project:direction';
+    case 'new-work':
+      return 'project:next-work';
+  }
+  const workId = memory.actionEntry?.selectionKey ?? memory.selectedWorkId;
+  if (workId) return `work:${workId}`;
+  if (memory.actionEntry?.requestId) return `project:request:${memory.actionEntry.requestId}`;
+  return 'project:overview';
+}
+
 export type AnalysisGoalDraft = { text: string; version: string };
 export type AnalysisActionDraft = { action: string; done: string; version: string };
 export type AnalysisTaskSnapshot = {
@@ -87,6 +105,8 @@ export type ProjectDrafts = {
   taskDiscussions?: [string, AnalysisTaskDiscussion][];
   /** Short-lived Project screen position. It never contains action authority. */
   projectNowUi?: ProjectNowUiMemory;
+  /** Recent screen state keyed by selected work or by project-level action. */
+  projectNowUiByIdentity?: ProjectNowUiMemory[];
   goalDraft: AnalysisGoalDraft | null;
   actionDrafts: [string, AnalysisActionDraft][];
   expanded: string[];
