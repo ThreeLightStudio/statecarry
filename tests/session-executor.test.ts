@@ -69,10 +69,7 @@ it('allows verification artifacts in the project without auto-approving executio
       approvalPolicy: 'on-request',
     }),
   );
-  expect(rpc.request).toHaveBeenCalledWith('thread/resume', {
-    threadId: 'thread',
-    cwd: '/project',
-  });
+  expect(rpc.request.mock.calls.map(([method]) => method)).toEqual(['thread/start', 'turn/start']);
   rpc.emit('serverRequest', {
     id: 14,
     method: 'item/commandExecution/requestApproval',
@@ -99,6 +96,7 @@ it('keeps project direction requests read-only', async () => {
       approvalPolicy: 'never',
     }),
   );
+  expect(rpc.request.mock.calls.map(([method]) => method)).toEqual(['thread/resume', 'turn/start']);
 });
 
 it('requires a project folder before granting verification write access', async () => {

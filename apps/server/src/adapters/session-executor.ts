@@ -59,14 +59,22 @@ export class CodexSessionExecutor implements SessionExecutor {
     return { threadId };
   }
   async send(input: SessionSendInput): Promise<SessionSendResult> {
-    this.owned.add(input.threadId);
+    const alreadyOwned = this.owned.has(input.threadId);
     const readOnly = input.operation === 'direction';
     if (input.operation === 'verify' && !input.cwd)
       throw new DomainError('VALIDATION', 'Choose a project folder before running checks.');
-    await this.rpc.request('thread/resume', {
-      threadId: input.threadId,
-      ...(input.cwd ? { cwd: input.cwd } : {}),
-    });
+    if (!alreadyOwned) {
+      this.owned.add(input.threadId);
+      try {
+        await this.rpc.request('thread/resume', {
+          threadId: input.threadId,
+          ...(input.cwd ? { cwd: input.cwd } : {}),
+        });
+      } catch (error) {
+        this.owned.delete(input.threadId);
+        throw error;
+      }
+    }
     const result = await this.rpc.request('turn/start', {
       threadId: input.threadId,
       input: [{ type: 'text', text: input.text }],
