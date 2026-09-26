@@ -1,6 +1,6 @@
 # Development
 
-StateCarry is a pnpm workspace with Turborepo coordinating repository-wide checks and the combined build. Run commands from the repository root with the Node and pnpm versions specified in `package.json`.
+StateCarry is a pnpm workspace with Turborepo coordinating repository-wide checks and the combined build. Run commands from the repository root with Node `>=24.14.1` and the pnpm version specified in `package.json`. Vitest disables Node's experimental global Web Storage API so jsdom keeps its own per-window `localStorage`; Node 26 otherwise exposes an unavailable process-level `localStorage` when no `--localstorage-file` is set, which shadows jsdom storage in tests.
 
 ## Source layout
 
