@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -1666,7 +1667,19 @@ function WorkingTreeCard({
 
 function ProjectPage(props: ProjectProps & { dirtyWorkPreview: DirtyWorkPreviewScenario }) {
   const workId = props.state.projectNow[props.project.id]?.work?.id ?? 'project';
-  return <ProjectNowProjectPage key={`${props.project.id}:${workId}`} {...props} />;
+  const [restoreTargetWorkId, setRestoreTargetWorkId] = useState<string | null>(null);
+  const onRestoreTargetConsumed = useCallback((selectedWorkId: string) => {
+    setRestoreTargetWorkId((current) => (current === selectedWorkId ? null : current));
+  }, []);
+  return (
+    <ProjectNowProjectPage
+      key={`${props.project.id}:${workId}`}
+      {...props}
+      restoreTargetWorkId={restoreTargetWorkId === workId ? restoreTargetWorkId : null}
+      onWorkSelection={setRestoreTargetWorkId}
+      onRestoreTargetConsumed={onRestoreTargetConsumed}
+    />
+  );
 }
 
 function projectNowHeading(view: ProjectNowView): string {
@@ -1852,7 +1865,11 @@ function projectNowUiMatchesCurrentWork(memory: ProjectNowUiMemory, view: Projec
   return true;
 }
 
-function projectNowUiMemoriesForView(edits: ProjectDrafts, view: ProjectNowView) {
+function projectNowUiMemoriesForView(
+  edits: ProjectDrafts,
+  view: ProjectNowView,
+  restoreTargetWorkId: string | null,
+) {
   const memories = new Map<string, ProjectNowUiMemory>();
   for (const memory of [...(edits.projectNowUiByIdentity ?? []), edits.projectNowUi]) {
     if (!memory || !projectNowUiMatchesCurrentWork(memory, view)) continue;
@@ -1860,7 +1877,13 @@ function projectNowUiMemoriesForView(edits: ProjectDrafts, view: ProjectNowView)
     const previous = memories.get(identity);
     if (!previous || memory.lastViewedAt > previous.lastViewedAt) memories.set(identity, memory);
   }
-  return [...memories.values()].sort((left, right) => right.lastViewedAt - left.lastViewedAt);
+  const targetIdentity = restoreTargetWorkId ? `work:${restoreTargetWorkId}` : null;
+  return [...memories.values()].sort((left, right) => {
+    const leftIsTarget = projectNowUiMemoryKey(left) === targetIdentity;
+    const rightIsTarget = projectNowUiMemoryKey(right) === targetIdentity;
+    if (leftIsTarget !== rightIsTarget) return leftIsTarget ? -1 : 1;
+    return right.lastViewedAt - left.lastViewedAt;
+  });
 }
 
 function ProjectNowProjectPage({
@@ -1869,7 +1892,15 @@ function ProjectNowProjectPage({
   controller,
   onNavigate,
   dirtyWorkPreview,
-}: ProjectProps & { dirtyWorkPreview: DirtyWorkPreviewScenario }) {
+  restoreTargetWorkId,
+  onWorkSelection,
+  onRestoreTargetConsumed,
+}: ProjectProps & {
+  dirtyWorkPreview: DirtyWorkPreviewScenario;
+  restoreTargetWorkId: string | null;
+  onWorkSelection: (workId: string) => void;
+  onRestoreTargetConsumed: (workId: string) => void;
+}) {
   const view = state.projectNow[project.id];
   const loading = state.projectNowLoading[project.id] ?? false;
   const initializing = state.projectNowInitializing[project.id] ?? false;
@@ -1946,13 +1977,14 @@ function ProjectNowProjectPage({
     if (restoreStarted.current || loading || !view) return;
     restoreStarted.current = true;
     void (async () => {
-      const candidates = projectNowUiMemoriesForView(edits, view);
+      const candidates = projectNowUiMemoriesForView(edits, view, restoreTargetWorkId);
       if (!candidates.length) {
         restorationWritable.current = true;
         if (pageMounted.current) {
           const hasScreenMemory = !!edits.projectNowUi || !!edits.projectNowUiByIdentity?.length;
           setRestoredScroll(hasScreenMemory ? 0 : (state.edits[project.id]?.scroll ?? 0));
           setRestoreReady(true);
+          if (restoreTargetWorkId === view.work?.id) onRestoreTargetConsumed(restoreTargetWorkId);
         }
         return;
       }
@@ -1991,6 +2023,7 @@ function ProjectNowProjectPage({
         setRestoredScroll(0);
         restorationWritable.current = true;
         setRestoreReady(true);
+        if (restoreTargetWorkId === view.work?.id) onRestoreTargetConsumed(restoreTargetWorkId);
         return;
       }
       const now = Date.now();
@@ -2043,8 +2076,19 @@ function ProjectNowProjectPage({
       }
       restorationWritable.current = true;
       setRestoreReady(true);
+      if (restoreTargetWorkId === view.work?.id) onRestoreTargetConsumed(restoreTargetWorkId);
     })();
-  }, [controller, loading, project.id, project.version, state.error, state.online, view]);
+  }, [
+    controller,
+    loading,
+    onRestoreTargetConsumed,
+    project.id,
+    project.version,
+    restoreTargetWorkId,
+    state.error,
+    state.online,
+    view,
+  ]);
 
   useEffect(() => {
     if (!restoreReady || !restorationWritable.current || !view || state.error || !state.online)
@@ -2137,7 +2181,7 @@ function ProjectNowProjectPage({
       ...(edits.projectNowUi ? [edits.projectNowUi] : []),
     ].find((memory) => projectNowUiMemoryKey(memory) === identity);
     const memory: ProjectNowUiMemory = savedMemory
-      ? { ...savedMemory, lastViewedAt: Date.now() }
+      ? savedMemory
       : {
           projectId: project.id,
           lastViewedAt: Date.now(),
@@ -2153,6 +2197,7 @@ function ProjectNowProjectPage({
           scroll: 0,
         };
     controller.recordProjectNowUi(project.id, memory);
+    onWorkSelection(workItemId);
     return controller.selectWorkItem(project.id, workItemId);
   };
 

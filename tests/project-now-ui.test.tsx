@@ -9,6 +9,7 @@ import type {
   ProjectNow,
   ReleaseProjectView,
 } from '@statecarry/contracts';
+import type { ProjectNowUiMemory } from '@statecarry/presentation';
 import {
   act,
   button,
@@ -3212,6 +3213,145 @@ it('keeps screen memory with its selected work when switching from A to B and ba
     await mounted.unmount();
   }
 });
+
+it.each([
+  {
+    activity: 'action' as const,
+    expectedCue: 'Last time, you were reviewing this work.',
+    projectContextOpen: false,
+  },
+  {
+    activity: 'discussion' as const,
+    expectedCue: 'Last time, you were discussing this work.',
+    projectContextOpen: false,
+  },
+  { activity: 'details' as const, expectedCue: null, projectContextOpen: true },
+])(
+  'preserves long absence when selecting a work with $activity memory',
+  async ({ activity, expectedCue, projectContextOpen }) => {
+    const h = projectUiFixture([projectEntry('alpha')]);
+    const data = bundle();
+    let currentWork = 'work-a';
+    const nowAt = Date.now();
+    const oldVisit = nowAt - 31 * 60 * 1000;
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(nowAt);
+    const memory = new LocalProjectDraftMemory(() => window.localStorage);
+    h.projectGateway.now = vi.fn(async () => {
+      const view = data.current(currentWork);
+      return {
+        initialized: true,
+        model: structuredClone(data.model),
+        now:
+          currentWork === 'work-b'
+            ? {
+                ...view,
+                secondaryActions: [
+                  ...view.secondaryActions,
+                  { kind: 'review-work' as const, workItemId: 'work-b', text: 'Review work.' },
+                ],
+              }
+            : view,
+      };
+    });
+    h.projectGateway.selectWork = vi.fn(async (_id, _revision, workItemId) => {
+      currentWork = workItemId;
+      return structuredClone(data.model);
+    });
+    nativeDecisionLifecycle(h);
+    window.history.replaceState(null, '', '#/project/alpha');
+    const bootstrap = await mountProjectRoot(h.projectGateway, h.analysisGateway, memory);
+    const basis = memory.read('alpha')?.projectNowUi?.basis;
+    expect(basis).toBeTruthy();
+    await bootstrap.unmount();
+
+    const workMemory: ProjectNowUiMemory = {
+      projectId: 'alpha',
+      lastViewedAt: oldVisit,
+      screen: activity === 'details' ? 'base' : 'action',
+      activity,
+      resumePending: false,
+      actionEntry:
+        activity === 'details'
+          ? null
+          : {
+              kind: 'review-work',
+              selectionKey: 'work-b',
+              requestId: null,
+              releaseId: null,
+              mode: 'review',
+            },
+      selectedWorkId: 'work-b',
+      basis: basis!,
+      policyConflictBasis: null,
+      otherWorkOpen: false,
+      projectContextOpen,
+      scroll: 460,
+    };
+    const projectMemory: ProjectNowUiMemory = {
+      ...workMemory,
+      lastViewedAt: oldVisit + 30_000,
+      screen: 'action',
+      activity: 'action',
+      actionEntry: {
+        kind: 'define-direction',
+        selectionKey: null,
+        requestId: null,
+        releaseId: null,
+        mode: 'direction',
+      },
+      selectedWorkId: null,
+      projectContextOpen: false,
+    };
+    const existingDrafts = memory.read('alpha');
+    expect(existingDrafts).toBeTruthy();
+    memory.write('alpha', {
+      ...existingDrafts!,
+      projectNowUi: projectMemory,
+      projectNowUiByIdentity: [
+        ...(existingDrafts!.projectNowUiByIdentity ?? []),
+        workMemory,
+        projectMemory,
+      ],
+    });
+
+    const scrollY = Object.getOwnPropertyDescriptor(window, 'scrollY');
+    let scrollPosition = 0;
+    Object.defineProperty(window, 'scrollY', { configurable: true, get: () => scrollPosition });
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation((_left, top) => {
+      scrollPosition = top;
+    });
+    const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway, memory);
+    try {
+      await press(mounted.host, 'Small follow-up cleanupPaused');
+      await settle();
+
+      expect(h.projectGateway.selectWork).toHaveBeenCalledWith('alpha', 7, 'work-b');
+      expect(mounted.host.querySelector('#pw-now-work-title')?.textContent).toBe(
+        'Small follow-up cleanup',
+      );
+      expect(mounted.host.querySelector('.pw-now-action-mode')).toBeNull();
+      if (expectedCue) {
+        expect(mounted.host.querySelector('.pw-now-resume-cue')?.textContent).toContain(
+          expectedCue,
+        );
+      } else {
+        expect(mounted.host.querySelector('.pw-now-resume-cue')).toBeNull();
+      }
+      expect(
+        [...mounted.host.querySelectorAll('details')].find(
+          (item) => item.querySelector('summary')?.textContent === 'Project context',
+        )?.open,
+      ).toBe(false);
+      expect(scrollPosition).toBe(0);
+      expect(scrollTo).toHaveBeenLastCalledWith(0, 0);
+    } finally {
+      scrollTo.mockRestore();
+      if (scrollY) Object.defineProperty(window, 'scrollY', scrollY);
+      clock.mockRestore();
+      await mounted.unmount();
+    }
+  },
+);
 
 it('returns to the base work view after a long absence and resumes only after rechecking', async () => {
   const h = projectUiFixture([projectEntry('alpha')]);
