@@ -248,6 +248,46 @@ describe('ProjectNow resolver', () => {
     });
   });
 
+  it('recommends independent work when the active current work is waiting on Codex', () => {
+    const h = harness();
+    const { receipt } = registerProject(h, { goal: 'Improve project return.' });
+    const projectId = receipt.projectId;
+    h.core.projectModel.view(projectId);
+    work(h, projectId, 'a', 'active', 'Wait for Codex result');
+    work(h, projectId, 'b', 'active', 'Small independent cleanup');
+    select(h, projectId, 'a');
+    observe(h, projectId);
+    h.repo.put('workDecision', {
+      id: 'execution-a',
+      projectId,
+      workItemId: 'a',
+      kind: workDecisionKinds.executionForWork,
+      value: { requestId: 'request-a' },
+      basis: [],
+      state: 'valid',
+      decidedAt: AT,
+    });
+    const request = resultRequest(projectId, 'request-a');
+    h.repo.put('continuation', {
+      ...request,
+      execution: { status: 'waiting', report: '', error: null, questions: [] },
+    });
+
+    const now = h.core.now.resolve(projectId);
+
+    expect(h.repo.get('workItem', 'a')?.state).toBe('active');
+    expect(now).toMatchObject({
+      currentWorkId: 'a',
+      state: 'waiting',
+      execution: { status: 'waiting' },
+      recommendation: {
+        status: 'recommended',
+        candidate: { id: 'b', source: 'work-item' },
+        selectionState: 'current-retained',
+      },
+    });
+  });
+
   it('recommends one evidence-supported candidate and marks a close alternative', () => {
     const h = harness();
     const { receipt } = registerProject(h, { goal: 'Improve project return.' });

@@ -1162,6 +1162,58 @@ it('marks durable work complete from review-completion mode', async () => {
   }
 });
 
+it('warns to check an in-flight request after reopening StateCarry', async () => {
+  const h = projectUiFixture([projectEntry('alpha')]);
+  const data = bundle();
+  const activeRequest = returnedRequest('active-request', '');
+  delete activeRequest.externalReport;
+  activeRequest.state = 'sent';
+  activeRequest.threadId = 'thread-active';
+  activeRequest.turnId = 'turn-active';
+  activeRequest.execution = { status: 'running', report: '', error: null, questions: [] };
+  const executionData = decision();
+  executionData.requests = [activeRequest];
+  executionData.record.requests = [activeRequest.id];
+  h.projectGateway.now = vi.fn(async () => ({
+    initialized: true,
+    model: structuredClone(data.model),
+    now: {
+      ...data.current('work-a'),
+      execution: {
+        workItemId: 'work-a',
+        requestId: activeRequest.id,
+        status: 'running' as const,
+        actions: [
+          {
+            kind: 'open-request' as const,
+            workItemId: 'work-a',
+            requestId: activeRequest.id,
+            text: 'Open the Codex request.',
+          },
+        ],
+      },
+    },
+  }));
+  h.projectGateway.execution = vi.fn(async () => structuredClone(executionData));
+  window.history.replaceState(null, '', '#/project/alpha');
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
+  try {
+    await press(mounted.host, 'Open request');
+    await settle();
+
+    expect(mounted.host.querySelector('[aria-label="Request and result"]')).toBeTruthy();
+    expect(mounted.host.textContent).toContain('Codex is working on this request.');
+    expect(mounted.host.textContent).toContain(
+      'If you fully quit StateCarry, this execution may be interrupted.',
+    );
+    expect(mounted.host.textContent).toContain(
+      'When you reopen StateCarry, check this request’s current status before deciding what to do next.',
+    );
+  } finally {
+    await mounted.unmount();
+  }
+});
+
 it('opens a background result on the exact linked work and request instead of the newest request', async () => {
   const h = projectUiFixture([projectEntry('alpha')]);
   const data = bundle();

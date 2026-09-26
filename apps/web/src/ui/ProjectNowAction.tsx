@@ -322,9 +322,19 @@ function RequestReport({
                         ['dispatching', 'result-unknown'].includes(request.state)
                       ? 'StateCarry could not confirm whether this request is still running. Check the Codex conversation before sending it again.'
                       : 'The request is waiting for an execution update.';
+  const executionMayStillBeActive =
+    !request.externalReport &&
+    !['completed', 'failed', 'interrupted'].includes(request.execution?.status ?? '') &&
+    ['dispatching', 'sent', 'result-unknown'].includes(request.state);
   return (
     <>
       <p role="status">{statusText}</p>
+      {executionMayStillBeActive && (
+        <p className="pw-small">
+          If you fully quit StateCarry, this execution may be interrupted. When you reopen
+          StateCarry, check this request’s current status before deciding what to do next.
+        </p>
+      )}
       <details className="pw-details">
         <summary>Read the exact request</summary>
         <pre>{request.preparedText ?? request.target.payload.nextAction}</pre>

@@ -349,6 +349,7 @@ export class ProjectNowResolver {
   private workRecommendation(
     model: ProjectModelView,
     current: WorkItem | null,
+    executionWaiting: boolean,
     primaryDirection: ProjectModelView['directions'][number] | undefined,
     conflict: ProjectNowNotice | null,
     candidates: ProjectNowWorkCandidate[],
@@ -372,7 +373,9 @@ export class ProjectNowResolver {
       evidenceGaps: [...recommendationEvidenceGaps],
     });
 
-    const needsChoice = !current || ['waiting', 'completed', 'stopped'].includes(current.state);
+    const waitingCurrent = current?.state === 'waiting' || executionWaiting;
+    const needsChoice =
+      !current || waitingCurrent || ['completed', 'stopped'].includes(current.state);
     if (!needsChoice) return none();
     if (candidates.length === 0) return none();
     if (conflict) return insufficient('Review the project direction before choosing other work.');
@@ -381,7 +384,7 @@ export class ProjectNowResolver {
     if (!model.project.purposes.some((purpose) => purpose.confirmed))
       return insufficient('A confirmed project purpose is not available to rank this work.');
 
-    if (current?.state === 'waiting') {
+    if (waitingCurrent && current) {
       const currentEvidence = matchesByWorkItem.get(current.id) ?? [];
       if (evidenceReviewAction(current, classifyWorkProposalMatches(currentEvidence)))
         return insufficient('Review the selected work before choosing another piece of work.');
@@ -403,7 +406,7 @@ export class ProjectNowResolver {
         );
       if (queued.relation.state === 'needs-review')
         return insufficient(`Re-check the saved sequence before starting ${queued.item.title}.`);
-      if (!candidate || !this.recommendationCandidateIsReady(candidate, model, current))
+      if (!candidate || !this.recommendationCandidateIsReady(candidate, model, current, false))
         return insufficient(`Re-check ${queued.item.title} before deciding whether to start it.`);
       return {
         status: 'recommended',
@@ -419,7 +422,7 @@ export class ProjectNowResolver {
     }
 
     const readyCandidates = candidates.filter((candidate) =>
-      this.recommendationCandidateIsReady(candidate, model, current),
+      this.recommendationCandidateIsReady(candidate, model, current, waitingCurrent),
     );
     if (readyCandidates.length === 0) {
       if (candidates.some((candidate) => candidate.disposition === 'completion-review'))
@@ -431,7 +434,7 @@ export class ProjectNowResolver {
           'Project sources disagree about whether this work is still in progress.',
         );
       if (
-        current?.state === 'waiting' &&
+        waitingCurrent &&
         candidates.some(
           (candidate) =>
             candidate.source === 'proposal' &&
@@ -587,11 +590,12 @@ export class ProjectNowResolver {
     candidate: ProjectNowWorkCandidate,
     model: ProjectModelView,
     current: WorkItem | null,
+    waitingCurrent: boolean,
   ): boolean {
     if (candidate.disposition !== 'progress') return false;
     if (candidate.source === 'proposal')
       return (
-        current?.state !== 'waiting' &&
+        !waitingCurrent &&
         (candidate.proposalState === 'active' || candidate.proposalState === 'paused')
       );
 
@@ -738,9 +742,11 @@ export class ProjectNowResolver {
       };
 
     const conflict = this.directionConflict(projectId);
+    const currentExecution = current ? this.executionForWork(projectId, current.id) : null;
     const recommendation = this.workRecommendation(
       model,
       current,
+      currentExecution?.status === 'waiting',
       primaryDirection,
       conflict,
       otherWorkCandidates,
@@ -752,7 +758,6 @@ export class ProjectNowResolver {
     const currentResult = current
       ? results.find((result) => result.workItemId === current.id)
       : null;
-    const currentExecution = current ? this.executionForWork(projectId, current.id) : null;
     const otherResult = results.find((result) => result.workItemId !== current?.id) ?? null;
     const releaseAttention = this.core.releases.attention(projectId);
     let notice: ProjectNowNotice | null = conflict;
