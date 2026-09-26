@@ -70,7 +70,7 @@ class LoopbackEventSource extends EventTarget {
   }
 }
 
-it('uses the real client, HTTP and SQLite through analysis, selection, execution and restart', async () => {
+it('keeps another Work selected while a request completes across restart', async () => {
   installBrowser();
   const directory = mkdtempSync(join(tmpdir(), 'statecarry-native-'));
   let repo = new SQLiteRepository(directory);
@@ -250,6 +250,9 @@ it('uses the real client, HTTP and SQLite through analysis, selection, execution
       completionCondition: 'The result is reviewed.',
     });
     const userWork = userModel.workItems.find((work) => work.origin === 'user')!;
+    const workBData = await gateway.now(id);
+    const workB = workBData.model.workItems.find((work) => work.id === selected)!;
+    expect(workB).toBeDefined();
     await gateway.selectWork(id, core.project(id).revision, userWork.id);
     await analysis.discussTask(id, {
       workItemId: userWork.id,
@@ -314,6 +317,32 @@ it('uses the real client, HTTP and SQLite through analysis, selection, execution
     });
     expect(repo.get('workItem', userWork.id)?.state).toBe('active');
 
+    const otherWorkCount = (await gateway.now(id)).now.otherWorkCount;
+    expect(otherWorkCount).toBeGreaterThan(0);
+    await toggleDetails(mounted.host, `Other work · ${otherWorkCount}`);
+    const chooseWorkB = [...mounted.host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (candidateButton) => candidateButton.getAttribute('aria-label') === `Choose ${workB.title}`,
+    );
+    expect(chooseWorkB).toBeTruthy();
+    await act(async () => {
+      chooseWorkB!.click();
+      await vi.waitFor(() =>
+        expect(mounted!.host.querySelector('#pw-now-work-title')?.textContent).toBe(workB.title),
+      );
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await vi.waitFor(() =>
+        expect(mounted!.host.querySelector('#pw-now-work-title')?.textContent).toBe(workB.title),
+      );
+    });
+    expect((await gateway.now(id)).now).toMatchObject({
+      currentWorkId: selected,
+      currentWorkSelection: 'user',
+      execution: { workItemId: userWork.id, requestId, status: 'running' },
+    });
+    expect(mounted.host.textContent).toContain('Request for User written task');
+
     const firstBackgroundTime = Date.now();
     const executionBackground = new BackgroundLoop(core);
     background = executionBackground;
@@ -341,8 +370,12 @@ it('uses the real client, HTTP and SQLite through analysis, selection, execution
           'Codex needs your input before it can continue.',
         ),
       );
+      await vi.waitFor(() =>
+        expect(mounted!.host.querySelector('#pw-now-work-title')?.textContent).toBe(workB.title),
+      );
     });
     expect(button(mounted.host, 'Respond to Codex')).toBeTruthy();
+    expect((await gateway.now(id)).now.currentWorkId).toBe(selected);
 
     readExecution = async () => {
       throw new Error('The Codex conversation is temporarily unavailable.');
@@ -357,10 +390,17 @@ it('uses the real client, HTTP and SQLite through analysis, selection, execution
           'StateCarry could not confirm whether this request is still running.',
         ),
       );
+      await vi.waitFor(() =>
+        expect(mounted!.host.querySelector('#pw-now-work-title')?.textContent).toBe(workB.title),
+      );
     });
     expect(button(mounted.host, 'Check execution state')).toBeTruthy();
     expect(repo.get('workItem', userWork.id)?.state).toBe('active');
-    expect((await gateway.now(id)).now.currentWorkSelection).toBe('user');
+    expect((await gateway.now(id)).now).toMatchObject({
+      currentWorkId: selected,
+      currentWorkSelection: 'user',
+      execution: { workItemId: userWork.id, requestId, status: 'unknown' },
+    });
 
     await mounted.unmount();
     mounted = undefined;
@@ -374,7 +414,7 @@ it('uses the real client, HTTP and SQLite through analysis, selection, execution
     server = createHttpServer(core, events, '/tmp/no-web', 4310);
     await listen();
     expect((await gateway.now(id)).now).toMatchObject({
-      currentWorkId: userWork.id,
+      currentWorkId: selected,
       currentWorkSelection: 'user',
       execution: { requestId, status: 'unknown' },
     });
@@ -395,7 +435,11 @@ it('uses the real client, HTTP and SQLite through analysis, selection, execution
       expect(repo.get('continuation', requestId)?.execution?.status).toBe('completed'),
     );
     expect(repo.get('workItem', userWork.id)?.state).toBe('active');
-    expect((await gateway.now(id)).now.currentWorkSelection).toBe('user');
+    expect((await gateway.now(id)).now).toMatchObject({
+      currentWorkId: selected,
+      currentWorkSelection: 'user',
+      execution: { workItemId: userWork.id, requestId, status: 'completed' },
+    });
 
     const calls = generate.mock.calls.length;
     mounted = await mountProjectRoot(gateway, analysis);
@@ -406,7 +450,12 @@ it('uses the real client, HTTP and SQLite through analysis, selection, execution
       await vi.waitFor(() =>
         expect(mounted!.host.textContent).toContain('A result is ready for your review.'),
       );
+      await vi.waitFor(() =>
+        expect(mounted!.host.querySelector('#pw-now-work-title')?.textContent).toBe(workB.title),
+      );
     });
+    expect(mounted.host.textContent).toContain('Request for User written task');
+    expect(mounted.host.textContent).toContain('User written task has a result ready to review.');
     await press(mounted.host, 'Review result');
     await act(async () => {
       await vi.waitFor(() =>
@@ -416,6 +465,10 @@ it('uses the real client, HTTP and SQLite through analysis, selection, execution
         expect(mounted!.host.textContent).toContain('Observed after the request'),
       );
     });
+    expect(mounted.host.querySelector('.pw-now-mode-context strong')?.textContent).toBe(
+      workB.title,
+    );
+    expect((await gateway.now(id)).now.currentWorkId).toBe(selected);
     expect((await gateway.execution(id)).record.accepted).toEqual([]);
     expect(generate.mock.calls.length).toBe(calls);
     expect(repo.list('source')[0].text).toBe(source().text);
