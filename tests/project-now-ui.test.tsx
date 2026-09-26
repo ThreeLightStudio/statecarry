@@ -2748,3 +2748,101 @@ it('uses a one-off release policy exception without rewriting the saved policy',
     await mounted.unmount();
   }
 });
+
+it('reviews and keeps stopped-work changes without restarting the selected work', async () => {
+  const h = projectUiFixture([projectEntry('alpha')]);
+  const data = bundle();
+  h.projectGateway.now = vi.fn(async () => ({
+    initialized: true,
+    model: {
+      ...structuredClone(data.model),
+      workItems: data.model.workItems.map((item) =>
+        item.id === 'work-a' ? { ...item, state: 'stopped' as const } : item,
+      ),
+    },
+    now: {
+      ...data.current('work-a'),
+      state: 'stopped',
+      currentState: 'This work was stopped.',
+      next: {
+        kind: 'review-remaining-changes',
+        workItemId: 'work-a',
+        text: 'Review or keep the project changes left after stopping this work.',
+      },
+      secondaryActions: [
+        { kind: 'discuss-work', workItemId: 'work-a', text: 'Discuss this task.' },
+        { kind: 'choose-next-work', text: 'Decide what to work on next.' },
+      ],
+    } as ProjectNow,
+  }));
+  const lifecycle = nativeDecisionLifecycle(h, scopedDecision());
+  h.projectGateway.stopWork = vi.fn(async () => structuredClone(data.model));
+  h.projectGateway.resumeWork = vi.fn(async () => structuredClone(data.model));
+  window.history.replaceState(null, '', '#/project/alpha');
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
+  try {
+    await press(mounted.host, 'Review remaining changes');
+    expect(mounted.host.textContent).toContain('This work remains stopped.');
+    expect(mounted.host.textContent).not.toContain('Prepare request for Codex');
+    expect(mounted.host.textContent).not.toContain('Continue this work');
+
+    const selectedScope = mounted.host.querySelector<HTMLInputElement>(
+      '.pw-decision-scopes input[type="checkbox"]',
+    )!;
+    await act(async () => selectedScope.click());
+    const confirmation = mounted.host.querySelector<HTMLInputElement>(
+      '.pw-decision-confirm input',
+    )!;
+    await act(async () => confirmation.click());
+    await press(mounted.host, 'Leave selected changes and move on');
+
+    expect(
+      lifecycle.decisionGateway.mock.calls.find(([, command]) => command?.action === 'keep')?.[1],
+    ).toMatchObject({ action: 'keep', basis: 'scope-a', scopeIds: ['scope-a-1'] });
+    expect(h.projectGateway.stopWork).not.toHaveBeenCalled();
+    expect(h.projectGateway.resumeWork).not.toHaveBeenCalled();
+    expect(
+      lifecycle.decisionGateway.mock.calls.some(([, command]) => command?.action === 'send'),
+    ).toBe(false);
+
+    await press(mounted.host, 'Discuss this task');
+    expect(mounted.host.querySelector('[aria-label="Task discussion"]')).not.toBeNull();
+    expect(h.projectGateway.stopWork).not.toHaveBeenCalled();
+    expect(h.projectGateway.resumeWork).not.toHaveBeenCalled();
+  } finally {
+    await mounted.unmount();
+  }
+});
+
+it('keeps an unchanged kept scope out of the active work default decision', async () => {
+  const h = projectUiFixture([projectEntry('alpha')]);
+  const model = bundle();
+  h.projectGateway.now = vi.fn(async () => ({
+    initialized: true,
+    model: structuredClone(model.model),
+    now: model.current('work-a'),
+  }));
+  const kept = scopedDecision();
+  const scope = kept.record.observation!.scopes[0]!;
+  kept.record.kept = [{ id: 'keep-native', scopeIds: [scope.id], scopes: [scope], at: now }];
+  const lifecycle = nativeDecisionLifecycle(h, kept);
+  window.history.replaceState(null, '', '#/project/alpha');
+  const mounted = await mountProjectRoot(h.projectGateway, h.analysisGateway);
+  try {
+    await press(mounted.host, 'Continue work');
+    const keptLabel = [...mounted.host.querySelectorAll('label')].find((label) =>
+      label.textContent?.includes('previously left unchanged'),
+    );
+    expect(keptLabel?.textContent).toContain('src/export.ts');
+    expect(keptLabel?.querySelector<HTMLInputElement>('input')?.checked).toBe(false);
+
+    await press(mounted.host, 'Decide later');
+    expect(mounted.host.textContent).not.toContain('Review remaining changes');
+    expect(h.projectGateway.stopWork).not.toHaveBeenCalled();
+    expect(
+      lifecycle.decisionGateway.mock.calls.some(([, command]) => command?.action === 'keep'),
+    ).toBe(false);
+  } finally {
+    await mounted.unmount();
+  }
+});

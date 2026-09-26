@@ -473,6 +473,82 @@ describe('project decision loop', () => {
       execution: { requestId: stoppedRequest.id, status: 'running' },
     });
   });
+  it('keeps stopped Work stopped while matching kept changes by scope fingerprint', async () => {
+    const f = fixture();
+    f.core.projectModel.setDirection(f.id, 'Improve the project return experience.');
+    f.core.projectModel.stopWork(f.id, f.workItemId);
+
+    const beforeKeep = f.core.now.resolve(f.id);
+    expect(beforeKeep.next?.kind).toBe('review-remaining-changes');
+    expect(beforeKeep.secondaryActions.map((action) => action.kind)).toContain('discuss-work');
+
+    await f.command({ action: 'observe', outputLanguage: 'en' });
+    await f.command({ action: 'keep', basis: 'basis-1', scopeIds: ['one'] });
+    const kept = f.core.repo.get('projectScope', f.id)!;
+    expect(kept.kept[0]?.scopeIds).toEqual(['one']);
+    expect(f.core.repo.get('workItem', f.workItemId)?.state).toBe('stopped');
+
+    f.setScope({
+      basis: 'basis-2',
+      checkedAt: '2026-09-21T01:00:00.000Z',
+      complete: true,
+      scopes: [
+        { ...f.scopes[0]!, id: 'one' },
+        { ...f.scopes[1]!, id: 'two' },
+      ],
+      limitations: [],
+    });
+    await f.command({ action: 'observe', outputLanguage: 'en' });
+    const unchangedKeptAndUnrelated = f.core.now.resolve(f.id);
+    expect(unchangedKeptAndUnrelated.next?.kind).toBe('review-remaining-changes');
+    expect(unchangedKeptAndUnrelated.currentWorkId).toBe(f.workItemId);
+    expect(unchangedKeptAndUnrelated.state).toBe('stopped');
+
+    await f.command({ action: 'keep', basis: 'basis-2', scopeIds: ['two'] });
+    const allKept = f.core.now.resolve(f.id);
+    expect(allKept.next?.kind).toBe('choose-next-work');
+    expect(allKept.secondaryActions.map((action) => action.kind)).toContain('discuss-work');
+    expect(allKept.currentWorkId).toBe(f.workItemId);
+    expect(allKept.state).toBe('stopped');
+
+    f.setScope({
+      basis: 'basis-3',
+      checkedAt: '2026-09-21T02:00:00.000Z',
+      complete: true,
+      scopes: [
+        { ...f.scopes[0]!, id: 'one-changed', patch: `${f.scopes[0]!.patch}\n+changed` },
+        { ...f.scopes[1]!, id: 'two' },
+      ],
+      limitations: [],
+    });
+    await f.command({ action: 'observe', outputLanguage: 'en' });
+    expect(f.core.now.resolve(f.id)).toMatchObject({
+      currentWorkId: f.workItemId,
+      state: 'stopped',
+      next: { kind: 'review-remaining-changes' },
+    });
+    expect(f.core.repo.get('workItem', f.workItemId)?.state).toBe('stopped');
+  });
+  it('does not open an empty remaining-changes decision for a checked clean project', async () => {
+    const f = fixture();
+    f.core.projectModel.setDirection(f.id, 'Improve the project return experience.');
+    f.setScope({
+      basis: 'clean-scope',
+      checkedAt: '2026-09-21T00:00:00.000Z',
+      complete: true,
+      scopes: [],
+      limitations: [],
+    });
+    await f.core.projects.observe(f.id, 'en', undefined, false);
+    await f.command({ action: 'observe', outputLanguage: 'en' });
+    f.core.projectModel.stopWork(f.id, f.workItemId);
+
+    expect(f.core.now.resolve(f.id)).toMatchObject({
+      currentWorkId: f.workItemId,
+      state: 'stopped',
+      next: { kind: 'choose-next-work' },
+    });
+  });
   it('does not let external reports, comparisons, closing, or acceptance hide an in-flight request', async () => {
     const f = fixture();
     const request = (await f.prepare()).requests[0];

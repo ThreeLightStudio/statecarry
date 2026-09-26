@@ -653,6 +653,21 @@ export class ProjectNowResolver {
       model.directions.find((direction) => direction.state === 'active' && direction.confirmed);
     const selection = this.currentSelection(projectId, model.workItems);
     const current = selection.item;
+    const scopeRecord = this.core.repo.get('projectScope', projectId);
+    const scopeObservation = scopeRecord?.observation;
+    const projectObservation = model.latestObservation;
+    const keptScopeIds = new Set(
+      (scopeRecord?.kept ?? []).flatMap((decision) => decision.scopes.map((scope) => scope.id)),
+    );
+    const currentProjectIsClean =
+      projectObservation?.snapshot.status === 'checked' &&
+      projectObservation.snapshot.dirty === false;
+    const remainingChangesNeedReview =
+      !currentProjectIsClean &&
+      (!scopeObservation ||
+        scopeRecord?.observedWorkspaceBasis !== projectObservation?.semanticKey ||
+        !scopeObservation.complete ||
+        scopeObservation.scopes.some((scope) => !keptScopeIds.has(scope.id)));
     const matchesByWorkItem = new Map(
       model.workItems.map((item) => [
         item.id,
@@ -1192,11 +1207,30 @@ export class ProjectNowResolver {
         text: `Stop ${current.title}.`,
       });
     } else if (current.state === 'stopped') {
-      next = primaryDirection
-        ? { kind: 'choose-next-work', text: 'Decide the next work for this direction.' }
+      secondaryActions.push({
+        kind: 'discuss-work',
+        workItemId: current.id,
+        text: `Discuss ${current.title}.`,
+      });
+      if (remainingChangesNeedReview) {
+        next = {
+          kind: 'review-remaining-changes',
+          workItemId: current.id,
+          text: 'Review or keep the project changes left after stopping this work.',
+        };
+      } else {
+        next = primaryDirection
+          ? { kind: 'choose-next-work', text: 'Decide the next work for this direction.' }
+          : bootstrap.directionDeferred
+            ? null
+            : { kind: 'define-direction', text: 'Confirm or define the current direction.' };
+      }
+      const alternateNext = primaryDirection
+        ? { kind: 'choose-next-work' as const, text: 'Decide what to work on next.' }
         : bootstrap.directionDeferred
           ? null
-          : { kind: 'define-direction', text: 'Confirm or define the current direction.' };
+          : { kind: 'define-direction' as const, text: 'Confirm or define the current direction.' };
+      if (alternateNext && next?.kind !== alternateNext.kind) secondaryActions.push(alternateNext);
     } else if (current.state === 'review') {
       next = { kind: 'review-work', workItemId: current.id, text: `Review ${current.title}.` };
       secondaryActions.push({
@@ -1231,7 +1265,7 @@ export class ProjectNowResolver {
       });
     }
 
-    if (activeExecutionWaiting && current) {
+    if (activeExecutionWaiting && current && current.state !== 'stopped') {
       state = 'waiting';
       currentState =
         currentExecution.status === 'waiting'

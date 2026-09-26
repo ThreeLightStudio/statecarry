@@ -122,6 +122,10 @@ function actionLabel(kind: ProjectNowAction['kind']) {
       return 'Review completion';
     case 'review-work':
       return 'Review work';
+    case 'discuss-work':
+      return 'Discuss this task';
+    case 'review-remaining-changes':
+      return 'Review remaining changes';
     case 'continue-work':
       return 'Continue work';
     case 'resume-work':

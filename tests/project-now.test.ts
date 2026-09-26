@@ -1324,6 +1324,7 @@ describe('ProjectNow resolver', () => {
       state: 'stopped',
       currentState: 'This work was stopped.',
       next: { kind: 'choose-next-work' },
+      secondaryActions: [expect.objectContaining({ kind: 'discuss-work', workItemId: 'work-b' })],
     });
   });
 

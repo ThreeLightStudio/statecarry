@@ -26,6 +26,7 @@ type Props = {
   actionKind: PresentedProjectAction['kind'];
   mode:
     | 'continue'
+    | 'remaining'
     | 'verify'
     | 'policy'
     | 'direction'
@@ -751,9 +752,10 @@ function ScopeAction({
   mode,
   onBack,
 }: Omit<Props, 'edits' | 'actionKind' | 'requestId' | 'selectionKey' | 'onVerify' | 'onPolicy'> & {
-  mode: 'continue' | 'verify' | 'policy';
+  mode: 'continue' | 'remaining' | 'verify' | 'policy';
 }) {
   const work = view.work;
+  const remainingOnly = mode === 'remaining';
   const draftKey = (operation: DecisionOperation) =>
     `statecarry.project-action.v3.${project.id}.${work?.id ?? 'none'}.${operation}`;
   const defaultDraft = (operation: DecisionOperation): ScopeDraft => ({
@@ -785,11 +787,12 @@ function ScopeAction({
     basis: '',
     confirmed: false,
   });
-  const [operation, setOperation] = useState<DecisionOperation>(mode);
+  const [operation, setOperation] = useState<DecisionOperation>(remainingOnly ? 'verify' : mode);
   const storageKey = draftKey(operation);
-  const [draft, setDraft] = useState<ScopeDraft>(() =>
-    readScopeDraft(draftKey(mode), defaultDraft(mode)),
-  );
+  const [draft, setDraft] = useState<ScopeDraft>(() => {
+    const initialOperation = remainingOnly ? 'verify' : mode;
+    return readScopeDraft(draftKey(initialOperation), defaultDraft(initialOperation));
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const observeRequested = useRef(false);
@@ -813,7 +816,7 @@ function ScopeAction({
   }, [draft.basis, observation]);
 
   const activeRequest =
-    work && data
+    !remainingOnly && work && data
       ? [...data.requests]
           .reverse()
           .find(
@@ -845,7 +848,9 @@ function ScopeAction({
   const inventoryReady =
     !!observation &&
     observation.inventoryComplete !== false &&
-    (verification || observation.complete || observation.inventoryComplete === true);
+    (remainingOnly
+      ? observation.complete || observation.inventoryComplete === true
+      : verification || observation.complete || observation.inventoryComplete === true);
   const canConfirm = inventoryReady && !stale;
   const exactScopeRequired = ['commit', 'revert', 'unstage'].includes(operation);
   const operationLabel = {
@@ -933,21 +938,32 @@ function ScopeAction({
   };
 
   return (
-    <section className="pw-decision-review" aria-label="Review request">
-      <h3>{operationLabel}</h3>
-      <div className="pw-actions" aria-label="Request type">
-        {operation !== 'verify' && (
-          <Button variant="outline" disabled={busy} onClick={() => chooseOperation('verify')}>
-            Check current behavior
-          </Button>
-        )}
-        {operation === 'verify' && (
-          <Button variant="outline" disabled={busy} onClick={() => chooseOperation('continue')}>
-            Continue this work
-          </Button>
-        )}
-      </div>
-      {verification && (
+    <section
+      className="pw-decision-review"
+      aria-label={remainingOnly ? 'Review remaining changes' : 'Review request'}
+    >
+      <h3>{remainingOnly ? 'Review remaining changes' : operationLabel}</h3>
+      {remainingOnly && (
+        <p>
+          This work remains stopped. Review the project changes here, or keep selected changes and
+          move on without restarting the work.
+        </p>
+      )}
+      {!remainingOnly && (
+        <div className="pw-actions" aria-label="Request type">
+          {operation !== 'verify' && (
+            <Button variant="outline" disabled={busy} onClick={() => chooseOperation('verify')}>
+              Check current behavior
+            </Button>
+          )}
+          {operation === 'verify' && (
+            <Button variant="outline" disabled={busy} onClick={() => chooseOperation('continue')}>
+              Continue this work
+            </Button>
+          )}
+        </div>
+      )}
+      {!remainingOnly && verification && (
         <p>
           Run the reviewed checks for this task. Existing changes do not need to be included. Report
           the results without implementing fixes; normal build and test artifacts may be produced.
@@ -968,34 +984,39 @@ function ScopeAction({
                 observation.limitations.map((limit) => <p key={limit}>{limit}</p>)}
             </div>
           )}
-          <label className="pw-field">
-            What should happen?
-            <Textarea
-              maxLength={2000}
-              value={draft.text}
-              onChange={(event) =>
-                setDraft((old) => ({ ...old, text: event.target.value, confirmed: false }))
-              }
-            />
-          </label>
-          <label className="pw-field">
-            Done when
-            <Textarea
-              maxLength={2000}
-              value={draft.doneWhen}
-              onChange={(event) =>
-                setDraft((old) => ({ ...old, doneWhen: event.target.value, confirmed: false }))
-              }
-            />
-          </label>
-          {!verification && (
+          {!remainingOnly && (
+            <label className="pw-field">
+              What should happen?
+              <Textarea
+                maxLength={2000}
+                value={draft.text}
+                onChange={(event) =>
+                  setDraft((old) => ({ ...old, text: event.target.value, confirmed: false }))
+                }
+              />
+            </label>
+          )}
+          {!remainingOnly && (
+            <label className="pw-field">
+              Done when
+              <Textarea
+                maxLength={2000}
+                value={draft.doneWhen}
+                onChange={(event) =>
+                  setDraft((old) => ({ ...old, doneWhen: event.target.value, confirmed: false }))
+                }
+              />
+            </label>
+          )}
+          {(remainingOnly || !verification) && (
             <>
               <p>
-                Choose any existing changes that belong to this request. Unselected changes stay
-                outside the request, even in the same file.
+                {remainingOnly
+                  ? 'Review each change before deciding whether to keep it unchanged.'
+                  : 'Choose any existing changes that belong to this request. Unselected changes stay outside the request, even in the same file.'}
               </p>
               <fieldset disabled={busy || !inventoryReady} className="pw-decision-scopes">
-                <legend>Included changes</legend>
+                <legend>{remainingOnly ? 'Remaining project changes' : 'Included changes'}</legend>
                 {(observation.files ?? [])
                   .filter((file) => file.detail !== 'ready')
                   .map((file) => (
@@ -1022,7 +1043,9 @@ function ScopeAction({
                         <input
                           type="checkbox"
                           checked={draft.scopeIds.includes(scope.id)}
-                          disabled={operation === 'unstage' && scope.layer !== 'staged'}
+                          disabled={
+                            !remainingOnly && operation === 'unstage' && scope.layer !== 'staged'
+                          }
                           onChange={(event) =>
                             setDraft((old) => ({
                               ...old,
@@ -1045,11 +1068,17 @@ function ScopeAction({
                   ))
                 ) : (
                   <p className="pw-small">
-                    {observation.files?.length
-                      ? 'No file changes are selected yet. Unread files remain outside this request.'
-                      : observation.complete
-                        ? 'No existing local changes need to be included.'
-                        : 'The existing changes could not be determined.'}
+                    {remainingOnly
+                      ? observation.files?.length
+                        ? 'No readable changes are selected. Some file changes have not been read yet.'
+                        : observation.complete
+                          ? 'No remaining local changes were found.'
+                          : 'The remaining project changes could not be determined.'
+                      : observation.files?.length
+                        ? 'No file changes are selected yet. Unread files remain outside this request.'
+                        : observation.complete
+                          ? 'No existing local changes need to be included.'
+                          : 'The existing changes could not be determined.'}
                   </p>
                 )}
               </fieldset>
@@ -1080,49 +1109,15 @@ function ScopeAction({
                 }))
               }
             />{' '}
-            {verification
-              ? 'I reviewed the verification request and completion condition.'
-              : 'I reviewed what is included, what stays unchanged, and the completion condition.'}
+            {remainingOnly
+              ? 'I reviewed these changes and want to leave the selected ones unchanged.'
+              : verification
+                ? 'I reviewed the verification request and completion condition.'
+                : 'I reviewed what is included, what stays unchanged, and the completion condition.'}
           </label>
-          <div className="pw-actions">
-            <Button
-              disabled={
-                busy ||
-                !canConfirm ||
-                !draft.confirmed ||
-                stale ||
-                !draft.text.trim() ||
-                !draft.doneWhen.trim() ||
-                (exactScopeRequired && !draft.scopeIds.length)
-              }
-              onClick={() => void prepare()}
-            >
-              Prepare request for Codex
-            </Button>
-            <Button variant="ghost" onClick={onBack}>
-              Decide later
-            </Button>
-          </div>
-          <details className="pw-details">
-            <summary>More options</summary>
+          {remainingOnly ? (
             <div className="pw-actions">
-              {operation !== 'commit' && (
-                <Button variant="ghost" onClick={() => chooseOperation('commit')}>
-                  Review a commit
-                </Button>
-              )}
-              {operation !== 'revert' && (
-                <Button variant="ghost" onClick={() => chooseOperation('revert')}>
-                  Review discarding changes
-                </Button>
-              )}
-              {operation !== 'unstage' && (
-                <Button variant="ghost" onClick={() => chooseOperation('unstage')}>
-                  Review unstaging changes
-                </Button>
-              )}
               <Button
-                variant="ghost"
                 disabled={
                   busy || stale || !draft.confirmed || !draft.scopeIds.length || !inventoryReady
                 }
@@ -1130,7 +1125,7 @@ function ScopeAction({
                   void controller
                     .projectDecision(project.id, {
                       action: 'keep',
-                      basis: observation.basis,
+                      basis: observation!.basis,
                       scopeIds: draft.scopeIds,
                     })
                     .then(async () => {
@@ -1142,8 +1137,74 @@ function ScopeAction({
               >
                 Leave selected changes and move on
               </Button>
+              <Button variant="ghost" onClick={onBack}>
+                Decide later
+              </Button>
             </div>
-          </details>
+          ) : (
+            <>
+              <div className="pw-actions">
+                <Button
+                  disabled={
+                    busy ||
+                    !canConfirm ||
+                    !draft.confirmed ||
+                    stale ||
+                    !draft.text.trim() ||
+                    !draft.doneWhen.trim() ||
+                    (exactScopeRequired && !draft.scopeIds.length)
+                  }
+                  onClick={() => void prepare()}
+                >
+                  Prepare request for Codex
+                </Button>
+                <Button variant="ghost" onClick={onBack}>
+                  Decide later
+                </Button>
+              </div>
+              <details className="pw-details">
+                <summary>More options</summary>
+                <div className="pw-actions">
+                  {operation !== 'commit' && (
+                    <Button variant="ghost" onClick={() => chooseOperation('commit')}>
+                      Review a commit
+                    </Button>
+                  )}
+                  {operation !== 'revert' && (
+                    <Button variant="ghost" onClick={() => chooseOperation('revert')}>
+                      Review discarding changes
+                    </Button>
+                  )}
+                  {operation !== 'unstage' && (
+                    <Button variant="ghost" onClick={() => chooseOperation('unstage')}>
+                      Review unstaging changes
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    disabled={
+                      busy || stale || !draft.confirmed || !draft.scopeIds.length || !inventoryReady
+                    }
+                    onClick={() =>
+                      void controller
+                        .projectDecision(project.id, {
+                          action: 'keep',
+                          basis: observation.basis,
+                          scopeIds: draft.scopeIds,
+                        })
+                        .then(async () => {
+                          await controller.readProjectNow(project.id);
+                          onBack();
+                        })
+                        .catch((cause) => setError(projectError(cause)))
+                    }
+                  >
+                    Leave selected changes and move on
+                  </Button>
+                </div>
+              </details>
+            </>
+          )}
         </>
       )}
       <ActionError value={error} />
@@ -1165,6 +1226,11 @@ function ReviewWorkAction({
   const [openingVerify, setOpeningVerify] = useState(false);
   const [transitioning, setTransitioning] = useState(false);
   const [error, setError] = useState('');
+  useEffect(() => {
+    if (actionKind !== 'discuss-work' || !selectionKey) return;
+    controller.openTaskDiscussion(project.id, selectionKey);
+    setDiscussionOpen(true);
+  }, [actionKind, controller, project.id, selectionKey]);
   const openDiscussion = () => {
     if (!selectionKey) return;
     controller.openTaskDiscussion(project.id, selectionKey);
@@ -2064,7 +2130,12 @@ export function ProjectNowActionMode(props: Props) {
         onBack={props.onBack}
       />
     );
-  if (props.mode === 'continue' || props.mode === 'verify' || props.mode === 'policy')
+  if (
+    props.mode === 'continue' ||
+    props.mode === 'remaining' ||
+    props.mode === 'verify' ||
+    props.mode === 'policy'
+  )
     return (
       <ScopeAction
         project={props.project}

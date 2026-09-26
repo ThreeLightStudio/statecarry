@@ -265,6 +265,8 @@ export type ProjectNowAction = {
     | 'review-result'
     | 'review-completion'
     | 'review-work'
+    | 'discuss-work'
+    | 'review-remaining-changes'
     | 'continue-work'
     | 'resume-work'
     | 'start-work'

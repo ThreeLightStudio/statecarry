@@ -1687,6 +1687,7 @@ type ProjectNowActionEntry = {
   releaseId: string | null;
   mode:
     | 'continue'
+    | 'remaining'
     | 'verify'
     | 'policy'
     | 'review'
@@ -1712,6 +1713,10 @@ function projectNowActionEntryMode(
       return 'direction';
     case 'choose-next-work':
       return 'new-work';
+    case 'review-remaining-changes':
+      return 'remaining';
+    case 'discuss-work':
+      return 'review';
     case 'review-release':
       return 'release';
     case 'review-work':
