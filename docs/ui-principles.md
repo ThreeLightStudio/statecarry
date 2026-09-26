@@ -337,6 +337,13 @@ Prefer whitespace and typographic hierarchy before adding another border or colo
 
 If several adjacent components all use borders, backgrounds and headings, ask whether they are actually separate user concepts.
 
+## Typography
+
+The type identity is tokenized as `--font-sans` and `--font-mono`. Do not introduce additional families or hard-coded font stacks.
+
+- The sans stack carries interpretation: explanations, narrative surfaces and interface copy.
+- The mono stack marks deterministic observation quoted from the repository: file paths, commit references, diff counts and similar evidence. A fact woven into a prose sentence stays sans.
+
 ## Project imagery
 
 Project imagery is for recognition.

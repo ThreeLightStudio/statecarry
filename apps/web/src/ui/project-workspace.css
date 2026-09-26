@@ -35,6 +35,10 @@
   @apply text-lg font-semibold;
 }
 
+.pw-mono {
+  @apply font-mono;
+}
+
 .pw-shell a:not(.pw-button) {
   @apply text-inherit underline-offset-3;
 }

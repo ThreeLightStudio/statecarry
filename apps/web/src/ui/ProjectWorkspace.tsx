@@ -1500,7 +1500,7 @@ function WorkingTreeCard({
         {tree.additions !== undefined && tree.deletions !== undefined && (
           <div>
             <dt>Diff size</dt>
-            <dd>
+            <dd className="pw-mono">
               +{tree.additions.toLocaleString()} / −{tree.deletions.toLocaleString()}
             </dd>
           </div>
@@ -1508,7 +1508,7 @@ function WorkingTreeCard({
         {tree.lastCommit && (
           <div>
             <dt>Last commit</dt>
-            <dd>{tree.lastCommit}</dd>
+            <dd className="pw-mono">{tree.lastCommit}</dd>
           </div>
         )}
       </dl>
