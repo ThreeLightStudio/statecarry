@@ -25,6 +25,7 @@ const PROJECT_INSPECTION_THREAD = 'project-inspection';
 
 export class ProjectAnalyses {
   private running = new Set<string>();
+  private refreshes = new Map<string, Promise<void>>();
   private errors = new Map<string, string>();
   constructor(private core: StateCarry) {}
   isRunning(id: string): boolean {
@@ -933,17 +934,42 @@ export class ProjectAnalyses {
     }
     return { answer: checked.answer, limitations: context.limitations };
   }
-  async refresh(
+  refresh(
     id: string,
     outputLanguage: OutputLanguage = this.core.project(id).responseLanguage ?? 'en',
-  ) {
+  ): Promise<void> {
     // Coalesce repeated explicit refresh requests. Route remounts and double
-    // clicks must not queue a second model call for the same work snapshot.
-    if (this.running.has(id)) return;
+    // clicks must wait for the same model call for the same work snapshot.
+    const existing = this.refreshes.get(id);
+    if (existing) return existing;
+
     const correctionBasis = this.core.ids.hash(this.core.analysisCorrections(id));
+    let resolveRefresh!: () => void;
+    let rejectRefresh!: (error: unknown) => void;
+    const operation = new Promise<void>((resolve, reject) => {
+      resolveRefresh = resolve;
+      rejectRefresh = reject;
+    });
+    let refreshPromise!: Promise<void>;
+    refreshPromise = operation.finally(() => {
+      this.running.delete(id);
+      if (this.refreshes.get(id) === refreshPromise) this.refreshes.delete(id);
+      this.core.events.changed(id, 'overview');
+    });
+    this.refreshes.set(id, refreshPromise);
     this.running.add(id);
     this.errors.delete(id);
     this.core.events.changed(id, 'overview');
+
+    void this.refreshOnce(id, outputLanguage, correctionBasis).then(resolveRefresh, rejectRefresh);
+    return refreshPromise;
+  }
+
+  private async refreshOnce(
+    id: string,
+    outputLanguage: OutputLanguage,
+    correctionBasis: string,
+  ): Promise<void> {
     try {
       // Capture the workspace before any asynchronous reads or model calls.
       // A project change during analysis must never be published as current.
@@ -1180,9 +1206,6 @@ export class ProjectAnalyses {
     } catch (e) {
       this.errors.set(id, e instanceof Error ? e.message : String(e));
       this.core.reportError(e, 'project-analysis', id);
-    } finally {
-      this.running.delete(id);
-      this.core.events.changed(id, 'overview');
     }
   }
   setGoal(id: string, raw: unknown) {

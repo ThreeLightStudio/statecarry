@@ -57,7 +57,12 @@ describe('resume re-entry refresh behavior', () => {
 
     const first = h.core.analyses.refresh(id);
     await started;
-    const second = h.core.analyses.refresh(id);
+    let secondSettled = false;
+    const second = h.core.analyses.refresh(id).then(() => {
+      secondSettled = true;
+    });
+    await Promise.resolve();
+    expect(secondSettled).toBe(false);
     release();
     await Promise.all([first, second]);
 

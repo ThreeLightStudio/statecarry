@@ -54,6 +54,10 @@ Use the checked-in `desktop:build`, `desktop:dev`, `desktop:config`, and
 `desktop:build:stable` / `desktop:config:stable` commands. They set the build profile
 explicitly. An unspecified profile defaults to development; invalid profiles fail.
 
+The macOS package wraps Electrobun's launcher before code signing. Each launch
+sets Cottontail's private temporary directory beneath the user's system temp
+directory, keeping Cottontail run and worker files outside the signed app bundle.
+
 Development artifacts and web assets live beneath `.cache/electrobun/dev/`.
 Production retains `.cache/electrobun/build`, `artifacts`, and `web`, so the release
 runbook and public artifact names remain unchanged. Development has no update

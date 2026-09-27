@@ -12,7 +12,7 @@ import type {
 } from '@statecarry/contracts';
 import { ChangeEvents, createHttpServer } from '../apps/server/src/http';
 import { harness } from './helpers';
-import { projectCandidate } from './project-fixtures';
+import { deferred, projectCandidate } from './project-fixtures';
 
 async function serverFixture() {
   const h = harness();
@@ -131,6 +131,106 @@ describe('project workspace HTTP contract', () => {
       expect(response.status).toBe(200);
       expect(observe).toHaveBeenCalledWith(id, 'ko', undefined, false);
     } finally {
+      await close();
+    }
+  });
+
+  it('waits for an in-flight first analysis during concurrent project initialization', async () => {
+    const { h, call, close } = await serverFixture();
+    const id = h.connect();
+    const providerStarted = deferred<void>();
+    const providerResult = deferred<unknown>();
+    const secondRefreshStarted = deferred<void>();
+    let refreshCalls = 0;
+    let providerCalls = 0;
+    const originalRefresh = h.core.analyses.refresh.bind(h.core.analyses);
+
+    h.summary.generateAnalysis = vi.fn(async () => {
+      providerCalls += 1;
+      providerStarted.resolve();
+      return providerResult.promise;
+    });
+    vi.spyOn(h.core.analyses, 'refresh').mockImplementation((projectId, language) => {
+      refreshCalls += 1;
+      if (refreshCalls === 2) secondRefreshStarted.resolve();
+      return originalRefresh(projectId, language);
+    });
+
+    try {
+      const first = call(`/projects/${encodeURIComponent(id)}/initialize`, 'POST', {
+        outputLanguage: 'en',
+      });
+      await providerStarted.promise;
+
+      let secondSettled = false;
+      const second = call(`/projects/${encodeURIComponent(id)}/initialize`, 'POST', {
+        outputLanguage: 'en',
+      }).then((response) => {
+        secondSettled = true;
+        return response;
+      });
+      await secondRefreshStarted.promise;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const secondSettledBeforeProvider = secondSettled;
+
+      providerResult.resolve({ candidates: [projectCandidate()] });
+      const [firstResponse, secondResponse] = await Promise.all([first, second]);
+
+      expect.soft(secondSettledBeforeProvider).toBe(false);
+      expect.soft(firstResponse.status).toBe(200);
+      expect.soft(secondResponse.status).toBe(200);
+      expect(providerCalls).toBe(1);
+      expect(refreshCalls).toBe(2);
+    } finally {
+      providerResult.resolve({ candidates: [projectCandidate()] });
+      await close();
+    }
+  });
+
+  it('shares a provider failure across concurrent first project initialization', async () => {
+    const { h, call, close } = await serverFixture();
+    const id = h.connect();
+    const providerStarted = deferred<void>();
+    const secondRefreshStarted = deferred<void>();
+    let rejectProvider!: (error: Error) => void;
+    const providerResult = new Promise<unknown>((_resolve, reject) => {
+      rejectProvider = reject;
+    });
+    let refreshCalls = 0;
+    let providerCalls = 0;
+    const originalRefresh = h.core.analyses.refresh.bind(h.core.analyses);
+
+    h.summary.generateAnalysis = vi.fn(async () => {
+      providerCalls += 1;
+      providerStarted.resolve();
+      return providerResult;
+    });
+    vi.spyOn(h.core.analyses, 'refresh').mockImplementation((projectId, language) => {
+      refreshCalls += 1;
+      if (refreshCalls === 2) secondRefreshStarted.resolve();
+      return originalRefresh(projectId, language);
+    });
+
+    try {
+      const first = call(`/projects/${encodeURIComponent(id)}/initialize`, 'POST', {
+        outputLanguage: 'en',
+      });
+      await providerStarted.promise;
+      const second = call(`/projects/${encodeURIComponent(id)}/initialize`, 'POST', {
+        outputLanguage: 'en',
+      });
+      await secondRefreshStarted.promise;
+      rejectProvider(new Error('provider unavailable'));
+
+      const [firstResponse, secondResponse] = await Promise.all([first, second]);
+      expect(firstResponse.status).toBe(503);
+      expect(secondResponse.status).toBe(503);
+      expect(firstResponse.body.error.code).toBe('PROJECT_INITIALIZATION_FAILED');
+      expect(secondResponse.body.error).toEqual(firstResponse.body.error);
+      expect(providerCalls).toBe(1);
+      expect(refreshCalls).toBe(2);
+    } finally {
+      rejectProvider(new Error('provider unavailable'));
       await close();
     }
   });
