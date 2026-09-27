@@ -54,9 +54,18 @@ Use the checked-in `desktop:build`, `desktop:dev`, `desktop:config`, and
 `desktop:build:stable` / `desktop:config:stable` commands. They set the build profile
 explicitly. An unspecified profile defaults to development; invalid profiles fail.
 
-The macOS package wraps Electrobun's launcher before code signing. Each launch
-sets Cottontail's private temporary directory beneath the user's system temp
-directory, keeping Cottontail run and worker files outside the signed app bundle.
+The macOS `postBuild` hook wraps the inner app's Electrobun launcher before
+Electrobun hashes, signs, and archives that app. The shim creates a private
+Cottontail temporary directory beneath the user's system temp directory, then
+execs `launcher-electrobun` with its original working directory and arguments.
+This puts the shim in both the DMG's embedded app archive and the standalone
+update archive.
+
+Electrobun creates the outer first-run bootstrap after archiving the inner app.
+Its `Contents/MacOS/launcher` is the self-extractor, so the hook leaves that
+bootstrap launcher unchanged. On first launch, the bootstrap extracts the
+shimmed inner app, whose launcher keeps Cottontail run and worker files outside
+the signed app bundle.
 
 Development artifacts and web assets live beneath `.cache/electrobun/dev/`.
 Production retains `.cache/electrobun/build`, `artifacts`, and `web`, so the release

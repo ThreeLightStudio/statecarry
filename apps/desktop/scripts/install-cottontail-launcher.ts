@@ -12,13 +12,31 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-if (process.platform !== 'darwin') {
-  console.log('Skipping the macOS Cottontail launcher shim on this platform.');
+const targetOs = process.env.ELECTROBUN_OS;
+if (!targetOs) {
+  throw new Error('Electrobun did not provide the target operating system.');
+}
+
+if (targetOs !== 'macos') {
+  console.log('Skipping the macOS Cottontail launcher shim for a non-macOS build.');
+} else if (process.platform !== 'darwin') {
+  throw new Error('The macOS Cottontail launcher shim must be built on macOS.');
+} else if (process.env.ELECTROBUN_BUILD_ENV === 'dev') {
+  console.log('Skipping the macOS Cottontail launcher shim for developer builds.');
 } else {
-  const bundlePath = process.env.ELECTROBUN_WRAPPER_BUNDLE_PATH;
-  if (!bundlePath) {
-    throw new Error('Electrobun did not provide the wrapped app bundle path.');
+  const buildEnvironment = process.env.ELECTROBUN_BUILD_ENV;
+  if (buildEnvironment !== 'stable' && buildEnvironment !== 'canary') {
+    throw new Error('Electrobun did not provide a supported release build environment.');
   }
+
+  const buildDirectory = process.env.ELECTROBUN_BUILD_DIR;
+  const appName = process.env.ELECTROBUN_APP_NAME;
+  if (!buildDirectory || !appName || appName.includes('/') || appName.includes('\\')) {
+    throw new Error('Electrobun did not provide a valid app build directory and name.');
+  }
+
+  const displayName = buildEnvironment === 'stable' ? appName : `${appName}-${buildEnvironment}`;
+  const bundlePath = join(buildDirectory, `${displayName}.app`);
 
   const executableDirectory = join(bundlePath, 'Contents', 'MacOS');
   const launcherPath = join(executableDirectory, 'launcher');

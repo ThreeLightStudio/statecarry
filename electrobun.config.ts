@@ -25,6 +25,6 @@ export default {
   runtime: { exitOnLastWindowClosed: true },
   scripts: {
     preBuild: 'apps/desktop/scripts/build-web.mjs',
-    postWrap: 'apps/desktop/scripts/install-cottontail-launcher.ts',
+    postBuild: 'apps/desktop/scripts/install-cottontail-launcher.ts',
   },
 } satisfies ElectrobunConfig;

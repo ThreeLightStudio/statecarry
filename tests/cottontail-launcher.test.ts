@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -22,6 +23,14 @@ afterEach(() => {
 });
 
 describe('packaged Cottontail launcher', () => {
+  it('installs the shim before Electrobun creates signed release archives', () => {
+    const configSource = readFileSync(resolve('electrobun.config.ts'), 'utf8');
+    expect(configSource).toContain(
+      "postBuild: 'apps/desktop/scripts/install-cottontail-launcher.ts'",
+    );
+    expect(configSource).not.toContain('postWrap:');
+  });
+
   it.skipIf(process.platform !== 'darwin')(
     'sets a private temp root before launch and preserves cwd and arguments',
     () => {
@@ -94,12 +103,13 @@ describe('packaged Cottontail launcher', () => {
   );
 
   it.skipIf(process.platform !== 'darwin')(
-    'keeps the Electrobun launcher intact while installing the postWrap shim',
+    'archives the postBuild shim in the inner app before creating the outer wrapper',
     () => {
-      const root = mkdtempSync(join(tmpdir(), 'statecarry-cottontail-postwrap-test-'));
+      const root = mkdtempSync(join(tmpdir(), 'statecarry-cottontail-postbuild-test-'));
       temporaryRoots.push(root);
 
-      const bundlePath = join(root, 'StateCarry.app');
+      const buildDirectory = join(root, 'build', 'stable-macos-arm64');
+      const bundlePath = join(buildDirectory, 'StateCarry.app');
       const macosDirectory = join(bundlePath, 'Contents', 'MacOS');
       mkdirSync(macosDirectory, { recursive: true });
       const launcherPath = join(macosDirectory, 'launcher');
@@ -152,7 +162,10 @@ int main(int argc, char **argv) {
       mkdirSync(userTempRoot);
       const environment = {
         ...process.env,
-        ELECTROBUN_WRAPPER_BUNDLE_PATH: bundlePath,
+        ELECTROBUN_OS: 'macos',
+        ELECTROBUN_BUILD_ENV: 'stable',
+        ELECTROBUN_BUILD_DIR: buildDirectory,
+        ELECTROBUN_APP_NAME: 'StateCarry',
         STATECARRY_LAUNCHER_PROBE: probePath,
         TMPDIR: userTempRoot,
       };
@@ -169,14 +182,79 @@ int main(int argc, char **argv) {
       expect(readFileSync(originalLauncherPath)).toEqual(originalLauncher);
       expect(readFileSync(launcherPath)).not.toEqual(originalLauncher);
 
-      execFileSync(launcherPath, ['--postwrap-probe', 'preserved'], {
-        cwd: macosDirectory,
+      const sourceArchivePath = join(root, 'StateCarry.app.tar');
+      execFileSync(
+        '/usr/bin/tar',
+        ['-cf', sourceArchivePath, '-C', buildDirectory, 'StateCarry.app'],
+        { stdio: 'pipe' },
+      );
+
+      const firstRunRoot = join(root, 'first-run');
+      mkdirSync(firstRunRoot);
+      execFileSync('/usr/bin/tar', ['-xf', sourceArchivePath, '-C', firstRunRoot], {
+        stdio: 'pipe',
+      });
+      const extractedBundlePath = join(firstRunRoot, 'StateCarry.app');
+      const extractedMacosDirectory = join(extractedBundlePath, 'Contents', 'MacOS');
+      const extractedLauncherPath = join(extractedMacosDirectory, 'launcher');
+      const extractedOriginalLauncherPath = join(extractedMacosDirectory, 'launcher-electrobun');
+      expect(readFileSync(extractedOriginalLauncherPath)).toEqual(originalLauncher);
+      expect(
+        execFileSync('/usr/bin/lipo', ['-archs', extractedLauncherPath], {
+          encoding: 'utf8',
+        }).trim(),
+      ).toBe(
+        execFileSync('/usr/bin/lipo', ['-archs', originalLauncherPath], {
+          encoding: 'utf8',
+        }).trim(),
+      );
+
+      execFileSync(extractedLauncherPath, ['--first-run-probe', 'preserved'], {
+        cwd: extractedMacosDirectory,
         env: environment,
       });
       const [cwd, runtimeTempRoot, ...args] = readFileSync(probePath, 'utf8').trim().split('\n');
-      expect(cwd).toBe(realpathSync(macosDirectory));
+      expect(cwd).toBe(realpathSync(extractedMacosDirectory));
       expect(dirname(realpathSync(runtimeTempRoot))).toBe(realpathSync(userTempRoot));
-      expect(args).toEqual(['--postwrap-probe', 'preserved']);
+      expect(args).toEqual(['--first-run-probe', 'preserved']);
+
+      // Hutch replaces the build app directory with an outer extractor wrapper
+      // after it has archived the inner app. Keep that bootstrap launcher intact.
+      rmSync(bundlePath, { recursive: true, force: true });
+      const outerResourcesDirectory = join(bundlePath, 'Contents', 'Resources');
+      mkdirSync(macosDirectory, { recursive: true });
+      mkdirSync(outerResourcesDirectory, { recursive: true });
+      const extractorLauncher = Buffer.from('#!/bin/sh\nexit 0\n');
+      writeFileSync(launcherPath, extractorLauncher, { mode: 0o755 });
+      const wrappedArchivePath = join(outerResourcesDirectory, 'inner-app.tar');
+      copyFileSync(sourceArchivePath, wrappedArchivePath);
+      expect(readFileSync(wrappedArchivePath)).toEqual(readFileSync(sourceArchivePath));
+      expect(readFileSync(launcherPath)).toEqual(extractorLauncher);
+      expect(existsSync(originalLauncherPath)).toBe(false);
     },
   );
+
+  it.skipIf(process.platform !== 'darwin')('skips the shim for developer builds', () => {
+    const root = mkdtempSync(join(tmpdir(), 'statecarry-cottontail-dev-build-test-'));
+    temporaryRoots.push(root);
+    const buildDirectory = join(root, 'missing-build-output');
+    execFileSync(
+      process.execPath,
+      [
+        resolve('node_modules/tsx/dist/cli.mjs'),
+        resolve('apps/desktop/scripts/install-cottontail-launcher.ts'),
+      ],
+      {
+        env: {
+          ...process.env,
+          ELECTROBUN_OS: 'macos',
+          ELECTROBUN_BUILD_ENV: 'dev',
+          ELECTROBUN_BUILD_DIR: buildDirectory,
+          ELECTROBUN_APP_NAME: 'StateCarry',
+        },
+        stdio: 'pipe',
+      },
+    );
+    expect(existsSync(buildDirectory)).toBe(false);
+  });
 });
