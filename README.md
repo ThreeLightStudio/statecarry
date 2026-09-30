@@ -8,6 +8,7 @@
 
 <p align="center">
   <a href="https://statecarry.threelight-studio.com">Website</a> ·
+  <a href="https://youtu.be/vQpwQ_hr_ew">Demo</a> ·
   <a href="https://github.com/ThreeLightStudio/statecarry/releases/latest/download/macos-arm64-StateCarry.dmg">Download Beta</a> ·
   <a href="#first-use">Docs</a> ·
   <a href="LICENSE">MIT License</a>
@@ -25,6 +26,8 @@ StateCarry helps you return to interrupted development work without reconstructi
 StateCarry runs locally on your Mac. It does not execute the next action or send a message to Codex. Records and corrections are stored on your Mac. **Relevant conversation excerpts and scoped project observations, including limited file previews, are sent through your signed-in Codex account for model analysis; this is not offline AI.**
 
 ## Product preview
+
+[Watch the 1-minute demo on YouTube](https://youtu.be/vQpwQ_hr_ew)
 
 <sub>Screenshots from StateCarry 0.1.8.</sub>
 

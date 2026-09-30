@@ -58,3 +58,7 @@ Publish the reviewed branch in stage 3, then confirm the remote repository's vis
 Inspect the actual GitHub Actions run for that commit. Local workflow validation and local `verify` results are separate evidence. If remote CI is unavailable or fails, report the concrete outcome instead of labeling it passed. Repository policies and branch protection can be configured for the actual collaboration model; they are not assumed to exist.
 
 The source release remains separate from an installable desktop application, successful human work resumption and any contest submission. See [development](development.md) for current commands and [the tooling and desktop plan](tooling-and-desktop-plan.md) for later delivery requirements.
+
+## Product demo
+
+[StateCarry Demo](https://youtu.be/vQpwQ_hr_ew) was published publicly on YouTube on 2026-10-01. The video is approximately one minute long and shows the return flow: choose a project, understand its current state, inspect the supporting context, and choose what to do next.
