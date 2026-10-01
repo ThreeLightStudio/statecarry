@@ -4,26 +4,22 @@
   </a>
 </p>
 
-<p align="center"><strong>Return to a project, understand where it stands, and choose what to do next.</strong></p>
+<p align="center"><strong>Return to an interrupted project, understand where it stands, and choose what to do next.</strong></p>
 
 <p align="center">
   <a href="https://statecarry.threelight-studio.com">Website</a> ·
   <a href="https://youtu.be/vQpwQ_hr_ew">Demo</a> ·
   <a href="https://github.com/ThreeLightStudio/statecarry/releases/latest/download/macos-arm64-StateCarry.dmg">Download Beta</a> ·
   <a href="#first-use">Docs</a> ·
+  <a href="README.ko.md">한국어</a> ·
   <a href="LICENSE">MIT License</a>
 </p>
 
 <p align="center"><sub>Public beta · Apple Silicon macOS · Open source</sub></p>
 
-StateCarry helps you return to interrupted development work without reconstructing the whole project from memory. Home keeps up to three projects in focus so you can choose where to return. Inside a project, StateCarry keeps the project direction, current decision, supporting context, and other recorded work in one return flow.
+**Example:** you switch away while investigating an export bug, then return days later. StateCarry brings together the project's selected conversations and current Git/file observations so you can review its direction, the current decision, and the basis for a next step. An agent's “done” report remains a result to review; you decide whether to accept it.
 
-**Choose a project → understand the current decision → check context when it matters → choose what to do next.** Prepared explanations stay readable without opening transcripts. Original records remain available when you want to inspect the basis. Reported completion, a recorded check, and your acceptance remain distinct.
-
-> [!NOTE]
-> StateCarry is in public beta. The current release is for Apple Silicon macOS. Real-work validation and the remaining beta work are tracked in the [implementation milestones](docs/project-ui-implementation.md) and [roadmap](docs/roadmap.md).
-
-StateCarry runs locally on your Mac. It does not execute the next action or send a message to Codex. Records and corrections are stored on your Mac. **Relevant conversation excerpts and scoped project observations, including limited file previews, are sent through your signed-in Codex account for model analysis; this is not offline AI.**
+The application keeps records and corrections on your Mac. **Selected conversation excerpts and bounded project observations, including limited file previews, are sent to the configured analysis provider. AI analysis is not offline.** The current source supports Codex and OpenRouter; the provider boundary is explained below.
 
 ## Product preview
 
@@ -37,9 +33,9 @@ StateCarry runs locally on your Mac. It does not execute the next action or send
 
 ### Understand the current decision
 
-![StateCarry project view showing direction, current situation, and the next choice](docs/images/readme/0.1.8/statecarry-current-decision.png)
+![StateCarry project view showing direction, current situation, and next choice](docs/images/readme/0.1.8/statecarry-current-decision.png)
 
-### Check the current project context
+### Check current project context
 
 ![StateCarry project context showing changed Git working tree and other recorded work](docs/images/readme/0.1.8/statecarry-project-context.png)
 
@@ -60,25 +56,39 @@ StateCarry runs locally on your Mac. It does not execute the next action or send
 
 </details>
 
-## Download
+## Design decisions you can inspect
 
-Download the latest signed and notarized public beta for Apple Silicon macOS:
+| Decision | Why it matters | Public evidence |
+| --- | --- | --- |
+| Share the React UI and HTTP/SSE contract between source runs and the Electrobun desktop host. Keep presentation, core rules, contracts, and server adapters separate. | Desktop lifecycle and native capabilities can change without moving product rules into the native shell. | [Architecture](docs/architecture.md) · [Dependency boundary check](https://github.com/ThreeLightStudio/statecarry/blob/e793596d99cfcf253caf313f23f407cc43e16057/scripts/check-boundaries.ts) |
+| Keep model reports, check evidence, and user acceptance separate. | A plausible result or passing check cannot choose your priority or accept work for you. | [Behavior contract](docs/product-behavior-contract.md) · [Decision implementation](https://github.com/ThreeLightStudio/statecarry/blob/e793596d99cfcf253caf313f23f407cc43e16057/packages/core/src/project-model.ts) · [Acceptance fixtures](https://github.com/ThreeLightStudio/statecarry/blob/e793596d99cfcf253caf313f23f407cc43e16057/tests/project-workspace-core.test.ts) |
+| Separate production and development profiles, with loopback services and a writer lock. | Working on StateCarry should not open production records or attach to an unrelated running instance. | [Runtime isolation](docs/runtime-isolation.md) · [Isolation fixtures](https://github.com/ThreeLightStudio/statecarry/blob/e793596d99cfcf253caf313f23f407cc43e16057/tests/runtime-isolation.test.ts) |
 
-**[Download StateCarry Public Beta](https://github.com/ThreeLightStudio/statecarry/releases/latest/download/macos-arm64-StateCarry.dmg)**
+The behavior contract describes intended rules; implementation and fixtures show the covered cases. Automated checks do not establish human comprehension or successful return to real work.
 
-Install the app from the DMG into Applications and launch StateCarry from Finder. Stable desktop builds are Developer ID signed, Apple notarized, and checked by Gatekeeper before publication. They also check for newer releases automatically; downloading an available update and restarting to apply it remain explicit actions. See [desktop automatic updates](docs/auto-update.md) for the update flow and [desktop release](docs/desktop-release.md) for release verification details.
+## Download and source status
+
+**[Download StateCarry Public Beta for Apple Silicon macOS](https://github.com/ThreeLightStudio/statecarry/releases/latest/download/macos-arm64-StateCarry.dmg)**
+
+Copy the app from the DMG into Applications and launch it from Finder. The [desktop release procedure](docs/desktop-release.md) covers signing, notarization, and Gatekeeper checks. Downloading an update and restarting to apply it are explicit actions; see [desktop automatic updates](docs/auto-update.md).
+
+As of October 2, 2026, the latest published release is [v0.3.0](https://github.com/ThreeLightStudio/statecarry/releases/tag/v0.3.0), built from [`6204e71`](https://github.com/ThreeLightStudio/statecarry/commit/6204e719f6fd8ae345674449863da9059fce522b). The source evidence linked here uses later main revision [`e793596`](https://github.com/ThreeLightStudio/statecarry/commit/e793596d99cfcf253caf313f23f407cc43e16057); it does not establish that every later source behavior is in the downloadable binary. [Verify succeeded at that source revision](https://github.com/ThreeLightStudio/statecarry/actions/runs/36766925419). Release delivery, automated checks, and real-work acceptance are separate evidence.
+
+## First use
+
+1. Choose **Add a project**, select its local folder, and give it a recognizable name. StateCarry checks project files and Git, looks for related Codex conversations, and requests an initial overview. Conversations are optional.
+2. Review selected conversations and source scope in **Project settings**. On **Home**, explicitly choose up to three projects to keep in focus; recent activity does not automatically set priority.
+3. Read **Direction** and **Current decision**, including **Your next choice**, its reason, and its finish condition when available. Open the working conversation when supported, or copy a handoff. Opening or copying does not perform the work.
+4. Use **Context** and **What is this based on?** when changed files or source evidence could alter the decision. Review returned results before accepting them; edit, pause, or set aside an incorrect suggestion.
+5. Choose **Update overview** for fresh model analysis. Returning to the app reads saved state and checks project files without starting AI analysis.
+
+See the [return content contract](docs/return-content-contract.md) and [implementation milestones](docs/project-ui-implementation.md) for the detailed flow, draft recovery, stale evidence, and remaining acceptance work.
 
 ## Run from source
 
-Read [the architecture overview](docs/architecture.md) for the current runtime structure and [the Electrobun technology decision](docs/decisions/0001-electrobun.md) for the desktop-host choice.
+Requirements: Apple Silicon macOS, Node **24.14.1+**, pnpm **10.33.2**, [Codex CLI](https://developers.openai.com/codex/cli/) and [Codex desktop](https://developers.openai.com/codex/app/) installed and signed in. The documented development CLI is 0.152.0; other OS/CLI combinations are unverified.
 
-Requirements: Apple Silicon macOS, Node **24.14.1+**, pnpm **10.33.2**, Codex CLI and desktop installed and signed in. Development used Codex CLI 0.152.0. Other OS/CLI combinations are unverified.
-
-- [Node](https://nodejs.org/en/download)
-- [Codex CLI](https://developers.openai.com/codex/cli/)
-- [Codex desktop](https://developers.openai.com/codex/app/)
-
-Open a terminal in the source folder, then:
+Before using an updated build with existing project data, read the [beta data-reset notice](docs/project-data-reset.md).
 
 ```sh
 pnpm install --frozen-lockfile
@@ -86,106 +96,28 @@ pnpm build
 node dist/server.mjs
 ```
 
-Open the local URL printed by the server. Production servers receive an available port automatically. Keep the terminal running; Ctrl+C stops it. A prepared `dist/` can run without pnpm or the source, but still needs Node, Codex, and your login. Run it from the folder containing `dist/`.
-
-An agent can install dependencies, build, and diagnose startup. Sign in yourself (`codex login` if needed); never share credentials. No separate API key is required. Model access and usage limits belong to your Codex account; there is no automatic model fallback.
-
-## First use
-
-1. Choose **Add a project** and select the local folder you work in. Add a recognizable name and optional purpose or goal. StateCarry checks project files and Git, looks for related Codex conversations, and requests the first overview automatically. Codex conversations are optional; a project can still be added when none are found or discovery fails.
-2. Review or change the conversations StateCarry found through **Project settings** when needed. Exact record boundaries remain an advanced source-setting action, and existing ranges remain until you change them.
-3. On **Home**, keep up to three projects in focus and choose where to return. Open **Projects** to browse the full active list or change which projects stay in focus. Focus is an explicit choice; recent activity does not automatically establish priority.
-4. In the project, read its **Direction** and **Current decision**. The decision shows the current situation, **Your next choice**, why it matters, and the finish condition when one is available. Continue in the working conversation when the recorded route is supported, or copy the task context to your working tool. Neither action performs the work. Review returned results before accepting them; pause or correct a suggestion when appropriate.
-5. Use **Context** when current project state could change that decision. A changed Git working tree is summarized separately, including its changed-file count and any reconstructed work groups. You can inspect the changed files or copy a handoff for a new Codex session; copying the handoff does not modify project files or start work. **Other work** keeps the remaining recorded tasks available without competing with the current decision.
-6. StateCarry checks current project state when you return to the app. Choose **Update overview** when you want a fresh model-generated overview after the project changes. Editing a direction saves that direction and can make a previous overview out of date.
-
-Returning reads the saved project state. New records or changed project conditions can mark it as needing review. Preparation performs a fresh collection and bounded analysis. A missing or failed overview shows the available context and a recovery choice instead of exposing a raw response. Opening **What is this based on?** explains the available basis and its limits. **Inspect original records** deliberately opens source material separately.
-
-Routine collection checks are quiet when their result is unchanged. Actual record changes are grouped into a background read; the current explanation and unfinished input stay in place, and only the affected project's actions wait for that check. Returning to the app reads the latest saved state and checks project files without starting AI analysis. File-only changes are checked on those reads, navigation and continuation preparation; this is not a continuous file watcher.
-
-For first-time navigation setup, run the following command in an interactive terminal, replacing `YOUR_THREAD_ID` with a conversation you intend to open:
-
-```sh
-node dist/verify-connection.mjs --verify-navigation YOUR_THREAD_ID
-```
-
-The helper opens that conversation and asks you to inspect its title and content before recording confirmation. An accepted OS request alone is not proof of arrival. Existing navigation evidence is preserved. This diagnostic is optional for source checks and is not run by the automated tests.
-
-| State             | What you see                                                     |
-| ----------------- | ---------------------------------------------------------------- |
-| Ready to continue | A next step, its reason and its finish condition                 |
-| Result to review  | A reported result awaiting your evaluation and acceptance        |
-| Waiting for input | The missing input or condition for resuming                      |
-| Paused            | Work you deliberately deferred, with a way to restore it         |
-| Decision needed   | What remains unclear; no invented executable next step           |
-| Accepted          | The task you accepted; a successor objective is not manufactured |
-
-You can edit the next step and finish condition, accept a reviewed task, pause it, or set a wrong suggestion aside. Corrections persist within their applicable record scope. Reopening a task reverses the corresponding choice; it does not rewrite the original record. Other tasks remain reachable within the same project.
-
-Goal and next-step drafts, task selection, explanation-panel choices and reading position are stored in this browser per work. Returning from another screen or restarting keeps these drafts and their original versions. Review a draft against the current work before explicitly adopting a newer version for its save. A missing server task cannot be revived by local input. After a successful full project list, drafts belonging to removed registrations are cleared; disconnected registrations keep theirs. Storage failures are shown; clearing site data removes browser drafts, not saved server records. Unsaved registration and project-settings forms are separate from these work drafts.
-
-**Project settings** separates purpose/focus, source scope, collection and saved-data removal. Disconnecting retains the same registration and its saved work. Reconnecting resumes that same project without creating a replacement or starting analysis. A separate removal preview describes which database records and exclusive source copies will be removed, which shared copies remain, and whether pending work prevents removal. Deleting project data is not reversible through reconnecting. Original folders/conversations, request receipts, separate diagnostic files and backups are retained; this is not secure physical erasure of every copy.
-
-## Scope and data
-
-StateCarry analyzes connected records, not every record on your device. Related sessions may form one candidate; unrelated goals may produce separate candidates. Analysis includes selected conversation excerpts, bounded observations and previews of project files, and workspace state. The excerpt budget is not a bound on the entire model request. Missing history is not proof of completion. Candidate ranking is a suggestion, not knowledge of your current priority.
-
-Production storage remains `~/.statecarry`; development uses `~/.statecarry-dev`. These contain private records, analysis output, and corrections. Only one server can write to each data directory. Development never opens the production directory, including through a symlink. Production ignores development port and data-directory environment variables.
-
-Run `pnpm dev` for the development web app at `http://127.0.0.1:4311`, or `pnpm desktop:dev` for **StateCarry Dev**. Both use the development API on port 4310; run one development server at a time. They can run alongside the installed product. Development-only overrides are available for isolated source runs:
-
-```sh
-env STATECARRY_DATA_DIR=/absolute/path/to/private-dev-data STATECARRY_PORT=4397 pnpm exec tsx apps/server/src/index.ts
-```
-
-See [runtime isolation](docs/runtime-isolation.md) for the server, profile, browser-state, and build boundaries.
-
-The server binds to `127.0.0.1` and rejects unexpected Host/Origin headers. Do not expose it through public hosting or a tunnel. The public desktop release runs the same local service boundary inside the signed Apple Silicon application.
-
-The isolated model reader disables execution tools. Original records remain untrusted evidence. Exact quote validation checks source references; it does not guarantee the model's interpretation is correct. Use correction when the suggested work or action is wrong.
-
-The production entry now uses the Home/Project flow. Old Resume/work/detail bookmarks resolve to the corresponding project instead of opening the competing legacy UI. Historical UI modules and their regressions remain in source, but are not reachable through the new production entry. Legacy long-form background analysis remains disabled by default. `STATECARRY_LEGACY_ANALYSIS=1` still enables that older processing path and is unnecessary for this flow.
-
-## Troubleshooting
-
-- **Port already in use:** stop the existing server in its terminal or choose another port. Do not delete its database.
-- **Records missing / partially collected:** check CLI login, selected session IDs and turn boundaries in connection settings. No action is shown when collection fails. Compressed or partial records are identified before acting.
-- **Analysis failed:** check the visible error, account limits and configured model access, then retry. Existing records and corrections are retained.
-- **App link does not open:** install/open Codex desktop, permit your browser's external-app link, or use the displayed session ID manually.
-- **Unexpected task:** edit the next step or set the suggestion aside. A recent conversation is not necessarily the work you intend to continue.
-
-## Development and release checks
+Open the loopback URL printed by the server and keep the terminal running. The built server uses the production profile. For an isolated development profile, use `pnpm dev` (web UI at `http://127.0.0.1:4311`) or `pnpm desktop:dev`; both use the development API on port 4310. Run one development server at a time. See [development](docs/development.md) for focused checks, executable discovery, and diagnostics.
 
 ```sh
 pnpm verify
 ```
 
-`verify` uses the repository's local Turborepo cache for deterministic checks and the production
-build. Use `pnpm verify:fresh` when release evidence must execute those tasks instead of reading
-prior cache entries. See [development](docs/development.md) for focused tests, the workspace layout,
-cache boundaries, contribution guidance and diagnostics. The current signed/notarized macOS release
-procedure is in [desktop release](docs/desktop-release.md), and the in-app stable updater contract is
-in [desktop automatic updates](docs/auto-update.md).
+`verify` can use the local Turborepo cache; `pnpm verify:fresh` executes the checks again for fresh evidence.
 
-## Known limitations
+## Analysis and data boundaries
 
-The owner approved the Home/Project replacement after reporting unclear flow and early raw-data exposure in the earlier UI. The new flow and scoped database removal are undergoing the checks recorded in the [implementation milestones](docs/project-ui-implementation.md). Passing automated checks and inspecting synthetic browser cases do not establish human comprehension, correct real model output, or a complete later work return.
+- **Provider selection:** the current main source reads the configured analysis agent on each call. Codex uses your signed-in account; OpenRouter requires your own API key. If a Codex error is classified as usage exhaustion and an OpenRouter key is available in settings or `OPENROUTER_API_KEY`, the whole analysis call is retried on OpenRouter. Subsequent calls use OpenRouter during the exhaustion window, then probe Codex again. Other Codex errors are propagated. This provider handoff is separate from silently substituting a model or effort inside Codex, which the Codex adapter rejects. See [provider implementation](https://github.com/ThreeLightStudio/statecarry/blob/e793596d99cfcf253caf313f23f407cc43e16057/apps/server/src/adapters/agent-summary.ts), [handoff fixtures](https://github.com/ThreeLightStudio/statecarry/blob/e793596d99cfcf253caf313f23f407cc43e16057/tests/agent-summary-failover.test.ts), and [Codex settings checks](https://github.com/ThreeLightStudio/statecarry/blob/e793596d99cfcf253caf313f23f407cc43e16057/apps/server/src/adapters/codex-summary.ts). Session collection and navigation remain Codex-based.
+- **Scope:** analysis uses connected records and bounded project observations. Missing history is not proof of completion; the excerpt budget does not bound the entire model request. Original records are untrusted evidence. Quote/reference validation does not guarantee the interpretation is correct.
+- **Persistence:** production records use `~/.statecarry`; development uses `~/.statecarry-dev`. Drafts and reading preferences are separate from server evidence and permissions. They are not synchronized between devices. See [runtime isolation](docs/runtime-isolation.md).
+- **Local service:** the server binds to `127.0.0.1` and rejects unexpected Host/Origin headers. Keep it off public hosting and tunnels. Account credentials, private records, and `.cache/` observations stay outside shared source and builds.
+- **Removal:** disconnecting retains the registration and saved work. A separate removal preview identifies affected records and source copies; reconnecting does not undo deletion. Original folders/conversations and separate receipts, diagnostics, or backups are retained. See [scoped removal implementation](https://github.com/ThreeLightStudio/statecarry/blob/e793596d99cfcf253caf313f23f407cc43e16057/packages/core/src/project-deletion.ts).
 
-Goal and correction drafts are local to the same browser profile and origin (including port); they are not synchronized between devices. A server disconnection keeps the already-loaded brief available for review in the current tab, while actions requiring current records remain blocked. Reconnection reloads saved results without starting analysis. Only drafts and reading preferences are written to browser storage, not server evidence or action permissions. After a completely new tab or browser process starts offline, the server must return before its saved brief can be read again.
+## Limits and further reading
 
-Project explanations reuse validated structured current-state and reason fields, with prepared messages for known missing/failed states. Generation instructions require understandable project-specific prose, but do not independently verify the model's interpretation. Existing registrations retain their identities; registrations in the same folder are not automatically merged. Actual Codex arrival, real explanation quality and human work-return acceptance remain in the [roadmap](docs/roadmap.md).
+The beta does not promise automatic task execution, full project management, or environment restoration. Browser drafts depend on their profile and origin; a new offline tab needs the server before it can read the saved brief. File observations are bounded samples, not continuous monitoring of every file. A failed or stale basis can block an action while retained context remains readable.
 
-Changing the goal or record scope hides the previous candidate until the selected records are checked. A temporary read failure can retain a same-scope brief with accessible supporting evidence, but its action remains blocked. An unchanged bounded file sample is shown as a limitation without forcing another identical analysis; it is not proof that every project file was checked.
-
-The primary v0 scope excludes automatic task execution, full project management, new provider integrations and environment restoration. Stable application updates are supported on the current Apple Silicon desktop release. Existing auxiliary context screens are subject to a keep/move/remove review in the redesign; they are not a permanent requirement. Public desktop delivery and completed real-work validation remain separate kinds of evidence. Keep private `.cache/` observations out of shared source and builds.
+Actual arrival in the intended Codex conversation, real model explanation quality, and human work-return acceptance remain separate checks in the [roadmap](docs/roadmap.md) and [implementation milestones](docs/project-ui-implementation.md). The optional navigation diagnostic requires you to inspect the destination; an accepted OS request alone is not proof of arrival. See [development](docs/development.md) for troubleshooting and [public source release preparation](docs/public-release.md) for publication boundaries.
 
 ## License
 
-StateCarry is licensed under the [MIT License](LICENSE).
-
-Copyright (c) 2026 ThreeLight Studio.
-
-Third-party components retain their own licenses and attribution requirements. Workspace packages remain `private: true` to prevent accidental npm publication.
-
-See [public source release preparation](docs/public-release.md) for the confirmed settings and publication checks, and
-[third-party attribution](docs/third-party.md) for the reviewed dependency notices and binary-release limits.
+[MIT](LICENSE) · Copyright (c) 2026 ThreeLight Studio. Workspace packages remain `private: true` to prevent accidental npm publication. Third-party components retain their licenses; see [third-party attribution](docs/third-party.md).
